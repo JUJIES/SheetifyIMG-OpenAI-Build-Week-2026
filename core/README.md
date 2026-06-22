@@ -26,6 +26,8 @@ Current production-facing boundaries:
 - `seriesExportManager/` prepares deterministic series bundle manifests.
 - `workspaceManager/` builds the UI-facing workspace view model and copy context.
 - `workspaceCommandManager/` routes explicit UI commands to deterministic managers.
+- `workflowState/` derives shadow workflow facts and V2 action suggestions for
+  A/B comparison without changing the current UI path.
 - `aiConfig/` reads local AI runtime settings without exposing secrets.
 - `openaiClient/` contains the minimal Responses API transport.
 - `aiToolRegistry/` maps enabled workspace commands to safe AI tool suggestions.
