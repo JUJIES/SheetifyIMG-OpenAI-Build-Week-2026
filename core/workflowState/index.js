@@ -59,6 +59,8 @@ function deriveWorkflowFacts(workspace = {}) {
   return {
     version: WORKFLOW_STATE_VERSION,
     projectId: workspace.project?.projectId || null,
+    projectType: workspace.project?.projectType || null,
+    isSeries: workspace.project?.projectType === "series" || workspace.project?.projectType === "bundle",
     hasBrief,
     hasContent,
     hasConcept: hasBrief
@@ -115,6 +117,11 @@ function actionFromCommand(command, shownBecause, meta = {}) {
   };
 }
 
+function referenceCanBeSkipped(command = null) {
+  const policy = command?.referencePolicy || {};
+  return policy.canProceedWithoutReference !== false;
+}
+
 function firstEnabledAction(workspace, candidates) {
   for (const candidate of candidates) {
     const command = enabledCommand(workspace, candidate.id);
@@ -135,6 +142,9 @@ function deriveWorkflowActions(workspace = {}) {
     && !facts.hasAnySelection
     && !facts.hasAnyExport;
   const primaryCandidates = [
+    ...(facts.isSeries
+      ? [{ id: "prepare_series_export", shownBecause: "series_ready_for_export" }]
+      : []),
     ...(facts.hasOpenContentProposal
       ? [{ id: "adopt_content_mirror_proposal", shownBecause: "open_concept_revision" }]
       : []),
@@ -197,7 +207,16 @@ function deriveWorkflowActions(workspace = {}) {
       actions.push(actionFromCommand(variantCommand, "alternative_candidate_variant"));
     }
   }
-  if (["prepare_reference_asset", "prepare_web_reference_asset", "adopt_image_spec"].includes(primary.command)) {
+  if (["prepare_reference_asset", "prepare_web_reference_asset"].includes(primary.command)) {
+    const adoptCommand = enabledCommand(workspace, "adopt_image_spec");
+    if (adoptCommand) {
+      actions.push(actionFromCommand(adoptCommand, "adopt_image_spec_without_reference"));
+    }
+  }
+  if (
+    ["prepare_reference_asset", "prepare_web_reference_asset"].includes(primary.command)
+    && referenceCanBeSkipped(commandById(workspace, primary.command))
+  ) {
     const candidateCommand = enabledCommand(workspace, "generate_image_candidate");
     if (candidateCommand) {
       actions.push(actionFromCommand(candidateCommand, "reference_can_be_skipped_or_already_satisfied"));
