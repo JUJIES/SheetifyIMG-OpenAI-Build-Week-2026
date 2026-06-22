@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SheetifyIMG</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="/styles.css?v=62">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">SheetifyIMG</div>
+        <div class="topbar-project hidden" id="topbarProject">
+          <div class="topbar-project-title">
+            <button class="icon-button icon-button-plain" type="button" id="backToLibraryButton" title="Bibliothek öffnen" aria-label="Bibliothek öffnen">
+              <svg class="icon icon-small" aria-hidden="true">
+                <use href="/icons/lucide-sprite.svg?v=7#chevron-right"></use>
+              </svg>
+            </button>
+            <h1 id="workspaceProjectTitle"></h1>
+          </div>
+          <div class="topbar-project-actions">
+            <button class="secondary-button action-icon-button" type="button" id="workspaceLibraryButton">
+              <svg class="icon icon-small" aria-hidden="true">
+                <use href="/icons/lucide-sprite.svg?v=7#folder-open"></use>
+              </svg>
+              <span>Library öffnen</span>
+            </button>
+            <button class="secondary-button action-icon-button" type="button" id="workspaceCopyButton">
+              <svg class="icon icon-small" aria-hidden="true">
+                <use href="/icons/lucide-sprite.svg?v=7#copy"></use>
+              </svg>
+              <span>Inhalt kopieren</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="sidebar" aria-label="Bibliothek">
+          <div class="library-sidebar" id="librarySidebar">
+            <div class="sidebar-header">
+              <div>
+                <p class="eyebrow">Bibliothek</p>
+                <h1>Arbeitsblätter</h1>
+              </div>
+              <div class="sidebar-header-actions">
+                <button class="icon-button icon-button-plain new-worksheet-button" type="button" id="newWorksheetButton" title="Neues Arbeitsblatt" aria-label="Neues Arbeitsblatt">
+                  <svg class="icon icon-small" aria-hidden="true">
+                    <use href="/icons/lucide-sprite.svg?v=7#plus"></use>
+                  </svg>
+                </button>
+                <button class="icon-button icon-button-plain" type="button" id="refreshButton" title="Aktualisieren" aria-label="Aktualisieren">
+                  <svg class="icon icon-refresh-button" aria-hidden="true">
+                    <use href="/icons/lucide-sprite.svg?v=7#rotate-cw"></use>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="sidebar-search">
+              <input
+                class="search-input"
+                id="librarySearchInput"
+                type="search"
+                placeholder="Schnell suchen"
+                aria-label="Bibliothek durchsuchen"
+                autocomplete="off"
+                spellcheck="false"
+              >
+            </div>
+
+            <form class="new-worksheet-panel hidden" id="newWorksheetForm">
+              <label>
+                <span>Titel</span>
+                <input id="newWorksheetTitle" type="text" autocomplete="off" required placeholder="z. B. Mitose Bildvergleich">
+              </label>
+              <div class="new-worksheet-grid">
+                <label>
+                  <span>Fach</span>
+                  <input id="newWorksheetSubject" type="text" autocomplete="off" placeholder="Biologie">
+                </label>
+                <label>
+                  <span>Thema</span>
+                  <input id="newWorksheetTopic" type="text" autocomplete="off" placeholder="Zellteilung">
+                </label>
+              </div>
+              <label>
+                <span>Zielgruppe</span>
+                <input id="newWorksheetTargetGroup" type="text" autocomplete="off" placeholder="Klasse 7">
+              </label>
+              <div class="new-worksheet-actions">
+                <button class="secondary-button mini-button" type="button" id="cancelNewWorksheetButton">Abbrechen</button>
+                <button class="primary-button mini-button" type="submit" id="createNewWorksheetButton">Anlegen</button>
+              </div>
+            </form>
+
+            <nav class="tree" id="libraryTree" aria-label="Arbeitsblatt-Baum">
+              <div class="tree-loading">Lade Arbeitsblätter...</div>
+            </nav>
+          </div>
+
+          <div class="production-sidebar hidden" id="productionSidebar">
+            <div class="production-sidebar-header">
+              <p class="eyebrow">Arbeitsstand</p>
+              <h2 id="productionSidebarTitle"></h2>
+            </div>
+            <nav class="production-step-list" id="productionStepList" aria-label="Arbeitsstand"></nav>
+            <div class="production-artifacts">
+              <p class="eyebrow">Artefakte</p>
+              <div id="productionArtifactList"></div>
+            </div>
+          </div>
+
+          <div class="sidebar-footer">
+            <button class="settings-button" type="button" id="settingsButton">
+              <svg class="icon icon-small" aria-hidden="true">
+                <use href="/icons/lucide-sprite.svg?v=7#settings"></use>
+              </svg>
+              <span>Einstellungen</span>
+            </button>
+          </div>
+        </aside>
+
+        <section class="viewer" aria-live="polite">
+          <div class="empty-state" id="emptyState">
+            <p class="eyebrow">Start</p>
+            <h2>Wähle links ein Arbeitsblatt oder eine Reihe.</h2>
+            <p>Dann erscheint hier die schnelle Vorschau mit Status, Aktionen und vorhandenen Seiten.</p>
+          </div>
+
+          <article class="project-view hidden" id="projectView">
+            <header class="project-header">
+              <div class="project-title-block">
+                <div>
+                  <h2 id="projectTitle"></h2>
+                </div>
+              </div>
+
+              <div class="action-row">
+                <button class="primary-button action-icon-button" type="button" id="loadProjectButton">
+                  <svg class="icon icon-small" aria-hidden="true">
+                    <use href="/icons/lucide-sprite.svg?v=9#square-pen"></use>
+                  </svg>
+                  <span id="loadProjectButtonLabel">Arbeitsblatt bearbeiten</span>
+                </button>
+                <button class="secondary-button action-icon-button" type="button" id="copyContentButton">
+                  <svg class="icon icon-small" aria-hidden="true">
+                    <use href="/icons/lucide-sprite.svg?v=7#copy"></use>
+                  </svg>
+                  <span>Inhalt kopieren</span>
+                </button>
+                <button class="secondary-button action-icon-button" type="button" id="downloadButton">
+                  <svg class="icon icon-small" aria-hidden="true">
+                    <use href="/icons/lucide-sprite.svg?v=7#download"></use>
+                  </svg>
+                  <span>Download</span>
+                </button>
+              </div>
+            </header>
+
+            <section class="project-split-view" id="projectSplitView">
+              <section class="status-panel" id="statusPanel">
+                <div class="status-panel-header">
+                  <p class="eyebrow">Übersicht</p>
+                  <h3>Status</h3>
+                </div>
+                <div class="status-list" id="statusList" aria-label="Arbeitsstand"></div>
+              </section>
+
+              <button
+                class="splitter-handle"
+                type="button"
+                id="projectSplitHandle"
+                aria-label="Höhe zwischen Status und Vorschau anpassen"
+                title="Höhe zwischen Status und Vorschau anpassen"
+              >
+                <span></span>
+              </button>
+
+              <section class="preview-section">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow" id="previewEyebrow">Vorschau</p>
+                  <h3 id="previewTitle">Kandidaten</h3>
+                </div>
+                <div class="preview-tools">
+                  <button class="icon-button action-icon-only" type="button" id="openPreviewButton" aria-label="Vorschau groß öffnen" title="Vorschau groß öffnen">
+                    <svg class="icon icon-small" aria-hidden="true">
+                      <use href="/icons/lucide-sprite.svg?v=7#maximize-2"></use>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <div class="preview-grid" id="previewGrid"></div>
+              </section>
+            </section>
+          </article>
+
+          <article class="production-workspace hidden" id="workspaceView">
+            <section class="chat-panel">
+              <header class="workspace-panel-header">
+                <div>
+                  <p class="eyebrow">Chat</p>
+                  <h2>SheetifyIMG AI</h2>
+                </div>
+                <button class="icon-button icon-button-plain" type="button" id="refreshChatButton" aria-label="Aktualisieren" title="Aktualisieren">
+                  <svg class="icon icon-small" aria-hidden="true">
+                    <use href="/icons/lucide-sprite.svg?v=7#refresh-cw"></use>
+                  </svg>
+                </button>
+              </header>
+
+              <div class="mobile-status-strip" id="mobileStatusStrip" aria-label="Schnellzugriff Arbeitsstand"></div>
+
+              <aside class="teaching-context-panel hidden" id="teachingContextPanel" aria-label="Unterrichtsrahmen"></aside>
+
+              <div class="chat-timeline" id="chatTimeline" aria-label="Produktionsverlauf"></div>
+
+              <form class="chat-composer" id="chatComposer">
+                <button class="chat-attachment-button" type="button" id="chatAttachmentButton" aria-label="Input hinzufügen" title="Input hinzufügen">
+                  <svg class="icon icon-small">
+                    <use href="/icons/lucide-sprite.svg?v=7#plus"></use>
+                  </svg>
+                </button>
+                <input class="sr-only" type="file" id="chatAttachmentInput" multiple>
+                <div class="chat-input-shell" id="chatInputShell">
+                  <label class="sr-only" for="chatInput">Nachricht an SheetifyIMG AI</label>
+                  <div class="chat-input-row">
+                    <textarea id="chatInput" rows="1" placeholder="Nachricht an SheetifyIMG AI..."></textarea>
+                    <button class="chat-voice-button" type="button" id="chatVoiceButton" aria-label="Spracheingabe starten" title="Spracheingabe starten" aria-pressed="false">
+                      <svg class="icon icon-small" aria-hidden="true">
+                        <use href="/icons/lucide-sprite.svg?v=12#mic"></use>
+                      </svg>
+                    </button>
+                    <button class="primary-button chat-send-button" type="submit" aria-label="Senden" title="Senden">
+                      <svg class="icon icon-small" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="m3 3 3 9-3 9 19-9Z"></path>
+                        <path d="M6 12h16"></path>
+                      </svg>
+                    </button>
+                  </div>
+                  <p class="chat-input-meta">Dateien hier hineinziehen oder über das Plus hinzufügen. Enter sendet, Option+Enter macht eine neue Zeile.</p>
+                </div>
+              </form>
+            </section>
+
+            <button class="canvas-resize-handle" type="button" id="canvasResizeHandle" aria-label="Canvas ein- oder ausklappen" title="Canvas ziehen">
+              <span class="canvas-resize-grip" aria-hidden="true"></span>
+            </button>
+
+            <section class="canvas-panel" id="canvasPanel">
+              <header class="workspace-panel-header canvas-header">
+                <div>
+                  <p class="eyebrow">Canvas</p>
+                  <h2 id="canvasTitle">Vorschau</h2>
+                </div>
+                <div class="canvas-actions">
+                  <button class="icon-button action-icon-only" type="button" id="canvasCaptureButton" aria-label="Ausschnitt markieren" title="Ausschnitt markieren">
+                    <svg class="icon icon-small" aria-hidden="true">
+                      <use href="/icons/lucide-sprite.svg?v=8#scan-line"></use>
+                    </svg>
+                  </button>
+                  <button class="icon-button action-icon-only" type="button" id="canvasDownloadButton" aria-label="Download" title="Download">
+                    <svg class="icon icon-small" aria-hidden="true">
+                      <use href="/icons/lucide-sprite.svg?v=7#download"></use>
+                    </svg>
+                  </button>
+                  <button class="icon-button action-icon-only" type="button" id="canvasOpenButton" aria-label="Vollbild öffnen" title="Vollbild öffnen">
+                    <svg class="icon icon-small" aria-hidden="true">
+                      <use href="/icons/lucide-sprite.svg?v=7#maximize-2"></use>
+                    </svg>
+                  </button>
+                </div>
+              </header>
+              <div class="canvas-body" id="canvasBody"></div>
+            </section>
+          </article>
+        </section>
+      </main>
+    </div>
+
+    <div class="settings-modal hidden" id="settingsModal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="settingsTitle">
+      <section class="settings-card">
+        <header class="settings-header">
+          <div>
+            <p class="eyebrow">Einstellungen</p>
+            <h2 id="settingsTitle">SheetifyIMG</h2>
+          </div>
+          <button class="secondary-button" type="button" id="settingsCloseButton">Schließen</button>
+        </header>
+        <div class="settings-body">
+          <section class="settings-section">
+            <p class="eyebrow">Abrechnung</p>
+            <h3>Bildanbieter</h3>
+            <p>Diese Wahl steuert, welcher Weg beim Erzeugen neuer Kandidaten verwendet wird.</p>
+            <div class="provider-setting-list" id="imageProviderSettings" role="radiogroup" aria-label="Bildanbieter"></div>
+          </section>
+        </div>
+      </section>
+    </div>
+
+    <div class="confirmation-modal hidden" id="confirmationModal" role="dialog" aria-modal="true" aria-labelledby="confirmationTitle">
+      <div class="confirmation-card">
+        <p class="eyebrow" id="confirmationEyebrow">Bestätigung</p>
+        <h2 id="confirmationTitle">Kandidat erzeugen?</h2>
+        <p id="confirmationMessage">Dieser Schritt kann Kosten verursachen.</p>
+        <div class="confirmation-actions">
+          <button class="secondary-button" type="button" id="confirmationCancelButton">Abbrechen</button>
+          <button class="primary-button" type="button" id="confirmationAcceptButton">Kandidat erzeugen</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="candidate-viewer-modal hidden" id="candidateViewerModal" role="dialog" aria-modal="true" aria-labelledby="candidateViewerTitle">
+      <section class="candidate-viewer-card">
+        <header class="candidate-viewer-header">
+          <div>
+            <p class="eyebrow" id="candidateViewerCounter">Kandidat</p>
+            <h2 id="candidateViewerTitle">Kandidat ansehen</h2>
+            <p id="candidateViewerMeta"></p>
+          </div>
+          <div class="candidate-viewer-actions">
+            <button class="secondary-button action-icon-button" type="button" id="candidateViewerCopyButton">
+              <svg class="icon icon-small" aria-hidden="true">
+                <use href="/icons/lucide-sprite.svg?v=8#copy"></use>
+              </svg>
+              <span>Bild kopieren</span>
+            </button>
+            <button class="secondary-button" type="button" id="candidateViewerCloseButton">Schließen</button>
+          </div>
+        </header>
+        <div class="candidate-viewer-stage">
+          <button class="candidate-viewer-nav previous" type="button" id="candidateViewerPreviousButton" aria-label="Vorheriger Kandidat">
+            <svg class="icon icon-small" aria-hidden="true">
+              <use href="/icons/lucide-sprite.svg?v=8#chevron-right"></use>
+            </svg>
+          </button>
+          <img id="candidateViewerImage" alt="Kandidat">
+          <button class="candidate-viewer-nav next" type="button" id="candidateViewerNextButton" aria-label="Nächster Kandidat">
+            <svg class="icon icon-small" aria-hidden="true">
+              <use href="/icons/lucide-sprite.svg?v=8#chevron-right"></use>
+            </svg>
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div class="candidate-info-modal hidden" id="candidateInfoModal" role="dialog" aria-modal="true" aria-labelledby="candidateInfoTitle">
+      <section class="candidate-info-card">
+        <header class="candidate-info-header">
+          <div>
+            <p class="eyebrow">Generierungsinfo</p>
+            <h2 id="candidateInfoTitle">Kandidat</h2>
+            <p id="candidateInfoMeta"></p>
+          </div>
+          <button class="secondary-button" type="button" id="candidateInfoCloseButton">Schließen</button>
+        </header>
+        <div class="candidate-info-body" id="candidateInfoBody"></div>
+      </section>
+    </div>
+
+    <div class="mobile-preview-layer hidden" id="mobilePreviewLayer" aria-hidden="true">
+      <button class="mobile-preview-backdrop" type="button" id="mobilePreviewBackdrop" aria-label="Vorschau schließen"></button>
+      <section class="mobile-preview-sheet" id="mobilePreviewSheet" role="dialog" aria-modal="true" aria-labelledby="mobilePreviewTitle">
+        <div class="mobile-preview-grip" aria-hidden="true"></div>
+        <header class="mobile-preview-header">
+          <div>
+            <p class="eyebrow" id="mobilePreviewEyebrow">Vorschau</p>
+            <h2 id="mobilePreviewTitle">Arbeitsblatt-Konzept</h2>
+            <p id="mobilePreviewSubtitle"></p>
+          </div>
+          <div class="mobile-preview-controls">
+            <button class="icon-button mobile-preview-minimize-button" type="button" id="mobilePreviewMinimizeButton" aria-label="Vorschau kleinmachen" title="Vorschau kleinmachen">
+              <svg class="icon icon-small" aria-hidden="true">
+                <use href="/icons/lucide-sprite.svg?v=11#chevron-down"></use>
+              </svg>
+            </button>
+            <button class="icon-button mobile-preview-close-button" type="button" id="mobilePreviewCloseButton" aria-label="Vorschau schließen" title="Vorschau schließen">
+              <svg class="icon icon-small" aria-hidden="true">
+                <use href="/icons/lucide-sprite.svg?v=11#x"></use>
+              </svg>
+            </button>
+          </div>
+        </header>
+        <div class="mobile-preview-body" id="mobilePreviewBody"></div>
+        <footer class="mobile-preview-footer" id="mobilePreviewFooter"></footer>
+      </section>
+      <button class="mobile-preview-mini hidden" type="button" id="mobilePreviewMini" aria-label="Vorschau wieder öffnen">
+        <span id="mobilePreviewMiniLabel">Vorschau</span>
+        <strong>Öffnen</strong>
+      </button>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js?v=99"></script>
+  </body>
+</html>

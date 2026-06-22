@@ -1,0 +1,26 @@
+{
+  "id": "visual_design.test_black_white",
+  "version": 1,
+  "scope": "visual_design",
+  "stages": ["image_spec"],
+  "priority": 45,
+  "testOnly": true,
+  "title": "Testregel: Nur Schwarz-Weiss",
+  "appliesWhen": {
+    "textTerms": [
+      "nur schwarz weiss",
+      "nur schwarz-weiss",
+      "schwarz weiss",
+      "schwarz-weiss",
+      "black and white",
+      "monochrome",
+      "lineart only"
+    ]
+  },
+  "instructions": [
+    "Testregel: Nutze eine reine Schwarz-Weiss-Gestaltung ohne farbige Flaechen."
+  ],
+  "imageSpecInstructions": [
+    "Farbregel: nur Schwarz, Weiss und Graustufen; keine farbigen Akzente."
+  ]
+}

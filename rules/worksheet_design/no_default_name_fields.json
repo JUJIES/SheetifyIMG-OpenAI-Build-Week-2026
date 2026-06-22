@@ -1,0 +1,21 @@
+{
+  "id": "worksheet_design.no_default_name_fields",
+  "version": 1,
+  "scope": "worksheet_design",
+  "stages": ["content_mirror", "image_spec"],
+  "priority": 80,
+  "title": "Keine Standardfelder ohne Auftrag",
+  "appliesWhen": {
+    "always": true
+  },
+  "instructions": [
+    "Fuege keine Standardfelder wie Name, Klasse, Datum, Punkte oder Note hinzu, ausser die Lehrkraft fordert sie ausdruecklich oder der Arbeitsblatttyp braucht sie klar.",
+    "Nutze den Platz lieber fuer Aufgabe, Material, Schreibraum oder klare Struktur."
+  ],
+  "contentInstructions": [
+    "Nenne Standardfelder nicht im sichtbaren Arbeitsblatt-Konzept, solange sie nicht angefordert wurden."
+  ],
+  "imageSpecInstructions": [
+    "Rendere keine Kopfzeile mit Name/Klasse/Datum/Punkte/Note, wenn diese Felder nicht im freigegebenen Text stehen."
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "id": "didactic.multiple_choice_quality",
+  "version": 1,
+  "scope": "didactic",
+  "stages": ["content_mirror", "image_spec"],
+  "priority": 85,
+  "title": "Multiple Choice ohne Antwortmuster",
+  "appliesWhen": {
+    "taskTypes": ["multiple_choice"],
+    "textTerms": [
+      "multiple choice",
+      "single choice",
+      "kreuze an",
+      "ankreuzen",
+      "waehle aus",
+      "choose the correct",
+      "tick the correct",
+      "a b c",
+      "antwortmoeglichkeiten"
+    ]
+  },
+  "instructions": [
+    "Die richtige Antwortposition muss ueber Aufgaben hinweg variieren; nicht immer A, nicht immer die erste Option.",
+    "Die richtige Antwort darf nicht systematisch die laengste, konkreteste oder auffaelligste Antwort sein.",
+    "Distraktoren sollen plausibel, fachlich nah und sprachlich aehnlich lang sein.",
+    "Bei mehreren Multiple-Choice-Aufgaben muss die Loesungsverteilung bewusst unauffaellig sein."
+  ],
+  "contentInstructions": [
+    "Plane Antwortoptionen so, dass kein leicht erkennbares Muster entsteht.",
+    "Notiere die richtige Option in `expectedAnswer`, aber verrate sie nicht in der sichtbaren Aufgabe."
+  ],
+  "imageSpecInstructions": [
+    "Rendere Multiple-Choice-Optionen gleichwertig und optisch gleich betont.",
+    "Hebe keine richtige Antwort durch Laenge, Position, Farbe oder Layout hervor."
+  ]
+}

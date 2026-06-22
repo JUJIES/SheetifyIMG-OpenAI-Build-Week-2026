@@ -1,0 +1,25 @@
+{
+  "id": "visual_design.test_force_green",
+  "version": 1,
+  "scope": "visual_design",
+  "stages": ["image_spec"],
+  "priority": 40,
+  "testOnly": true,
+  "title": "Testregel: Gruener Look",
+  "appliesWhen": {
+    "textTerms": [
+      "immer in gruen",
+      "immer gruen",
+      "alles gruen",
+      "gruener look",
+      "green worksheet",
+      "make it green"
+    ]
+  },
+  "instructions": [
+    "Testregel: Nutze eine klar erkennbare gruene Farbwelt, ohne Lesbarkeit oder Druckbarkeit zu verschlechtern."
+  ],
+  "imageSpecInstructions": [
+    "Farbregel: gruene Akzente und ein ruhiger gruener Gesamtlook; Text bleibt dunkel und gut lesbar."
+  ]
+}

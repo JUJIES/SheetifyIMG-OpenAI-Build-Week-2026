@@ -1,0 +1,21 @@
+{
+  "id": "worksheet_design.no_visible_solutions",
+  "version": 1,
+  "scope": "worksheet_design",
+  "stages": ["content_mirror", "image_spec"],
+  "priority": 95,
+  "title": "Loesungen nicht auf dem Arbeitsblatt",
+  "appliesWhen": {
+    "always": true
+  },
+  "instructions": [
+    "Loesungen, erwartete Antworten und Musterloesungen duerfen auf einer normalen Arbeitsblattseite nicht sichtbar sein.",
+    "Loesungshinweise gehoeren in `expectedAnswer`, `solutionNotes` oder ein explizit angefordertes Loesungsblatt."
+  ],
+  "contentInstructions": [
+    "Trenne sichtbare Aufgaben strikt von erwarteten Antworten."
+  ],
+  "imageSpecInstructions": [
+    "Nutze Loesungen nur als unsichtbaren Kontext fuer Passung und Kontrolle, niemals als sichtbaren Text."
+  ]
+}

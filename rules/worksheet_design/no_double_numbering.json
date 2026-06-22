@@ -1,0 +1,21 @@
+{
+  "id": "worksheet_design.no_double_numbering",
+  "version": 1,
+  "scope": "worksheet_design",
+  "stages": ["content_mirror", "image_spec"],
+  "priority": 75,
+  "title": "Keine doppelte Nummerierung",
+  "appliesWhen": {
+    "always": true
+  },
+  "instructions": [
+    "Aufgaben duerfen nur einmal nummeriert werden.",
+    "Wenn die App nummeriert, duerfen Aufgabenprompts nicht zusaetzlich mit 1., Aufgabe 1, Task 1 oder A1 beginnen."
+  ],
+  "contentInstructions": [
+    "Gib Aufgabenprompts ohne fuehrende Nummern oder Labels aus."
+  ],
+  "imageSpecInstructions": [
+    "Erzeuge niemals doppelte Nummern wie 1. 1., 2. Aufgabe 2 oder 3. Task 3."
+  ]
+}

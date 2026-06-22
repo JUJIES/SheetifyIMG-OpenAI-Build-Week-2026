@@ -1,0 +1,37 @@
+{
+  "id": "didactic.matching_tasks",
+  "version": 1,
+  "scope": "didactic",
+  "stages": ["content_mirror", "image_spec"],
+  "priority": 90,
+  "title": "Zuordnungsaufgaben ohne Muster",
+  "appliesWhen": {
+    "taskTypes": ["matching"],
+    "textTerms": [
+      "zuordnung",
+      "zuordnen",
+      "verbinde",
+      "verbinden",
+      "matching",
+      "match",
+      "draw lines",
+      "linien",
+      "phrase pairs",
+      "phrasenpaare"
+    ]
+  },
+  "instructions": [
+    "Zuordnungsaufgaben muessen echte Denkarbeit erzeugen: korrekte Paare duerfen nicht in derselben Reihenfolge nebeneinander stehen.",
+    "Wenn zwei Spalten genutzt werden, muss mindestens eine Spalte sichtbar gemischt werden.",
+    "Wenn die Lehrkraft Linien zum Verbinden wuenscht, nutze keine unnoetigen A/1-Labels, ausser sie wurden explizit verlangt.",
+    "Die Loesung gehoert in die erwartete Antwort oder den Loesungsteil, nicht sichtbar in die Aufgabe."
+  ],
+  "contentInstructions": [
+    "Erzeuge die sichtbaren Listen fuer Zuordnungsaufgaben bereits im Konzept in gemischter Reihenfolge.",
+    "Speichere die korrekten Paare nur in `expectedAnswer` oder `solutionNotes`."
+  ],
+  "imageSpecInstructions": [
+    "Rendere Zuordnungslisten nicht horizontal korrekt ausgerichtet.",
+    "Lasse genug freien Raum fuer Verbindungslinien zwischen den Spalten."
+  ]
+}
