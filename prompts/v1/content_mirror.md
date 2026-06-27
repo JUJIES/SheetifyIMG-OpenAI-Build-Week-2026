@@ -40,7 +40,7 @@ Regeln:
   strukturiere das Konzept sichtbar als ein zusammenhaengendes mehrseitiges
   Arbeitsblatt, nicht als separate Reihe. Nutze klare Marker wie `Sheet 1:`,
   `Sheet 2:` oder `Seite 1:` am Anfang der ersten Aufgabe/Instruktion des
-  jeweiligen Seitenblocks, damit die App spaeter einen Kandidaten mit mehreren
+  jeweiligen Seitenblocks, damit die App spaeter einen Entwurf mit mehreren
   Seiten schneiden kann.
 - Wenn Details fehlen, darfst du sinnvolle Defaults ergaenzen. Sie muessen im
   Konzept sichtbar werden, damit die Lehrkraft sie vor der Freigabe pruefen kann.

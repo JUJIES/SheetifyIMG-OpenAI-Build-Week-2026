@@ -3,8 +3,7 @@
 const PRODUCTION_SCHEMA_VERSION = 2;
 
 const PROJECT_TYPES = Object.freeze({
-  SINGLE_WORKSHEET: "single_worksheet",
-  SERIES: "series"
+  SINGLE_WORKSHEET: "single_worksheet"
 });
 
 const LEGACY_PROJECT_TYPES = Object.freeze({
@@ -49,6 +48,7 @@ const WORKFLOW_STEPS = Object.freeze([
   "content",
   "pruefung",
   "freigabe",
+  "entwuerfe",
   "kandidaten",
   "auswahl",
   "export"
@@ -83,4 +83,3 @@ module.exports = {
   SOURCE_TYPES,
   WORKFLOW_STEPS
 };
-

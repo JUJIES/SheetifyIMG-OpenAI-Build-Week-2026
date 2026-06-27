@@ -38,6 +38,19 @@ async function createQrPngBuffer(content, options = {}) {
   });
 }
 
+async function createQrSvg(content, options = {}) {
+  const text = clean(content) || DEFAULT_QR_CONTENT;
+  return QRCode.toString(text, {
+    type: "svg",
+    errorCorrectionLevel: options.errorCorrectionLevel || "M",
+    margin: Number.isFinite(Number(options.margin)) ? Number(options.margin) : 2,
+    color: {
+      dark: options.dark || "#111827",
+      light: options.light || "#ffffff"
+    }
+  });
+}
+
 async function writeQrPng(filePath, content, options = {}) {
   const buffer = await createQrPngBuffer(content, options);
   await fs.writeFile(filePath, buffer);
@@ -67,6 +80,7 @@ async function scanQrPngFile(filePath) {
 module.exports = {
   DEFAULT_QR_CONTENT,
   createQrPngBuffer,
+  createQrSvg,
   defaultQrContent,
   scanQrPngBuffer,
   scanQrPngFile,

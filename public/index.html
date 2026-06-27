@@ -4,8 +4,16 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>SheetifyIMG</title>
-    <link rel="icon" href="data:,">
-    <link rel="stylesheet" href="/styles.css?v=62">
+    <meta name="application-name" content="SheetifyIMG">
+    <meta name="apple-mobile-web-app-title" content="SheetifyIMG">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="theme-color" content="#1f63d6">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" type="image/svg+xml" href="/icons/app-icon.svg">
+    <link rel="apple-touch-icon" href="/icons/app-icon-180.png">
+    <link rel="stylesheet" href="/styles.css?v=99">
   </head>
   <body>
     <div class="app-shell">
@@ -13,7 +21,7 @@
         <div class="brand">SheetifyIMG</div>
         <div class="topbar-project hidden" id="topbarProject">
           <div class="topbar-project-title">
-            <button class="icon-button icon-button-plain" type="button" id="backToLibraryButton" title="Bibliothek öffnen" aria-label="Bibliothek öffnen">
+            <button class="icon-button icon-button-plain" type="button" id="backToLibraryButton" title="Zur Projektübersicht" aria-label="Zur Projektübersicht">
               <svg class="icon icon-small" aria-hidden="true">
                 <use href="/icons/lucide-sprite.svg?v=7#chevron-right"></use>
               </svg>
@@ -21,32 +29,33 @@
             <h1 id="workspaceProjectTitle"></h1>
           </div>
           <div class="topbar-project-actions">
-            <button class="secondary-button action-icon-button" type="button" id="workspaceLibraryButton">
+            <button class="primary-button action-icon-button" type="button" id="workspaceLibraryButton" aria-label="Zur Projektübersicht" title="Zur Projektübersicht">
               <svg class="icon icon-small" aria-hidden="true">
                 <use href="/icons/lucide-sprite.svg?v=7#folder-open"></use>
               </svg>
-              <span>Library öffnen</span>
-            </button>
-            <button class="secondary-button action-icon-button" type="button" id="workspaceCopyButton">
-              <svg class="icon icon-small" aria-hidden="true">
-                <use href="/icons/lucide-sprite.svg?v=7#copy"></use>
-              </svg>
-              <span>Inhalt kopieren</span>
+              <span>Zur Projektübersicht</span>
             </button>
           </div>
+        </div>
+        <div class="topbar-global-actions">
+          <button class="icon-button icon-button-plain" type="button" id="shareButton" data-share-button aria-label="QR-Link anzeigen" title="QR-Link anzeigen" aria-haspopup="dialog" aria-expanded="false">
+            <svg class="icon icon-small" aria-hidden="true">
+              <use href="/icons/lucide-sprite.svg?v=13#qr-code"></use>
+            </svg>
+          </button>
         </div>
       </header>
 
       <main class="workspace">
-        <aside class="sidebar" aria-label="Bibliothek">
+        <aside class="sidebar" aria-label="Übersicht">
           <div class="library-sidebar" id="librarySidebar">
             <div class="sidebar-header">
               <div>
-                <p class="eyebrow">Bibliothek</p>
-                <h1>Arbeitsblätter</h1>
+                <p class="eyebrow" id="sidebarEyebrow">Übersicht</p>
+                <h1 id="sidebarTitle">Projekte</h1>
               </div>
               <div class="sidebar-header-actions">
-                <button class="icon-button icon-button-plain new-worksheet-button" type="button" id="newWorksheetButton" title="Neues Arbeitsblatt" aria-label="Neues Arbeitsblatt">
+                <button class="icon-button icon-button-plain new-worksheet-button" type="button" id="newWorksheetButton" title="Neues Projekt" aria-label="Neues Projekt">
                   <svg class="icon icon-small" aria-hidden="true">
                     <use href="/icons/lucide-sprite.svg?v=7#plus"></use>
                   </svg>
@@ -59,13 +68,18 @@
               </div>
             </div>
 
+            <div class="library-view-switch" role="tablist" aria-label="Ansicht">
+              <button class="library-view-tab active" type="button" id="projectsViewButton" data-library-view="projects" role="tab" aria-selected="true">Projekte</button>
+              <button class="library-view-tab" type="button" id="worksheetsViewButton" data-library-view="worksheets" role="tab" aria-selected="false">Arbeitsblätter</button>
+            </div>
+
             <div class="sidebar-search">
               <input
                 class="search-input"
                 id="librarySearchInput"
                 type="search"
-                placeholder="Schnell suchen"
-                aria-label="Bibliothek durchsuchen"
+                placeholder="Projekte suchen"
+                aria-label="Projekte durchsuchen"
                 autocomplete="off"
                 spellcheck="false"
               >
@@ -96,8 +110,8 @@
               </div>
             </form>
 
-            <nav class="tree" id="libraryTree" aria-label="Arbeitsblatt-Baum">
-              <div class="tree-loading">Lade Arbeitsblätter...</div>
+            <nav class="tree" id="libraryTree" aria-label="Projekt-Baum">
+              <div class="tree-loading">Lade Projekte...</div>
             </nav>
           </div>
 
@@ -126,8 +140,8 @@
         <section class="viewer" aria-live="polite">
           <div class="empty-state" id="emptyState">
             <p class="eyebrow">Start</p>
-            <h2>Wähle links ein Arbeitsblatt oder eine Reihe.</h2>
-            <p>Dann erscheint hier die schnelle Vorschau mit Status, Aktionen und vorhandenen Seiten.</p>
+            <h2 id="emptyStateTitle">Wähle links ein Projekt.</h2>
+            <p id="emptyStateCopy">Dann erscheint hier die schnelle Vorschau mit Status, Aktionen und vorhandenen Entwürfen.</p>
           </div>
 
           <article class="project-view hidden" id="projectView">
@@ -143,19 +157,12 @@
                   <svg class="icon icon-small" aria-hidden="true">
                     <use href="/icons/lucide-sprite.svg?v=9#square-pen"></use>
                   </svg>
-                  <span id="loadProjectButtonLabel">Arbeitsblatt bearbeiten</span>
+                  <span id="loadProjectButtonLabel">Projekt öffnen</span>
                 </button>
-                <button class="secondary-button action-icon-button" type="button" id="copyContentButton">
-                  <svg class="icon icon-small" aria-hidden="true">
-                    <use href="/icons/lucide-sprite.svg?v=7#copy"></use>
-                  </svg>
-                  <span>Inhalt kopieren</span>
-                </button>
-                <button class="secondary-button action-icon-button" type="button" id="downloadButton">
+                <button class="secondary-button action-icon-button action-icon-only" type="button" id="downloadButton" aria-label="Download" title="Download">
                   <svg class="icon icon-small" aria-hidden="true">
                     <use href="/icons/lucide-sprite.svg?v=7#download"></use>
                   </svg>
-                  <span>Download</span>
                 </button>
               </div>
             </header>
@@ -164,7 +171,10 @@
               <section class="status-panel" id="statusPanel">
                 <div class="status-panel-header">
                   <p class="eyebrow">Übersicht</p>
-                  <h3>Status</h3>
+                  <div class="status-title-row">
+                    <h3>Status</h3>
+                    <div class="status-artifact-summary" id="statusArtifactSummary" aria-live="polite"></div>
+                  </div>
                 </div>
                 <div class="status-list" id="statusList" aria-label="Arbeitsstand"></div>
               </section>
@@ -183,14 +193,7 @@
               <div class="section-heading">
                 <div>
                   <p class="eyebrow" id="previewEyebrow">Vorschau</p>
-                  <h3 id="previewTitle">Kandidaten</h3>
-                </div>
-                <div class="preview-tools">
-                  <button class="icon-button action-icon-only" type="button" id="openPreviewButton" aria-label="Vorschau groß öffnen" title="Vorschau groß öffnen">
-                    <svg class="icon icon-small" aria-hidden="true">
-                      <use href="/icons/lucide-sprite.svg?v=7#maximize-2"></use>
-                    </svg>
-                  </button>
+                  <h3 id="previewTitle">Entwürfe</h3>
                 </div>
               </div>
 
@@ -202,15 +205,33 @@
           <article class="production-workspace hidden" id="workspaceView">
             <section class="chat-panel">
               <header class="workspace-panel-header">
-                <div>
+                <div class="workspace-panel-title">
                   <p class="eyebrow">Chat</p>
                   <h2>SheetifyIMG AI</h2>
+                  <p class="workspace-mobile-project-title" id="workspaceMobileProjectTitle"></p>
                 </div>
-                <button class="icon-button icon-button-plain" type="button" id="refreshChatButton" aria-label="Aktualisieren" title="Aktualisieren">
-                  <svg class="icon icon-small" aria-hidden="true">
-                    <use href="/icons/lucide-sprite.svg?v=7#refresh-cw"></use>
-                  </svg>
-                </button>
+                <div class="workspace-panel-actions">
+                  <button class="icon-button icon-button-plain" type="button" id="refreshChatButton" aria-label="Aktualisieren" title="Aktualisieren">
+                    <svg class="icon icon-small" aria-hidden="true">
+                      <use href="/icons/lucide-sprite.svg?v=7#refresh-cw"></use>
+                    </svg>
+                  </button>
+                  <button class="icon-button icon-button-plain workspace-mobile-action" type="button" id="workspaceMobileLibraryButton" aria-label="Zur Projektübersicht" title="Zur Projektübersicht">
+                    <svg class="icon icon-small" aria-hidden="true">
+                      <use href="/icons/lucide-sprite.svg?v=7#folder-open"></use>
+                    </svg>
+                  </button>
+                  <button class="icon-button icon-button-plain workspace-mobile-action" type="button" id="workspaceMobileShareButton" data-share-button aria-label="QR-Link anzeigen" title="QR-Link anzeigen" aria-haspopup="dialog" aria-expanded="false">
+                    <svg class="icon icon-small" aria-hidden="true">
+                      <use href="/icons/lucide-sprite.svg?v=13#qr-code"></use>
+                    </svg>
+                  </button>
+                  <button class="icon-button icon-button-plain workspace-mobile-action" type="button" id="workspaceMobileSettingsButton" aria-label="Einstellungen" title="Einstellungen">
+                    <svg class="icon icon-small" aria-hidden="true">
+                      <use href="/icons/lucide-sprite.svg?v=7#settings"></use>
+                    </svg>
+                  </button>
+                </div>
               </header>
 
               <div class="mobile-status-strip" id="mobileStatusStrip" aria-label="Schnellzugriff Arbeitsstand"></div>
@@ -225,7 +246,7 @@
                     <use href="/icons/lucide-sprite.svg?v=7#plus"></use>
                   </svg>
                 </button>
-                <input class="sr-only" type="file" id="chatAttachmentInput" multiple>
+                <input class="sr-only" type="file" id="chatAttachmentInput" aria-label="Input-Dateien hinzufügen" multiple>
                 <div class="chat-input-shell" id="chatInputShell">
                   <label class="sr-only" for="chatInput">Nachricht an SheetifyIMG AI</label>
                   <div class="chat-input-row">
@@ -242,7 +263,6 @@
                       </svg>
                     </button>
                   </div>
-                  <p class="chat-input-meta">Dateien hier hineinziehen oder über das Plus hinzufügen. Enter sendet, Option+Enter macht eine neue Zeile.</p>
                 </div>
               </form>
             </section>
@@ -257,29 +277,40 @@
                   <p class="eyebrow">Canvas</p>
                   <h2 id="canvasTitle">Vorschau</h2>
                 </div>
-                <div class="canvas-actions">
-                  <button class="icon-button action-icon-only" type="button" id="canvasCaptureButton" aria-label="Ausschnitt markieren" title="Ausschnitt markieren">
-                    <svg class="icon icon-small" aria-hidden="true">
-                      <use href="/icons/lucide-sprite.svg?v=8#scan-line"></use>
-                    </svg>
-                  </button>
-                  <button class="icon-button action-icon-only" type="button" id="canvasDownloadButton" aria-label="Download" title="Download">
-                    <svg class="icon icon-small" aria-hidden="true">
-                      <use href="/icons/lucide-sprite.svg?v=7#download"></use>
-                    </svg>
-                  </button>
-                  <button class="icon-button action-icon-only" type="button" id="canvasOpenButton" aria-label="Vollbild öffnen" title="Vollbild öffnen">
-                    <svg class="icon icon-small" aria-hidden="true">
-                      <use href="/icons/lucide-sprite.svg?v=7#maximize-2"></use>
-                    </svg>
-                  </button>
-                </div>
               </header>
               <div class="canvas-body" id="canvasBody"></div>
             </section>
           </article>
         </section>
       </main>
+    </div>
+
+    <div class="share-popover hidden" id="sharePopover" role="dialog" aria-hidden="true" aria-labelledby="shareTitle">
+      <section class="share-card">
+        <header class="share-header">
+          <div>
+            <p class="eyebrow">QR</p>
+            <h2 id="shareTitle">SheetifyIMG öffnen</h2>
+            <p id="shareStatus">Adresse wird geladen...</p>
+          </div>
+          <button class="icon-button icon-button-plain share-close-button" type="button" id="shareCloseButton" aria-label="QR-Link schließen" title="Schließen">
+            <svg class="icon icon-small" aria-hidden="true">
+              <use href="/icons/lucide-sprite.svg?v=13#x"></use>
+            </svg>
+          </button>
+        </header>
+        <div class="share-qr-frame" id="shareQrCode" aria-live="polite"></div>
+        <div class="share-url-row">
+          <span id="shareUrlText"></span>
+          <button class="icon-button share-copy-button" type="button" id="shareCopyLinkButton" aria-label="Link kopieren" title="Link kopieren">
+            <svg class="icon icon-small" aria-hidden="true">
+              <use href="/icons/lucide-sprite.svg?v=13#copy"></use>
+            </svg>
+          </button>
+        </div>
+        <div class="share-target-list" id="shareTargetList" aria-label="QR-Ziel"></div>
+        <p class="share-hint" id="shareHint"></p>
+      </section>
     </div>
 
     <div class="settings-modal hidden" id="settingsModal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="settingsTitle">
@@ -293,10 +324,10 @@
         </header>
         <div class="settings-body">
           <section class="settings-section">
-            <p class="eyebrow">Abrechnung</p>
-            <h3>Bildanbieter</h3>
-            <p>Diese Wahl steuert, welcher Weg beim Erzeugen neuer Kandidaten verwendet wird.</p>
-            <div class="provider-setting-list" id="imageProviderSettings" role="radiogroup" aria-label="Bildanbieter"></div>
+            <p class="eyebrow">Bildgenerierung</p>
+            <h3>Neue Entwürfe</h3>
+            <p>Lege fest, wie SheetifyIMG die nächsten Arbeitsblatt-Entwürfe erzeugt.</p>
+            <div class="image-generation-settings" id="imageProviderSettings"></div>
           </section>
         </div>
       </section>
@@ -305,41 +336,53 @@
     <div class="confirmation-modal hidden" id="confirmationModal" role="dialog" aria-modal="true" aria-labelledby="confirmationTitle">
       <div class="confirmation-card">
         <p class="eyebrow" id="confirmationEyebrow">Bestätigung</p>
-        <h2 id="confirmationTitle">Kandidat erzeugen?</h2>
+        <h2 id="confirmationTitle">Entwurf erstellen?</h2>
         <p id="confirmationMessage">Dieser Schritt kann Kosten verursachen.</p>
         <div class="confirmation-actions">
           <button class="secondary-button" type="button" id="confirmationCancelButton">Abbrechen</button>
-          <button class="primary-button" type="button" id="confirmationAcceptButton">Kandidat erzeugen</button>
+          <button class="primary-button" type="button" id="confirmationAcceptButton">Entwurf erstellen</button>
         </div>
       </div>
+    </div>
+
+    <div class="manual-copy-modal hidden" id="manualCopyModal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="manualCopyTitle">
+      <section class="manual-copy-card">
+        <header class="manual-copy-header">
+          <div>
+            <p class="eyebrow">Kopieren</p>
+            <h2 id="manualCopyTitle">Inhalt markieren</h2>
+            <p>Der Browser blockiert automatisches Kopieren. Der Inhalt ist markiert und kann über Kopieren übernommen werden.</p>
+          </div>
+          <button class="secondary-button" type="button" id="manualCopyCloseButton">Schließen</button>
+        </header>
+        <textarea id="manualCopyText" spellcheck="false" autocomplete="off"></textarea>
+      </section>
     </div>
 
     <div class="candidate-viewer-modal hidden" id="candidateViewerModal" role="dialog" aria-modal="true" aria-labelledby="candidateViewerTitle">
       <section class="candidate-viewer-card">
         <header class="candidate-viewer-header">
           <div>
-            <p class="eyebrow" id="candidateViewerCounter">Kandidat</p>
-            <h2 id="candidateViewerTitle">Kandidat ansehen</h2>
+            <p class="eyebrow" id="candidateViewerCounter">Entwurf</p>
+            <h2 id="candidateViewerTitle">Entwurf ansehen</h2>
             <p id="candidateViewerMeta"></p>
           </div>
           <div class="candidate-viewer-actions">
-            <button class="secondary-button action-icon-button" type="button" id="candidateViewerCopyButton">
+            <button class="icon-button icon-button-plain candidate-viewer-close-button" type="button" id="candidateViewerCloseButton" aria-label="Vorschau schließen" title="Schließen">
               <svg class="icon icon-small" aria-hidden="true">
-                <use href="/icons/lucide-sprite.svg?v=8#copy"></use>
+                <use href="/icons/lucide-sprite.svg?v=13#x"></use>
               </svg>
-              <span>Bild kopieren</span>
             </button>
-            <button class="secondary-button" type="button" id="candidateViewerCloseButton">Schließen</button>
           </div>
         </header>
         <div class="candidate-viewer-stage">
-          <button class="candidate-viewer-nav previous" type="button" id="candidateViewerPreviousButton" aria-label="Vorheriger Kandidat">
+          <button class="candidate-viewer-nav previous" type="button" id="candidateViewerPreviousButton" aria-label="Vorheriger Entwurf">
             <svg class="icon icon-small" aria-hidden="true">
               <use href="/icons/lucide-sprite.svg?v=8#chevron-right"></use>
             </svg>
           </button>
-          <img id="candidateViewerImage" alt="Kandidat">
-          <button class="candidate-viewer-nav next" type="button" id="candidateViewerNextButton" aria-label="Nächster Kandidat">
+          <img id="candidateViewerImage" alt="Entwurf">
+          <button class="candidate-viewer-nav next" type="button" id="candidateViewerNextButton" aria-label="Nächster Entwurf">
             <svg class="icon icon-small" aria-hidden="true">
               <use href="/icons/lucide-sprite.svg?v=8#chevron-right"></use>
             </svg>
@@ -353,7 +396,7 @@
         <header class="candidate-info-header">
           <div>
             <p class="eyebrow">Generierungsinfo</p>
-            <h2 id="candidateInfoTitle">Kandidat</h2>
+            <h2 id="candidateInfoTitle">Entwurf</h2>
             <p id="candidateInfoMeta"></p>
           </div>
           <button class="secondary-button" type="button" id="candidateInfoCloseButton">Schließen</button>
@@ -395,6 +438,11 @@
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=99"></script>
+    <script src="/pwa.js?v=1"></script>
+    <script src="/candidateCards.js?v=1"></script>
+    <script src="/actionBindings.js?v=1"></script>
+    <script src="/mobilePreviewRenderer.js?v=1"></script>
+    <script src="/canvasRenderer.js?v=1"></script>
+    <script src="/app.js?v=166"></script>
   </body>
 </html>

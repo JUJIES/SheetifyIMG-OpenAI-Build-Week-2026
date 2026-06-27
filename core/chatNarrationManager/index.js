@@ -1,12 +1,34 @@
 "use strict";
 
+const NARRATION_ACTION_BLOCKLIST = new Set([
+  "select_candidate",
+  "prepare_export"
+]);
+
 const { getAiRuntimeStatus, getOpenAiRequestConfig } = require("../aiConfig");
 const { createResponse, extractOutputText } = require("../openaiClient");
 const { logModelRun } = require("../modelRunLogger");
+const { estimateOpenAiTextCost } = require("../imageCostManager");
+const { personaInstructions, responsePlanForMoment } = require("../chatPersonaManager");
+const { presentWorkflowEvent } = require("../chatEventPresenter");
 
 const DEFAULT_TIMEOUT_MS = 12000;
 const MAX_MESSAGE_LENGTH = 900;
 const INTERNAL_TERMS = /\b(lesson brief|content mirror|imagespec|tool call|model run)\b/i;
+const OLD_WORKFLOW_TERMS = [
+  {
+    reason: "legacy_selection_language",
+    pattern: /\b(?:als\s+)?Auswahl\s+(?:übernehmen|uebernehmen)|\bals\s+Auswahl\b|\b(?:ist|wird|war)\s+die\s+Auswahl\b|\b(?:ihn|sie|es|diesen|den)\s+auswählen\b|\bausgewählt\b|\bausgewaehlt\b/i
+  },
+  {
+    reason: "legacy_export_language",
+    pattern: /\b(?:exportieren|exportiert|Export|prepare_export)\b/i
+  },
+  {
+    reason: "candidate_pdf_action",
+    pattern: /\bPDF\b.{0,60}\b(?:herunterlad|download|erstell|mach|generier|nutz|ausgeb)|\b(?:herunterlad|download|erstell|mach|generier|nutz|ausgeb).{0,60}\bPDF\b/i
+  }
+];
 
 function nonEmpty(value) {
   return String(value || "").trim();
@@ -70,14 +92,20 @@ function compactContent(content = {}) {
   if (!data || typeof data !== "object") {
     return null;
   }
+  const readingTexts = Array.isArray(data.readingTexts) ? data.readingTexts : [];
+  const tasks = Array.isArray(data.tasks) ? data.tasks : [];
+  const imageMaterials = Array.isArray(data.imageMaterials) ? data.imageMaterials : [];
   return {
     title: truncate(data.title, 180),
-    textTitles: (Array.isArray(data.readingTexts) ? data.readingTexts : [])
+    textCount: readingTexts.length,
+    taskCount: tasks.length,
+    imageMaterialCount: imageMaterials.length,
+    textTitles: readingTexts
       .slice(0, 3)
       .map((entry) => truncate(entry.title, 140))
       .filter(Boolean),
-    tasks: compactTasks(data.tasks),
-    imageMaterials: compactImageMaterials(data.imageMaterials)
+    tasks: compactTasks(tasks),
+    imageMaterials: compactImageMaterials(imageMaterials)
   };
 }
 
@@ -126,6 +154,20 @@ function compactWorkspace(workspace = {}) {
       readiness: workspace.teachingContext.readiness || null
     } : null,
     content: compactContent(workspace.documents?.content),
+    concepts: (workspace.artifacts?.concepts || [])
+      .slice(-5)
+      .map((concept) => ({
+        id: concept.id || concept.artifactId || null,
+        version: concept.version || null,
+        status: concept.status || null,
+        current: concept.current === true,
+        title: truncate(concept.title, 120)
+      })),
+    currentConcept: workspace.artifacts?.currentContent ? {
+      id: workspace.artifacts.currentContent.id || null,
+      version: workspace.artifacts.currentContent.version || null,
+      status: workspace.artifacts.currentContent.status || null
+    } : null,
     latestRun: latestRun.runId ? {
       runId: latestRun.runId,
       candidateIds,
@@ -133,6 +175,7 @@ function compactWorkspace(workspace = {}) {
     } : null,
     availableActions: (workspace.commands || [])
       .filter((command) => command.enabled)
+      .filter((command) => !NARRATION_ACTION_BLOCKLIST.has(command.id))
       .slice(0, 5)
       .map((command) => ({
         id: command.id,
@@ -147,13 +190,26 @@ function compactMoment(moment = {}) {
   const proposalKind = moment.proposal?.kind || null;
   const stateFacts = [];
   if (proposalKind === "image_spec" && (moment.kind === "proposal_ready" || moment.kind === "proposal_adopted")) {
-    stateFacts.push("Kandidatenvorbereitung ist intern vorbereitet/übernommen; es wurde dadurch noch kein Bild-Kandidat erzeugt.");
+    stateFacts.push("Entwurfsvorbereitung ist intern vorbereitet/übernommen; es wurde dadurch noch kein Bild-Entwurf erzeugt.");
   }
   if (moment.kind === "candidate_created") {
-    stateFacts.push("Der Bild-Kandidat ist bereits fertig erzeugt; keine Bestätigung mehr verlangen.");
+    stateFacts.push("Der Bild-Entwurf ist bereits fertig erzeugt; keine Bestätigung mehr verlangen.");
+  }
+  if (moment.kind === "workflow_followup") {
+    stateFacts.push("Die commandId beschreibt eine bereits ausgeführte Workflow-Aktion, nicht eine noch offene Entscheidung.");
+    if (moment.commandId === "activate_content_mirror_version") {
+      stateFacts.push("Die gewünschte Konzeptversion ist bereits als aktuelle Basis gesetzt. Nicht fragen, ob sie noch übernommen, freigegeben oder angepasst werden soll.");
+    }
+    if (moment.commandId === "adopt_content_mirror_proposal") {
+      stateFacts.push("Das Arbeitsblatt-Konzept ist bereits übernommen und freigegeben. Nicht fragen, ob es noch übernommen oder freigegeben werden soll.");
+    }
+    if (moment.action?.command === "generate_image_candidate") {
+      stateFacts.push("Der Entwurfs-Schritt ist nur als nächste Aktion vorbereitet; die Bildgenerierung startet erst nach bewusster Bestätigung.");
+    }
   }
   return {
     kind: moment.kind || "chat_followup",
+    persona: responsePlanForMoment(moment),
     stateFacts,
     fallback: truncate(moment.fallback, MAX_MESSAGE_LENGTH),
     userMessage: truncate(moment.userMessage, 600),
@@ -184,49 +240,100 @@ function compactMoment(moment = {}) {
   };
 }
 
-function sanitizeNarration(value) {
+function normalizeNarrationSurface(value) {
   const text = nonEmpty(value)
     .replace(/^["“”]+|["“”]+$/g, "")
-    .replace(/\bdiesen Kandidat\b/g, "diesen Kandidaten")
-    .replace(/\bden Kandidat\b/g, "den Kandidaten")
-    .replace(/\bnimm (diesen|den) Kandidaten als Auswahl\b/gi, "lade das PDF herunter")
-    .replace(/\b(als )?Auswahl übernehmen\b/gi, "das PDF herunterladen")
-    .replace(/\bauswählen\b/gi, "als PDF nutzen")
-    .replace(/\bexportieren\b/gi, "als PDF herunterladen")
-    .replace(/\bAuswahl\b/g, "PDF")
-    .replace(/\bausgewählt\b/g, "als PDF bereit")
-    .replace(/\bexportiert\b/g, "als PDF bereit")
+    .replace(/\s+[–—]\s+/g, "; ")
+    .replace(/\bKandidatenvorbereitung\b/g, "Entwurfsvorbereitung")
+    .replace(/\bKandidatenerzeugung\b/g, "Entwurfserstellung")
+    .replace(/\bKandidaten-Schritt\b/g, "Entwurfs-Schritt")
+    .replace(/\bKandidatenschritt\b/g, "Entwurfsschritt")
+    .replace(/\bKandidatenansicht\b/g, "Entwurfsansicht")
+    .replace(/\beine Kandidatenreihe\b/g, "einen mehrseitigen Entwurf")
+    .replace(/\bEine Kandidatenreihe\b/g, "Ein mehrseitiger Entwurf")
+    .replace(/\bdie Kandidatenreihe\b/g, "der mehrseitige Entwurf")
+    .replace(/\bDie Kandidatenreihe\b/g, "Der mehrseitige Entwurf")
+    .replace(/\bKandidatenreihe\b/g, "mehrseitiger Entwurf")
+    .replace(/\bdiesen Kandidaten\b/g, "diesen Entwurf")
+    .replace(/\bden Kandidaten\b/g, "den Entwurf")
+    .replace(/\beinen Kandidaten\b/g, "einen Entwurf")
+    .replace(/\baktuellen Kandidaten\b/g, "aktuellen Entwurf")
+    .replace(/\bnächsten Kandidaten\b/g, "nächsten Entwurf")
+    .replace(/\bneuen Kandidaten\b/g, "neuen Entwurf")
+    .replace(/\bdiesen Entwurf\b/g, "diesen Entwurf")
+    .replace(/\bden Entwurf\b/g, "den Entwurf")
+    .replace(/\bcandidate_0*(\d+)\b/gi, (_, value) => `Entwurf ${String(Number(value)).padStart(2, "0")}`)
+    .replace(/\bKandidaten\b/g, "Entwürfe")
+    .replace(/\bKandidat\b/g, "Entwurf")
     .replace(/[ \t]+\n/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  if (!text || INTERNAL_TERMS.test(text)) {
-    return null;
-  }
   return text.length > MAX_MESSAGE_LENGTH
     ? `${text.slice(0, MAX_MESSAGE_LENGTH - 1).trim()}…`
     : text;
 }
 
+function validateNarrationPolicy(value) {
+  const text = nonEmpty(value);
+  if (!text) {
+    return { ok: false, reason: "empty" };
+  }
+  if (INTERNAL_TERMS.test(text) || /\bintern(?:e[rsn]?)?\b/i.test(text)) {
+    return { ok: false, reason: "internal_term" };
+  }
+  for (const rule of OLD_WORKFLOW_TERMS) {
+    if (rule.pattern.test(text)) {
+      return { ok: false, reason: rule.reason };
+    }
+  }
+  return { ok: true, reason: null };
+}
+
+function sanitizeNarration(value) {
+  const text = normalizeNarrationSurface(value);
+  const validation = validateNarrationPolicy(text);
+  if (!validation.ok) {
+    return null;
+  }
+  return text;
+}
+
 function narrationInstructions() {
   return [
+    personaInstructions(),
     "Du formulierst genau eine sichtbare Chatantwort für SheetifyIMG.",
     "Die App entscheidet Workflow, Buttons, Freigaben und Kostenbestätigungen. Du formulierst nur den Begleittext.",
     "Schreibe auf Deutsch mit echten Umlauten.",
     "Sprich die Lehrkraft immer mit du an, nie mit Sie.",
-    "Ton: aufmerksam, knapp, freundlich, bestimmt. Kein generisches Lob.",
+    "Ton: aufmerksam, knapp, freundlich, bestimmt. Kein generisches Lob und kein neutraler Behördenstil.",
+    "Halte dich an moment.persona: responseDepth bestimmt die Laenge, relationshipMove bestimmt die Art der Beziehungsebene.",
+    "Bei responseDepth minimal: genau ein kurzer Satz. Kein Lob, keine Mini-Zusammenfassung, keine didaktische Einschaetzung.",
+    "Bei responseDepth brief: ein bis zwei kurze Saetze mit Orientierung, aber ohne lange Analyse.",
+    "Bei responseDepth reflective: zwei bis drei kurze Saetze mit Mini-Zusammenfassung, konkreter Staerke und nur falls sinnvoll einem Stolperpunkt oder Denkimpuls.",
+    "Bei relationshipMove acknowledge reicht ein natuerliches 'Alles klar' oder 'Okay', wenn es zum Satz passt.",
+    "Bei relationshipMove encourage nur konkret bestaerken; kein pauschales 'tolle Idee', wenn du es nicht begruendest.",
     "Wenn du eine Idee lobst, begründe konkret, warum sie didaktisch, gestalterisch oder für die Zielgruppe sinnvoll ist.",
     "Bleib beim aktuellen Wunsch des Users und beim aktuellen Produktionsschritt.",
-    "Nenne nur sichtbare Produktbegriffe: Input, Arbeitsblatt-Konzept, Kandidat, Kandidaten und PDF.",
+    "Nenne nur sichtbare Produktbegriffe: Input, Arbeitsblatt-Konzept, Entwurf, Entwürfe und Arbeitsblatt-Ablage. Arbeitsblatt-PDF nur nennen, wenn es um ein bereits abgelegtes Arbeitsblatt geht.",
+    "Nutze nicht mehr die alten Nutzerbegriffe Auswahl übernehmen, PDF erstellen, PDF herunterladen oder Export.",
+    "Entwürfe sind Bildentwürfe. Ein PDF entsteht erst beim Ablegen als Arbeitsblatt.",
     "Keine internen Begriffe wie Lesson Brief, Content Mirror, ImageSpec, Tool Call oder Run.",
-    "Kandidatenvorbereitung ist noch kein Kandidat. Sage nie, ein Kandidat sei übernommen oder fertig, solange moment.kind proposal_ready/proposal_adopted und proposal.kind image_spec ist.",
+    "Die Vorbereitung für Entwürfe ist noch kein Entwurf. Sage nie, ein Entwurf sei übernommen oder fertig, solange moment.kind proposal_ready/proposal_adopted und proposal.kind image_spec ist.",
+    "Bei moment.kind suggested_action oder local_action_offer in der Input-Phase: Wenn eine Lehrkraft eine Arbeitsblattidee nennt, beginne mit einer sehr kurzen Mini-Zusammenfassung der Idee und einer konkreten Stärke, bevor du den nächsten Schritt nennst.",
+    "Bei moment.kind proposal_ready und proposal.kind content_mirror: Schreibe eine kurze didaktische Einschätzung zum Arbeitsblatt-Konzept. Satz 1: was aus Aufgaben, Text oder Bildidee gut trägt. Satz 2: eine mögliche Unschärfe oder Schwäche mit Begründung aus dem Konzept. Satz 3: Frage, ob die Lehrkraft es übernehmen oder noch etwas anpassen möchte.",
+    "Bei dieser Konzept-Einschätzung keine Schnelloptionen oder Alternativbuttons vorschlagen. Die Lehrkraft kann natürlich im Chat nachschärfen.",
     "Bei moment.kind candidate_created ist die Bildgenerierung bereits abgeschlossen. Bitte keine Bestätigung mehr verlangen und nicht sagen, der User müsse die Bildgenerierung bestätigen.",
     "Bei moment.kind candidate_created beschreibe das fertige Ergebnis. Nicht schreiben: ich lege jetzt an, ich starte, ich erzeuge jetzt oder ich erstelle jetzt.",
-    "Wenn eine Kandidatenvorbereitung eine referencePolicy hat, erklaere knapp und natuerlich, ob eine Referenz oder Vorlage hilfreich ist. Sage Referenz, Vorlage oder Bildvorlage, nicht ImageSpec.",
-    "Raw-IDs wie candidate_01 nur nutzen, wenn sie im Fallback unvermeidbar sind; besser: Kandidat 01 oder dieser Kandidat.",
+    "Bei moment.kind workflow_followup ist die genannte Workflow-Aktion bereits erledigt. Frage nicht, ob die erledigte Aktion noch übernommen, freigegeben oder ausgeführt werden soll.",
+    "Bei commandId activate_content_mirror_version: Schreibe, dass die gewünschte Konzeptversion jetzt die aktuelle Basis ist, und nenne höchstens den nächsten Entwurfs-Schritt.",
+    "Bei commandId adopt_content_mirror_proposal: Schreibe, dass das Arbeitsblatt-Konzept übernommen und freigegeben ist, und nenne höchstens den nächsten Entwurfs-Schritt.",
+    "Wenn die Vorbereitung für Entwürfe eine referencePolicy hat, erklaere knapp und natuerlich, ob eine Referenz oder Vorlage hilfreich ist. Sage Referenz, Vorlage oder Bildvorlage, nicht ImageSpec.",
+    "Raw-IDs wie candidate_01 nur nutzen, wenn sie im Fallback unvermeidbar sind; besser: Entwurf 01 oder dieser Entwurf.",
     "Erfinde keine abgeschlossenen Aktionen, keine Dateien, keine Freigaben und keine neuen Buttons.",
     "Wenn requiresPaidConfirmation true ist, erwähne knapp, dass die Bildgenerierung bewusst bestätigt werden muss.",
     "Vermeide im sichtbaren Chat technische Begriffe wie Bild-API; sage lieber Bildgenerierung oder Erzeugung.",
-    "Maximal 3 kurze Sätze. Keine Liste, außer der Moment verlangt ausdrücklich kurze Optionen.",
+    "Maximal moment.persona.sentenceBudget Saetze, nie mehr als 3 kurze Saetze. Keine Liste, außer der Moment verlangt ausdrücklich kurze Optionen.",
     "Gib ausschließlich JSON im vorgegebenen Schema zurück."
   ].join("\n");
 }
@@ -257,8 +364,28 @@ function parseNarration(response) {
   }
 }
 
+function contradictsCompletedActivation(message, moment = {}) {
+  if (
+    moment.kind !== "workflow_followup"
+    || !["activate_content_mirror_version", "adopt_content_mirror_proposal"].includes(moment.commandId)
+  ) {
+    return false;
+  }
+  const text = nonEmpty(message);
+  if (!text) {
+    return false;
+  }
+  return /(?:willst|möchtest|moechtest|soll\s+ich|sag(?:e)?\s+mir|antworte|bestätige|bestaetige|ob\s+ich).{0,140}(?:übernehm|uebernehm|freigeb|frei\s+geb|anpass|neu\s+aufsetz|auswähl|auswaehl|prüf|pruef)/i.test(text)
+    || /(?:kann|darf).{0,80}(?:nicht|noch\s+nicht|hier\s+nicht).{0,120}(?:übernehm|uebernehm|freigeb|frei\s+geb|setzen|auswähl|auswaehl)/i.test(text)
+    || /(?:nur\s+als\s+Entwurf|nicht\s+als\s+freigegebenes\s+Konzept)/i.test(text);
+}
+
 async function narrateChatMoment(projectDir, moment = {}, options = {}) {
-  const fallback = sanitizeNarration(moment.fallback) || "Ich habe den nächsten Schritt vorbereitet.";
+  const deterministicMessage = presentWorkflowEvent(moment);
+  const fallback = sanitizeNarration(deterministicMessage || moment.fallback) || "Ich habe den nächsten Schritt vorbereitet.";
+  if (deterministicMessage) {
+    return fallback;
+  }
   const requestConfig = getOpenAiRequestConfig(process.env);
   if (!canUseNarration(requestConfig, process.env)) {
     return fallback;
@@ -287,16 +414,27 @@ async function narrateChatMoment(projectDir, moment = {}, options = {}) {
       ...requestConfig,
       timeoutMs: timeoutMs(process.env, requestConfig.timeoutMs)
     });
-    const message = parseNarration(response) || fallback;
+    const responseModel = response.model || model;
+    const usage = response.usage || null;
+    const costEstimate = estimateOpenAiTextCost({
+      usage,
+      model: responseModel
+    });
+    const parsedMessage = parseNarration(response);
+    const message = parsedMessage && !contradictsCompletedActivation(parsedMessage, moment)
+      ? parsedMessage
+      : fallback;
     await logModelRun(projectDir, {
       status: "success",
       source: "chat_narration",
       purpose: moment.kind || "chat_narration",
       route: "narration",
       promptNames: ["chat_narration_inline"],
-      model: response.model || model,
+      model: responseModel,
       responseId: response.id || null,
       durationMs: Date.now() - startedAt,
+      usage,
+      costEstimate,
       uiEvent: options.uiEvent || moment.kind || "chat_narration"
     }, { now: options.now });
     return message;
@@ -318,5 +456,8 @@ async function narrateChatMoment(projectDir, moment = {}, options = {}) {
 
 module.exports = {
   narrateChatMoment,
-  sanitizeNarration
+  sanitizeNarration,
+  normalizeNarrationSurface,
+  validateNarrationPolicy,
+  contradictsCompletedActivation
 };

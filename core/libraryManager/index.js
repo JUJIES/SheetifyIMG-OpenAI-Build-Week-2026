@@ -2,17 +2,26 @@
 
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { ARTIFACT_TYPES, EVENT_TYPES } = require("../contracts");
+const {
+  currentArtifact,
+  listArtifacts,
+  readArtifactIndex
+} = require("../artifactManager");
+const { readEvents } = require("../eventLog");
+const { inputReadiness } = require("../inputReadiness");
 const { listProjects, openProject } = require("../projectManager");
 const { normalizeConceptReference } = require("../conceptReference");
+const { listProjectWorksheets } = require("../worksheetLibraryManager");
+const { readJsonFileIfExists, writeJsonFile } = require("../jsonFile");
 
 const DEFAULT_REPO_ROOT = path.resolve(__dirname, "..", "..");
 const DEFAULT_PROJECTS_DIR = path.join(DEFAULT_REPO_ROOT, "projects");
 const LIBRARY_STATE_FILE = "library-state.json";
 const LIBRARY_STATE_SCHEMA_VERSION = "sheetifyimg.library-state.v1";
+const PROJECTS_ROOT_ID = "folder:projects";
 const ROOT_FOLDERS = [
-  { id: "folder:work-in-progress", label: "Work in Progress" },
-  { id: "folder:finished-single-worksheets", label: "Fertige Einzelblätter" },
-  { id: "folder:series", label: "Reihen" }
+  { id: PROJECTS_ROOT_ID, label: "Projekte" }
 ];
 
 async function pathExists(filePath) {
@@ -25,15 +34,11 @@ async function pathExists(filePath) {
 }
 
 async function readJsonIfExists(filePath) {
-  if (!(await pathExists(filePath))) {
-    return null;
-  }
-  return JSON.parse(await fs.readFile(filePath, "utf8"));
+  return readJsonFileIfExists(filePath);
 }
 
 async function writeJson(filePath, value) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await writeJsonFile(filePath, value);
 }
 
 async function readUtf8IfExists(filePath) {
@@ -54,27 +59,6 @@ async function listDirs(dirPath) {
     .sort();
 }
 
-async function listFilesRecursive(dirPath) {
-  if (!(await pathExists(dirPath))) {
-    return [];
-  }
-
-  const files = [];
-  async function walk(current) {
-    const entries = await fs.readdir(current, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        await walk(fullPath);
-      } else {
-        files.push(fullPath);
-      }
-    }
-  }
-  await walk(dirPath);
-  return files.sort();
-}
-
 function toPosix(value) {
   return String(value).split(path.sep).join("/");
 }
@@ -84,10 +68,9 @@ function assetUrl(repoRoot, filePath) {
 }
 
 function projectToTreeItem(project, previewType = "project_status") {
-  const type = project.projectType === "series" || project.projectType === "bundle" ? "series" : "worksheet";
   return {
     id: `project:${project.projectId}`,
-    type,
+    type: "worksheet",
     label: project.title,
     projectId: project.projectId,
     status: project.status,
@@ -95,6 +78,14 @@ function projectToTreeItem(project, previewType = "project_status") {
     previewType,
     warnings: project.warnings,
     errors: project.errors,
+    candidateGeneration: project.candidateGeneration || {
+      isRunning: false,
+      activeJob: null,
+      latestCompletion: null,
+      latestFailure: null,
+      hasUnreadCompletion: false
+    },
+    hasUnreadCandidateCompletion: Boolean(project.hasUnreadCandidateCompletion),
     draggable: true,
     canRename: true,
     canDelete: true,
@@ -176,17 +167,7 @@ async function searchWorksheetProject(project, options = {}) {
 }
 
 function actionsForProject(project, previewType = "project_status") {
-  const actions = ["open", "preview", "show_in_finder"];
-  if (project.projectType === "single_worksheet") {
-    actions.push("copy_content_mirror");
-  }
-  if (project.projectType === "series" || project.projectType === "bundle") {
-    actions.push("copy_series_context");
-  }
-  if (project.status === "selected" || project.status === "exported" || previewType === "selected_pages" || previewType === "pdf") {
-    actions.push("export_pdf");
-  }
-  return actions;
+  return ["open", "preview", "show_in_finder"];
 }
 
 function emptyFolder(id, label) {
@@ -202,17 +183,40 @@ function emptyFolder(id, label) {
   };
 }
 
+function normalizeFolderColor(value) {
+  const color = String(value || "").trim();
+  if (!color) {
+    return null;
+  }
+  if (!/^#[0-9a-f]{6}$/i.test(color)) {
+    throw new Error("Ordnerfarbe ist ungültig.");
+  }
+  return color.toLowerCase();
+}
+
 function createEmptyLibraryState(now = new Date().toISOString()) {
   return {
     schemaVersion: LIBRARY_STATE_SCHEMA_VERSION,
     updatedAt: now,
     rootChildren: Object.fromEntries(ROOT_FOLDERS.map((folder) => [folder.id, []])),
+    folderColors: {},
     folders: {}
   };
 }
 
 function libraryStatePath(projectsDir) {
   return path.join(projectsDir, LIBRARY_STATE_FILE);
+}
+
+function appendUniqueItemIds(target, itemIds = []) {
+  const existing = new Set(target);
+  for (const itemId of itemIds) {
+    if (!itemId || existing.has(itemId)) {
+      continue;
+    }
+    target.push(itemId);
+    existing.add(itemId);
+  }
 }
 
 async function readLibraryState(options = {}) {
@@ -226,7 +230,24 @@ async function readLibraryState(options = {}) {
     ...createEmptyLibraryState().rootChildren,
     ...(state.rootChildren || {})
   };
+  state.rootChildren[PROJECTS_ROOT_ID] = Array.isArray(state.rootChildren[PROJECTS_ROOT_ID])
+    ? state.rootChildren[PROJECTS_ROOT_ID]
+    : [];
+  state.folderColors = state.folderColors && typeof state.folderColors === "object" ? state.folderColors : {};
+  const currentRootIds = new Set(ROOT_FOLDERS.map((folder) => folder.id));
+  for (const rootId of Object.keys(state.rootChildren)) {
+    if (!currentRootIds.has(rootId)) {
+      const childIds = Array.isArray(state.rootChildren[rootId]) ? state.rootChildren[rootId] : [];
+      appendUniqueItemIds(state.rootChildren[PROJECTS_ROOT_ID], childIds);
+      delete state.rootChildren[rootId];
+    }
+  }
   state.folders = state.folders && typeof state.folders === "object" ? state.folders : {};
+  for (const folder of Object.values(state.folders)) {
+    if (folder?.parentId && !currentRootIds.has(folder.parentId) && /^folder:(work-in-progress|finished-single-worksheets|series)$/.test(folder.parentId)) {
+      folder.parentId = PROJECTS_ROOT_ID;
+    }
+  }
   return state;
 }
 
@@ -241,14 +262,8 @@ async function writeLibraryState(state, options = {}) {
   return nextState;
 }
 
-function defaultRootIdForProject(project) {
-  if (project.projectType === "series" || project.projectType === "bundle") {
-    return "folder:series";
-  }
-  if (project.status === "exported") {
-    return "folder:finished-single-worksheets";
-  }
-  return "folder:work-in-progress";
+function defaultRootIdForProject() {
+  return PROJECTS_ROOT_ID;
 }
 
 function customFolderToTreeFolder(folder) {
@@ -256,6 +271,7 @@ function customFolderToTreeFolder(folder) {
     id: folder.id,
     type: "folder",
     label: folder.label,
+    color: folder.color || null,
     locked: false,
     draggable: true,
     canRename: true,
@@ -340,8 +356,13 @@ function cleanLibraryState(state, projectItemIds) {
   }
   for (const folderId of Object.keys(state.folders || {})) {
     if (!findParentFolderId(state, folderId)) {
-      state.rootChildren["folder:work-in-progress"].push(folderId);
-      state.folders[folderId].parentId = "folder:work-in-progress";
+      state.rootChildren[PROJECTS_ROOT_ID].push(folderId);
+      state.folders[folderId].parentId = PROJECTS_ROOT_ID;
+    }
+  }
+  for (const folderId of Object.keys(state.folderColors || {})) {
+    if (!rootIds.has(folderId) && !state.folders?.[folderId]) {
+      delete state.folderColors[folderId];
     }
   }
 }
@@ -352,7 +373,7 @@ async function buildProjectTreeItems(projects, options = {}) {
   const items = new Map();
   for (const project of projects) {
     const projectDir = path.join(projectsDir, project.projectId);
-    const preview = project.projectType === "bundle" || project.projectType === "series"
+    const preview = project.projectType === "bundle"
       ? await buildBundlePreview({ repoRoot, projectDir, project })
       : await buildWorksheetPreview({ repoRoot, projectDir, project });
     items.set(`project:${project.projectId}`, projectToTreeItem(project, preview.previewType));
@@ -368,6 +389,21 @@ function appendMissingProjectsToState(state, projects) {
     }
     state.rootChildren[defaultRootIdForProject(project)].push(itemId);
   }
+}
+
+function normalizeLibraryStateForProjects(state, projects) {
+  cleanLibraryState(state, projects.map((project) => `project:${project.projectId}`));
+  appendMissingProjectsToState(state, projects);
+  return state;
+}
+
+async function readNormalizedLibraryState(options = {}) {
+  const projectsDir = options.projectsDir || DEFAULT_PROJECTS_DIR;
+  const [state, projects] = await Promise.all([
+    readLibraryState({ projectsDir }),
+    listProjects({ projectsDir })
+  ]);
+  return normalizeLibraryStateForProjects(state, projects);
 }
 
 function inflateTreeChildren(state, childIds, projectItems) {
@@ -388,6 +424,7 @@ function inflateTreeChildren(state, childIds, projectItems) {
 function inflateLibraryTree(state, projectItems) {
   return ROOT_FOLDERS.map((root) => {
     const folder = emptyFolder(root.id, root.label);
+    folder.color = state.folderColors?.[root.id] || null;
     folder.children = inflateTreeChildren(state, state.rootChildren[root.id] || [], projectItems);
     return folder;
   });
@@ -422,7 +459,7 @@ async function buildLibraryTree(options = {}) {
     return {
       id: "library:search",
       type: "root",
-      label: "SheetifyIMG Search",
+      label: "SheetifyIMG Suche",
       searchQuery: query,
       children: [{
         id: "folder:search-results",
@@ -435,22 +472,20 @@ async function buildLibraryTree(options = {}) {
 
   const libraryState = await readLibraryState({ projectsDir });
   const projectItems = await buildProjectTreeItems(projects, { repoRoot, projectsDir });
-  cleanLibraryState(libraryState, [...projectItems.keys()]);
-  appendMissingProjectsToState(libraryState, projects);
-  await writeLibraryState(libraryState, { projectsDir });
+  normalizeLibraryStateForProjects(libraryState, projects);
 
   return {
     id: "library:root",
     type: "root",
-    label: "SheetifyIMG Library",
+    label: "SheetifyIMG Projekte",
     children: inflateLibraryTree(libraryState, projectItems)
   };
 }
 
 async function createLibraryFolder(input = {}, options = {}) {
   const projectsDir = options.projectsDir || DEFAULT_PROJECTS_DIR;
-  const state = await readLibraryState({ projectsDir });
-  const parentId = input.parentId || "folder:work-in-progress";
+  const state = await readNormalizedLibraryState({ projectsDir });
+  const parentId = input.parentId || PROJECTS_ROOT_ID;
   if (!folderRecord(state, parentId)) {
     throw new Error("Zielordner wurde nicht gefunden.");
   }
@@ -463,6 +498,7 @@ async function createLibraryFolder(input = {}, options = {}) {
     id: folderId,
     label,
     parentId,
+    color: normalizeFolderColor(input.color),
     children: []
   };
   folderRecord(state, parentId).children.push(folderId);
@@ -471,22 +507,55 @@ async function createLibraryFolder(input = {}, options = {}) {
 }
 
 async function renameLibraryFolder(folderId, label, options = {}) {
+  return updateLibraryFolder(folderId, { label }, options);
+}
+
+async function updateLibraryFolder(folderId, input = {}, options = {}) {
   const projectsDir = options.projectsDir || DEFAULT_PROJECTS_DIR;
-  if (ROOT_FOLDERS.some((folder) => folder.id === folderId)) {
-    throw new Error("Dieser Hauptordner kann nicht umbenannt werden.");
-  }
-  const state = await readLibraryState({ projectsDir });
-  const folder = state.folders[folderId];
-  const nextLabel = String(label || "").trim();
+  const isRootFolder = ROOT_FOLDERS.some((folder) => folder.id === folderId);
+  const state = await readNormalizedLibraryState({ projectsDir });
+  const folder = isRootFolder
+    ? ROOT_FOLDERS.find((entry) => entry.id === folderId)
+    : state.folders[folderId];
   if (!folder) {
     throw new Error("Ordner wurde nicht gefunden.");
   }
-  if (!nextLabel) {
-    throw new Error("Ordnername ist erforderlich.");
+
+  if (Object.prototype.hasOwnProperty.call(input, "label")) {
+    if (isRootFolder) {
+      throw new Error("Dieser Hauptordner kann nicht umbenannt werden.");
+    }
+    const nextLabel = String(input.label || "").trim();
+    if (!nextLabel) {
+      throw new Error("Ordnername ist erforderlich.");
+    }
+    state.folders[folderId].label = nextLabel;
   }
-  folder.label = nextLabel;
+
+  if (Object.prototype.hasOwnProperty.call(input, "color")) {
+    const color = normalizeFolderColor(input.color);
+    if (isRootFolder) {
+      if (color) {
+        state.folderColors[folderId] = color;
+      } else {
+        delete state.folderColors[folderId];
+      }
+    } else if (color) {
+      state.folders[folderId].color = color;
+    } else {
+      delete state.folders[folderId].color;
+    }
+  }
+
   await writeLibraryState(state, { projectsDir });
-  return folder;
+  if (isRootFolder) {
+    return {
+      id: folderId,
+      label: folder.label,
+      color: state.folderColors[folderId] || null
+    };
+  }
+  return state.folders[folderId];
 }
 
 async function deleteLibraryFolder(folderId, options = {}) {
@@ -494,7 +563,7 @@ async function deleteLibraryFolder(folderId, options = {}) {
   if (ROOT_FOLDERS.some((folder) => folder.id === folderId)) {
     throw new Error("Dieser Hauptordner kann nicht geloescht werden.");
   }
-  const state = await readLibraryState({ projectsDir });
+  const state = await readNormalizedLibraryState({ projectsDir });
   const folder = state.folders[folderId];
   if (!folder) {
     throw new Error("Ordner wurde nicht gefunden.");
@@ -519,7 +588,7 @@ async function deleteLibraryFolder(folderId, options = {}) {
 
 async function moveLibraryItem(input = {}, options = {}) {
   const projectsDir = options.projectsDir || DEFAULT_PROJECTS_DIR;
-  const state = await readLibraryState({ projectsDir });
+  const state = await readNormalizedLibraryState({ projectsDir });
   const itemId = String(input.itemId || "");
   const targetFolderId = String(input.targetFolderId || "");
   const beforeId = input.beforeId ? String(input.beforeId) : null;
@@ -555,42 +624,13 @@ async function moveLibraryItem(input = {}, options = {}) {
 
 async function removeProjectFromLibrary(projectId, options = {}) {
   const projectsDir = options.projectsDir || DEFAULT_PROJECTS_DIR;
-  const state = await readLibraryState({ projectsDir });
+  const state = await readNormalizedLibraryState({ projectsDir });
   removeItemFromLibraryState(state, `project:${projectId}`);
   await writeLibraryState(state, { projectsDir });
 }
 
-async function findLatestRun(projectDir) {
-  const runDirs = await listDirs(path.join(projectDir, "runs"));
-  if (runDirs.length === 0) {
-    return null;
-  }
-  return runDirs[runDirs.length - 1];
-}
-
-async function previewFromSelection({ repoRoot, runDir }) {
-  const selection = await readJsonIfExists(path.join(runDir, "selected", "selection.json"));
-  const pages = Array.isArray(selection?.pages) ? selection.pages : [];
-  const existingPages = [];
-
-  for (const page of pages) {
-    if (!page.selectedPath) {
-      continue;
-    }
-    const filePath = path.join(runDir, page.selectedPath);
-    if (await pathExists(filePath)) {
-      existingPages.push({
-        page: page.page,
-        role: page.role,
-        sourceCandidateId: page.sourceCandidateId || null,
-        source: "selected",
-        path: toPosix(path.relative(repoRoot, filePath)),
-        url: assetUrl(repoRoot, filePath)
-      });
-    }
-  }
-
-  return existingPages;
+async function findAllRuns(projectDir) {
+  return listDirs(path.join(projectDir, "runs"));
 }
 
 async function previewFromCandidates({ repoRoot, runDir }) {
@@ -600,6 +640,7 @@ async function previewFromCandidates({ repoRoot, runDir }) {
 
   for (const candidate of manifest?.candidates || []) {
     const concept = normalizeConceptReference(candidate.concept || manifest.concept || {}, manifest.sourceArtifacts || {});
+    const qc = await readJsonIfExists(path.join(runDir, "qc", `${candidate.id}.technical-qc.json`));
     const pages = [];
     for (const page of candidate.pages || []) {
       const filePath = path.join(runDir, page.path);
@@ -618,29 +659,83 @@ async function previewFromCandidates({ repoRoot, runDir }) {
         metadata: assetManifest?.metadata || null
       });
     }
-    const pdfFilePath = candidate.pdf?.path ? path.join(runDir, candidate.pdf.path) : null;
-    const pdfAvailable = pdfFilePath ? await pathExists(pdfFilePath) : false;
     candidates.push({
       id: candidate.id,
       runId,
       status: candidate.status,
+      createdAt: candidate.createdAt || manifest?.createdAt || null,
       concept,
       basedOnConceptId: candidate.basedOnConceptId || concept.conceptId,
       basedOnConceptVersion: candidate.basedOnConceptVersion || concept.conceptVersion,
       generation: candidate.generation || null,
+      qc: qc?.formatContract ? {
+        status: qc.status || null,
+        errorCount: qc.errorCount || 0,
+        warningCount: qc.warningCount || 0,
+        path: `runs/${runId}/qc/${candidate.id}.technical-qc.json`
+      } : candidate.qc || null,
       notes: Array.isArray(candidate.notes) ? candidate.notes : [],
-      pdf: candidate.pdf ? {
-        ...candidate.pdf,
-        runPath: candidate.pdf.path || null,
-        path: pdfFilePath ? toPosix(path.relative(repoRoot, pdfFilePath)) : candidate.pdf.path || null,
-        url: pdfAvailable ? assetUrl(repoRoot, pdfFilePath) : null,
-        missing: Boolean(candidate.pdf.path && !pdfAvailable)
-      } : null,
       pages
     });
   }
 
   return candidates;
+}
+
+async function previewFromAllCandidates({ repoRoot, projectDir }) {
+  const runDirs = await findAllRuns(projectDir);
+  const candidates = [];
+  for (const runDir of runDirs) {
+    candidates.push(...await previewFromCandidates({ repoRoot, runDir }));
+  }
+  return candidates.sort((left, right) => {
+    return String(right.createdAt || "").localeCompare(String(left.createdAt || ""))
+      || String(right.runId || "").localeCompare(String(left.runId || ""))
+      || String(right.id || "").localeCompare(String(left.id || ""));
+  });
+}
+
+function candidateWorksheetDepositKey(runId = "", candidateId = "") {
+  const normalizedRunId = String(runId || "").trim();
+  const normalizedCandidateId = String(candidateId || "").trim();
+  return normalizedRunId && normalizedCandidateId ? `${normalizedRunId}::${normalizedCandidateId}` : "";
+}
+
+function annotateCandidatesWithWorksheetDeposits(candidates = [], worksheets = []) {
+  const depositsByKey = new Map();
+  for (const worksheet of worksheets) {
+    const source = worksheet.source || {};
+    const runId = String(source.runId || "").trim();
+    const candidateIds = new Set([
+      source.candidateId,
+      ...(Array.isArray(source.candidateIds) ? source.candidateIds : []),
+      ...(worksheet.pages || []).map((page) => page.sourceCandidateId || null)
+    ].filter(Boolean));
+    for (const candidateId of candidateIds) {
+      const key = candidateWorksheetDepositKey(runId, candidateId);
+      if (!key) {
+        continue;
+      }
+      if (!depositsByKey.has(key)) {
+        depositsByKey.set(key, []);
+      }
+      depositsByKey.get(key).push({
+        worksheetId: worksheet.worksheetId,
+        title: worksheet.title || worksheet.worksheetId,
+        kind: worksheet.kind || null,
+        pageCount: Number(worksheet.pageCount || worksheet.pages?.length || 0) || 0
+      });
+    }
+  }
+  return candidates.map((candidate) => {
+    const key = candidateWorksheetDepositKey(candidate.runId, candidate.id);
+    const candidateDeposits = key ? (depositsByKey.get(key) || []) : [];
+    return {
+      ...candidate,
+      worksheetDeposited: candidateDeposits.length > 0,
+      worksheetDeposits: candidateDeposits
+    };
+  });
 }
 
 function summarizeCandidatePreview(candidates) {
@@ -665,85 +760,178 @@ function summarizeCandidatePreview(candidates) {
   };
 }
 
-async function findProjectPdfs({ repoRoot, projectDir }) {
-  const knownPaths = new Set();
-  const manifestPdfs = [];
-  for (const exportDir of await listDirs(path.join(projectDir, "export"))) {
-    const manifest = await readJsonIfExists(path.join(exportDir, "export-manifest.json"));
-    const pdfPath = manifest?.pdf?.path || null;
-    if (!pdfPath) {
-      continue;
-    }
-    const filePath = path.join(projectDir, pdfPath);
-    if (!(await pathExists(filePath))) {
-      continue;
-    }
-    knownPaths.add(filePath);
-    manifestPdfs.push({
-      path: toPosix(path.relative(repoRoot, filePath)),
-      url: assetUrl(repoRoot, filePath),
-      exportId: manifest.exportId || path.basename(exportDir),
-      createdAt: manifest.createdAt || null,
-      pageCount: manifest.pdf?.pageCount || manifest.pages?.length || null,
-      solutionSheet: manifest.solutionSheet || null,
-      selectedCandidate: manifest.selectedCandidate || null,
-      basedOnCandidateId: manifest.basedOnCandidateId || null,
-      basedOnConceptId: manifest.basedOnConceptId || null,
-      basedOnConceptVersion: manifest.basedOnConceptVersion || null,
-      concept: normalizeConceptReference(manifest.concept || {}, {
-        conceptId: manifest.basedOnConceptId || null,
-        conceptVersion: manifest.basedOnConceptVersion || null
-      })
+function artifactVersionLabel(version) {
+  const number = Number(version);
+  return Number.isFinite(number) && number > 0 ? `v${number}` : null;
+}
+
+function sortArtifactsByVersionAsc(left, right) {
+  return (Number(left.version) || 0) - (Number(right.version) || 0)
+    || String(left.id || "").localeCompare(String(right.id || ""));
+}
+
+function conceptSummaryFromContent(data = {}) {
+  return {
+    title: data.title || data.topic || null,
+    taskCount: Array.isArray(data.tasks) ? data.tasks.length : 0,
+    readingTextCount: Array.isArray(data.readingTexts) ? data.readingTexts.length : 0,
+    imageMaterialCount: Array.isArray(data.imageMaterials) ? data.imageMaterials.length : 0
+  };
+}
+
+async function conceptArtifactsFromIndex(projectDir, index, documents = {}) {
+  const artifacts = listArtifacts(index, { type: ARTIFACT_TYPES.CONTENT_MIRROR })
+    .sort(sortArtifactsByVersionAsc);
+  const current = currentArtifact(index, ARTIFACT_TYPES.CONTENT_MIRROR);
+  const currentId = documents.content?.data?.artifactId || current?.id || null;
+  const concepts = [];
+
+  for (const artifact of artifacts) {
+    const version = Number(artifact.version) || null;
+    const data = artifact.path ? await readJsonIfExists(path.join(projectDir, artifact.path)) : null;
+    const summary = conceptSummaryFromContent(data || {});
+    concepts.push({
+      id: artifact.id,
+      version,
+      label: artifactVersionLabel(version) || "Konzept",
+      status: artifact.status || null,
+      current: Boolean(currentId && artifact.id === currentId),
+      createdAt: artifact.createdAt || null,
+      updatedAt: artifact.updatedAt || null,
+      title: summary.title,
+      taskCount: summary.taskCount,
+      readingTextCount: summary.readingTextCount,
+      imageMaterialCount: summary.imageMaterialCount,
+      data
     });
   }
 
-  if (manifestPdfs.length > 0) {
-    return manifestPdfs.sort((left, right) => {
-      const leftTime = left.createdAt || "";
-      const rightTime = right.createdAt || "";
-      return rightTime.localeCompare(leftTime) || String(right.exportId || "").localeCompare(String(left.exportId || ""));
-    }).slice(0, 1);
+  if (!concepts.length && documents.content?.data) {
+    const version = Number(documents.content.data.version) || null;
+    const summary = conceptSummaryFromContent(documents.content.data || {});
+    concepts.push({
+      id: documents.content.data.artifactId || "current_content",
+      version,
+      label: artifactVersionLabel(version) || "Konzept",
+      status: documents.content.status || null,
+      current: true,
+      createdAt: documents.content.data.createdAt || null,
+      updatedAt: documents.content.data.updatedAt || null,
+      title: summary.title,
+      taskCount: summary.taskCount,
+      readingTextCount: summary.readingTextCount,
+      imageMaterialCount: summary.imageMaterialCount,
+      data: documents.content.data
+    });
   }
 
-  const files = await listFilesRecursive(path.join(projectDir, "export"));
-  const filePdfs = files
-    .filter((filePath) => /\.pdf$/i.test(filePath))
-    .filter((filePath) => !knownPaths.has(filePath))
-    .map((filePath) => ({
-      path: toPosix(path.relative(repoRoot, filePath)),
-      url: assetUrl(repoRoot, filePath)
-    }));
-  return [...manifestPdfs, ...filePdfs];
+  return concepts;
+}
+
+function candidateConceptReference(manifest = {}, candidate = {}) {
+  const concept = normalizeConceptReference(candidate.concept || manifest.concept || {}, manifest.sourceArtifacts || {});
+  return {
+    concept,
+    conceptId: candidate.basedOnConceptId || concept.contentMirrorId || concept.conceptId || null,
+    conceptVersion: Number(candidate.basedOnConceptVersion || concept.conceptVersion) || null
+  };
+}
+
+async function candidateArtifactsFromRuns(projectDir) {
+  const runDirs = await listDirs(path.join(projectDir, "runs"));
+  const candidates = [];
+
+  for (const runDir of runDirs) {
+    const manifest = await readJsonIfExists(path.join(runDir, "run-manifest.json"));
+    const runId = manifest?.runId || path.basename(runDir);
+    for (const candidate of manifest?.candidates || []) {
+      const reference = candidateConceptReference(manifest, candidate);
+      candidates.push({
+        id: candidate.id,
+        runId,
+        artifactId: `${runId}_${candidate.id}`,
+        status: candidate.status || manifest?.status || null,
+        conceptId: reference.conceptId,
+        conceptVersion: reference.conceptVersion,
+        conceptLabel: artifactVersionLabel(reference.conceptVersion) || reference.concept.label || "Konzept",
+        pageCount: (candidate.pages || []).length,
+        createdAt: candidate.createdAt || manifest?.createdAt || null
+      });
+    }
+  }
+
+  return candidates.sort((left, right) => {
+    return String(right.createdAt || "").localeCompare(String(left.createdAt || ""))
+      || String(right.runId || "").localeCompare(String(left.runId || ""))
+      || String(right.id || "").localeCompare(String(left.id || ""));
+  });
+}
+
+function groupCandidatesByConcept(concepts = [], candidates = []) {
+  const conceptsById = new Map(concepts.map((concept) => [concept.id, concept]));
+  const conceptsByVersion = new Map(concepts
+    .filter((concept) => concept.version)
+    .map((concept) => [Number(concept.version), concept]));
+  const groups = new Map();
+
+  for (const candidate of candidates) {
+    const matchingConcept = (candidate.conceptId && conceptsById.get(candidate.conceptId))
+      || (candidate.conceptVersion && conceptsByVersion.get(Number(candidate.conceptVersion)))
+      || null;
+    const conceptVersion = candidate.conceptVersion || matchingConcept?.version || null;
+    const key = candidate.conceptId || (conceptVersion ? `version:${conceptVersion}` : "unknown");
+    if (!groups.has(key)) {
+      const label = artifactVersionLabel(conceptVersion)
+        || matchingConcept?.label
+        || candidate.conceptLabel
+        || "ohne Version";
+      groups.set(key, {
+        conceptId: candidate.conceptId || matchingConcept?.id || null,
+        conceptVersion,
+        label,
+        candidateCount: 0,
+        pageCount: 0,
+        current: Boolean(matchingConcept?.current)
+      });
+    }
+    const group = groups.get(key);
+    group.candidateCount += 1;
+    group.pageCount += Number(candidate.pageCount || 0);
+  }
+
+  return Array.from(groups.values()).sort((left, right) => {
+    const leftVersion = Number(left.conceptVersion) || Number.MAX_SAFE_INTEGER;
+    const rightVersion = Number(right.conceptVersion) || Number.MAX_SAFE_INTEGER;
+    return leftVersion - rightVersion || String(left.label || "").localeCompare(String(right.label || ""));
+  });
+}
+
+async function buildWorksheetArtifactOverview(projectDir, documents = {}) {
+  const index = await readArtifactIndex(projectDir);
+  const concepts = await conceptArtifactsFromIndex(projectDir, index, documents);
+  const candidates = await candidateArtifactsFromRuns(projectDir);
+  const currentConcept = concepts.find((concept) => concept.current) || concepts[concepts.length - 1] || null;
+  const candidateGroups = groupCandidatesByConcept(concepts, candidates);
+
+  return {
+    concepts,
+    candidates,
+    summary: {
+      conceptCount: concepts.length,
+      currentConceptId: currentConcept?.id || null,
+      currentConceptVersion: currentConcept?.version || null,
+      currentConceptLabel: currentConcept?.label || null,
+      candidateCount: candidates.length,
+      candidateGroups
+    }
+  };
 }
 
 async function buildWorksheetPreview({ repoRoot, projectDir, project }) {
-  const runDir = await findLatestRun(projectDir);
-  const pdfs = await findProjectPdfs({ repoRoot, projectDir });
-  const selectedPages = runDir ? await previewFromSelection({ repoRoot, runDir }) : [];
-  const candidates = runDir ? await previewFromCandidates({ repoRoot, runDir }) : [];
+  const rawCandidates = await previewFromAllCandidates({ repoRoot, projectDir });
+  const projectWorksheets = await listProjectWorksheets(project.projectId || path.basename(projectDir), { repoRoot });
+  const candidates = annotateCandidatesWithWorksheetDeposits(rawCandidates, projectWorksheets);
   const candidateSummary = summarizeCandidatePreview(candidates);
-
-  if (pdfs.length > 0) {
-    return {
-      previewType: "pdf",
-      title: project.title,
-      pdfs,
-      pages: selectedPages,
-      candidates,
-      previewMeta: candidateSummary
-    };
-  }
-
-  if (selectedPages.length > 0) {
-    return {
-      previewType: "selected_pages",
-      title: project.title,
-      pdfs: [],
-      pages: selectedPages,
-      candidates,
-      previewMeta: candidateSummary
-    };
-  }
 
   if (candidateSummary.renderedCandidateCount > 0) {
     return {
@@ -792,12 +980,24 @@ async function buildProjectDocuments(projectDir) {
   };
 }
 
+function chatInputMessagesFromEvents(events = []) {
+  return events
+    .filter((event) => event.type === EVENT_TYPES.USER_MESSAGE)
+    .map((event) => ({
+      id: event.id,
+      role: "user",
+      createdAt: event.createdAt,
+      content: event.payload?.message || event.payload?.content || "",
+      attachments: Array.isArray(event.payload?.attachments) ? event.payload.attachments : []
+    }))
+    .filter((message) => String(message.content || "").trim() || message.attachments.length);
+}
+
 async function buildBundlePreview({ repoRoot, projectDir, project }) {
-  const pdfs = await findProjectPdfs({ repoRoot, projectDir });
   return {
-    previewType: pdfs.length > 0 ? "pdf" : "project_status",
+    previewType: "project_status",
     title: project.title,
-    pdfs,
+    pdfs: [],
     pages: [],
     candidates: [],
     previewMeta: {
@@ -821,16 +1021,30 @@ async function getLibraryItem(itemId, options = {}) {
   const projectId = match[1];
   const projectDir = path.join(projectsDir, projectId);
   const project = await openProject(projectId, { projectsDir });
-  const preview = project.projectType === "bundle" || project.projectType === "series"
+  const preview = project.projectType === "bundle"
     ? await buildBundlePreview({ repoRoot, projectDir, project })
     : await buildWorksheetPreview({ repoRoot, projectDir, project });
+  const documents = await buildProjectDocuments(projectDir);
+  const events = await readEvents(projectDir);
+  const inputState = inputReadiness({
+    source: documents.source || {},
+    events
+  });
+  const artifacts = project.projectType === "bundle"
+    ? null
+    : await buildWorksheetArtifactOverview(projectDir, documents);
 
   return {
     id: itemId,
-    type: project.projectType === "bundle" ? "series" : project.projectType,
+    type: "worksheet",
     project,
-    documents: await buildProjectDocuments(projectDir),
+    documents,
+    inputReadiness: inputState,
+    chat: {
+      messages: chatInputMessagesFromEvents(events)
+    },
     preview,
+    artifacts,
     actions: actionsForProject(project, preview.previewType)
   };
 }
@@ -842,5 +1056,6 @@ module.exports = {
   getLibraryItem,
   moveLibraryItem,
   removeProjectFromLibrary,
-  renameLibraryFolder
+  renameLibraryFolder,
+  updateLibraryFolder
 };

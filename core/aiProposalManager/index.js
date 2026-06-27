@@ -11,6 +11,7 @@ const { createLessonBriefVersion } = require("../briefManager");
 const { createContentMirrorVersion } = require("../contentMirrorManager");
 const { createContentWarningsVersion, normalizeWarnings } = require("../contentWarningManager");
 const { logModelRun, sanitizeErrorMessage } = require("../modelRunLogger");
+const { estimateOpenAiTextCost } = require("../imageCostManager");
 const { ROUTE_PURPOSES, routeForPurpose } = require("../modelRouter");
 const { composePrompts } = require("../promptRegistry");
 const { productionContextToPrompt } = require("../productionContext");
@@ -147,7 +148,7 @@ function titleFromProposal(proposal) {
     return proposal.data?.title || "Konzept-Vorschlag";
   }
   if (proposal.kind === PROPOSAL_KINDS.IMAGE_SPEC) {
-    return proposal.data?.purpose || "Kandidatenvorbereitung";
+    return proposal.data?.purpose || "Entwurfsvorbereitung";
   }
   return proposal.data?.summary || "Prüfhinweise";
 }
@@ -184,6 +185,14 @@ function visibleImageSpecStrings(values) {
 function visibleImageSpecText(value, fallback) {
   const text = stringOrNull(value);
   if (!text || isSolutionText(text)) {
+    return fallback;
+  }
+  return text;
+}
+
+function safeImageSpecIntentText(value, fallback) {
+  const text = visibleImageSpecText(value, fallback);
+  if (!text || hasImageSpecPromptConflict(text)) {
     return fallback;
   }
   return text;
@@ -372,36 +381,21 @@ function validateImageSpec(data = {}, project, context = {}, ruleSelection = {})
   const topic = stringOrNull(data.topic) || project.topic || project.title;
   const purpose = visibleImageSpecText(data.purpose, "Arbeitsblattseite aus freigegebenem Konzept");
   const placement = visibleImageSpecText(data.placement, "DIN-A4-Arbeitsblattseite");
+  const visualBrief = safeImageSpecIntentText(
+    data.visualBrief || data.finalPrompt,
+    `Visuelle Umsetzung einer vollstaendigen DIN-A4-Arbeitsblattseite zum Thema ${topic}.`
+  );
+  const layoutIntent = safeImageSpecIntentText(
+    data.layoutIntent,
+    "Klare A4-Arbeitsblattseite mit Titelbereich, Material-/Bildbereich, Aufgabenbereich und gut scanbarer Hierarchie."
+  );
+  const styleNotes = safeImageSpecIntentText(
+    data.styleNotes,
+    "Ruhig, druckfreundlich, gut lesbar, schulisch, ohne dekorative Ueberladung."
+  );
   const mustShow = visibleImageSpecStrings(data.mustShow);
   const avoid = visibleImageSpecStrings(data.avoid);
-  const rawFinalPrompt = stringOrNull(data.finalPrompt);
-  const rawPromptConflicts = hasImageSpecPromptConflict(rawFinalPrompt);
-  const baseFinalPrompt = !rawPromptConflicts && rawFinalPrompt ? [
-    "Deliverable: complete Image-First worksheet page, not a text-free illustration asset.",
-    "Canvas: DIN A4 portrait worksheet page, aspect ratio 1:sqrt(2) / 210:297.",
-    "Content policy: visible text must come only from the approved worksheet content; do not invent tasks, labels, explanations, sources, or answers.",
-    rawFinalPrompt
-  ].join("\n") : [
-    "Deliverable: complete Image-First worksheet page with approved worksheet text integrated in the image.",
-    "Canvas: DIN A4 portrait, aspect ratio 1:sqrt(2) / 210:297. Avoid square or 2:3 poster composition.",
-    `Subject: ${topic}.`,
-    `Audience: ${project.manifest?.targetGroup || "German classroom"}.`,
-    `Purpose: ${stringOrNull(data.learningFunction) || purpose || "support the worksheet task"}.`,
-    `Style: ${style}.`,
-    `Must show: ${mustShow.join(", ") || topic}.`,
-    `Must avoid: ${avoid.join(", ") || "decorative clutter, logos, watermarks"}.`,
-    "Text policy: visible text must come only from the approved worksheet content; no invented labels, tasks, explanations, sources, answers, QR codes, or watermarks.",
-    "Page layout: use the full A4 worksheet page with clean margins."
-  ].join("\n");
   const appliedRules = appliedRulesForImageSpec(ruleSelection);
-  const rulePrompt = appliedRules.length ? [
-    "Applied SheetifyIMG rules for this ImageSpec:",
-    ...appliedRules.flatMap((rule) => [
-      `- ${rule.id}: ${rule.title}`,
-      ...(rule.instructions || []).map((instruction) => `  - ${instruction}`)
-    ])
-  ].join("\n") : "";
-  const finalPrompt = [baseFinalPrompt, rulePrompt].filter(Boolean).join("\n\n");
 
   const referenceImages = normalizeReferenceImages(data.referenceImages, context);
   const { referencePolicy: ignoredReferencePolicy, ...imageSpecForGuardrails } = data;
@@ -418,7 +412,10 @@ function validateImageSpec(data = {}, project, context = {}, ruleSelection = {})
   const pagePlan = pagePlanForImageSpec(context.currentContent || {}, context.currentBrief || {}, data);
   const imageSpec = {
     purpose,
+    visualBrief,
+    layoutIntent,
     style,
+    styleNotes,
     topic,
     placement,
     learningFunction: stringOrNull(data.learningFunction) || "Material veranschaulichen",
@@ -434,11 +431,19 @@ function validateImageSpec(data = {}, project, context = {}, ruleSelection = {})
     pagePlan: pagePlan.pages,
     aspectRatio,
     textPolicy,
-    finalPrompt
+    promptPreview: [
+      "ImageSpec preview: strukturierte Bildabsicht, nicht der direkt gesendete Bildprompt.",
+      `Visual brief: ${visualBrief}`,
+      `Layout intent: ${layoutIntent}`,
+      `Style: ${style}. ${styleNotes}`,
+      `Must show: ${mustShow.join(", ") || topic}`,
+      `Must avoid: ${avoid.join(", ") || "decorative clutter, logos, watermarks"}`
+    ].join("\n")
   };
+  imageSpec.finalPrompt = imageSpec.promptPreview;
 
-  if (!imageSpec.topic || !imageSpec.finalPrompt) {
-    throw new Error("ImageSpec proposal is missing topic or finalPrompt.");
+  if (!imageSpec.topic || !imageSpec.visualBrief || !imageSpec.layoutIntent) {
+    throw new Error("ImageSpec proposal is missing topic, visualBrief or layoutIntent.");
   }
   return imageSpec;
 }
@@ -557,7 +562,10 @@ function imageSpecSchema() {
     additionalProperties: false,
     required: [
       "purpose",
+      "visualBrief",
+      "layoutIntent",
       "style",
+      "styleNotes",
       "topic",
       "placement",
       "learningFunction",
@@ -569,8 +577,7 @@ function imageSpecSchema() {
       "referenceImages",
       "referencePolicy",
       "aspectRatio",
-      "textPolicy",
-      "finalPrompt"
+      "textPolicy"
     ],
     properties: {
       purpose: { type: "string" },
@@ -642,7 +649,9 @@ function imageSpecSchema() {
       },
       aspectRatio: { type: "string" },
       textPolicy: { type: "string" },
-      finalPrompt: { type: "string" }
+      visualBrief: { type: "string" },
+      layoutIntent: { type: "string" },
+      styleNotes: { type: "string" }
     }
   };
 }
@@ -748,7 +757,7 @@ function userPromptForKind(kind, message) {
     return "Erzeuge Aufgaben, Material und Loesungshinweise fuer das Arbeitsblatt-Konzept.";
   }
   if (kind === PROPOSAL_KINDS.IMAGE_SPEC) {
-    return "Leite intern die Kandidatenvorbereitung aus dem freigegebenen Arbeitsblatt-Konzept ab.";
+    return "Leite intern die Entwurfsvorbereitung aus dem freigegebenen Arbeitsblatt-Konzept ab.";
   }
   return "Erzeuge Pruefhinweise fuer das aktuelle Arbeitsblatt-Konzept.";
 }
@@ -842,6 +851,12 @@ async function modelProposalData(kind, project, context, input, runtime, logCont
     }
     throw error;
   }
+  const responseModel = response.model || route.model || requestConfig.textModel;
+  const usage = response.usage || null;
+  const costEstimate = estimateOpenAiTextCost({
+    usage,
+    model: responseModel
+  });
   const raw = parseStructuredResponse(response);
   let data = kind === PROPOSAL_KINDS.LESSON_BRIEF
     ? validateLessonBrief(raw, project)
@@ -861,9 +876,11 @@ async function modelProposalData(kind, project, context, input, runtime, logCont
       purpose: route.purpose,
       route: route.route,
       promptNames: route.promptNames,
-      model: response.model || route.model || requestConfig.textModel,
+      model: responseModel,
       responseId: response.id || null,
       durationMs: Date.now() - startedAt,
+      usage,
+      costEstimate,
       uiEvent: input.uiEvent || "proposal_generation"
     }, { now: input.now || logContext.now });
   }
@@ -874,7 +891,7 @@ async function modelProposalData(kind, project, context, input, runtime, logCont
     provider: {
       name: "openai",
       responseId: response.id || null,
-      model: response.model || route.model || requestConfig.textModel,
+      model: responseModel,
       mode: runtime.mode,
       route: route.route,
       purpose: route.purpose
@@ -937,7 +954,7 @@ function proposalSummaryText(kind, data) {
     return `Arbeitsblatt-Konzept mit ${data.tasks.length} Aufgaben und ${data.imageMaterials.length} Bildmaterialien`;
   }
   if (kind === PROPOSAL_KINDS.IMAGE_SPEC) {
-    return `Kandidatenvorbereitung zu "${data.topic}"`;
+    return `Entwurfsvorbereitung zu "${data.topic}"`;
   }
   return `Pruefvorschlag mit ${data.warnings.length} Hinweisen`;
 }
@@ -953,7 +970,7 @@ function adoptCommandForKind(kind, context = {}) {
     };
   }
   if (kind === PROPOSAL_KINDS.IMAGE_SPEC) {
-    return { command: "adopt_image_spec", label: "Kandidaten vorbereiten" };
+    return { command: "adopt_image_spec", label: "Entwurf vorbereiten" };
   }
   return { command: "adopt_content_warnings_proposal", label: "Prüfhinweise übernehmen" };
 }
@@ -990,12 +1007,71 @@ function referencePolicyMessage(referencePolicy = null) {
     return ` ${referencePolicy.reason} Dafür sollte die App eine feste Vorlage oder ein festes Asset nutzen, nicht das Bildmodell frei zeichnen lassen.`;
   }
   if (referencePolicy.level === "required") {
-    return ` Für diese Visualisierung wäre eine Referenz sinnvoll: ${referencePolicy.reason} Du kannst eine passende Referenz anhängen oder trotzdem direkt einen ersten Kandidaten erzeugen.`;
+    return ` Für diese Visualisierung wäre eine Referenz sinnvoll: ${referencePolicy.reason} Du kannst eine passende Referenz anhängen oder trotzdem direkt einen ersten Entwurf erstellen.`;
   }
   if (referencePolicy.level === "recommended") {
-    return ` Eine Referenz kann hier helfen: ${referencePolicy.reason} Ohne Referenz kann ich trotzdem einen ersten Kandidaten versuchen.`;
+    return ` Eine Referenz kann hier helfen: ${referencePolicy.reason} Ohne Referenz kann ich trotzdem einen ersten Entwurf versuchen.`;
   }
   return "";
+}
+
+function wordCount(value) {
+  return String(value || "").split(/\s+/).map((word) => word.trim()).filter(Boolean).length;
+}
+
+function contentProposalStrength(content = {}) {
+  const tasks = Array.isArray(content.tasks) ? content.tasks : [];
+  const readingTexts = Array.isArray(content.readingTexts) ? content.readingTexts : [];
+  const imageMaterials = Array.isArray(content.imageMaterials) ? content.imageMaterials : [];
+  const tasksUseMaterial = tasks.some((task) => Array.isArray(task.materialRefs) && task.materialRefs.length > 0);
+
+  if (imageMaterials.length && tasksUseMaterial) {
+    return `Bildidee und Aufgaben sind miteinander verbunden; dadurch ist das Bild nicht nur Deko, sondern kann beim Bearbeiten wirklich helfen.`;
+  }
+  if (tasks.length >= 3) {
+    return `Die Aufgabenfolge ist klar genug angelegt und bietet mit ${tasks.length} Aufgaben mehrere Zugriffspunkte auf das Thema.`;
+  }
+  if (readingTexts.length) {
+    return `Der sichtbare Text gibt dem Blatt eine erkennbare Grundlage, auf die die Aufgaben aufbauen können.`;
+  }
+  return "Der Aufbau ist grundsätzlich übersichtlich und lässt sich als Arbeitsblatt-Konzept gut prüfen.";
+}
+
+function contentProposalConcern(content = {}, context = {}) {
+  const tasks = Array.isArray(content.tasks) ? content.tasks : [];
+  const readingTexts = Array.isArray(content.readingTexts) ? content.readingTexts : [];
+  const imageMaterials = Array.isArray(content.imageMaterials) ? content.imageMaterials : [];
+  const totalWords = readingTexts.reduce((sum, entry) => sum + wordCount(entry.body), 0);
+  const plannedPages = Number(content.pageCount || content.outputPreference?.pages || context.currentBrief?.outputPreference?.pages || 0);
+  const tasksUseMaterial = tasks.some((task) => Array.isArray(task.materialRefs) && task.materialRefs.length > 0);
+  const tasksWithExpectedAnswer = tasks.filter((task) => String(task.expectedAnswer || "").trim()).length;
+
+  if (plannedPages > 0 && plannedPages <= 1 && tasks.length >= 4) {
+    return "Etwas eng könnte der Platz werden, weil mehrere Aufgaben auf eine Seite müssen; das kann Lesbarkeit und Arbeitsruhe schwächen.";
+  }
+  if (totalWords > 220) {
+    return "Etwas unsicher ist die Textmenge: Der Leseteil ist relativ umfangreich und könnte auf dem Blatt schnell dominant werden.";
+  }
+  if (imageMaterials.length && !tasksUseMaterial) {
+    return "Noch nicht ganz stark ist die Bildnutzung: Die Bildidee ist vorhanden, aber die Aufgaben greifen sie bisher nur schwach auf.";
+  }
+  if (!imageMaterials.length) {
+    return "Noch offen ist die visuelle Stütze, weil im Konzept kein klares Bildmaterial vorgesehen ist.";
+  }
+  if (tasks.length && tasksWithExpectedAnswer < tasks.length) {
+    return "Bei einzelnen Aufgaben könnte die Erwartung noch präziser sein, damit später klarer prüfbar ist, was eine gute Antwort wäre.";
+  }
+  return "Die größte offene Frage ist eher die Feinabstimmung: ob Niveau, Umfang und Bildgewicht genau zu deiner Lerngruppe passen.";
+}
+
+function contentProposalAssessmentFallback(proposal = {}, context = {}) {
+  const content = proposal.data || {};
+  const title = content.title || context.project?.title || "das Konzept";
+  return [
+    `Ich sehe bei „${title}“ eine tragfähige Richtung: ${contentProposalStrength(content)}`,
+    contentProposalConcern(content, context),
+    "Möchtest du dieses Arbeitsblatt-Konzept übernehmen oder noch etwas anpassen?"
+  ].join(" ");
 }
 
 async function appendAssistantProposalMessage(projectDir, proposal, now, context = {}) {
@@ -1009,9 +1085,9 @@ async function appendAssistantProposalMessage(projectDir, proposal, now, context
     payload: actionPayload
   }];
   const fallback = proposal.kind === PROPOSAL_KINDS.CONTENT_MIRROR
-    ? "Ich habe ein vollständiges Arbeitsblatt-Konzept vorbereitet. Prüf Text, Aufgaben und Bildidee. Wenn es passt, übernehme ich es als Grundlage für Kandidaten; wenn nicht, gib mir Feedback."
+    ? contentProposalAssessmentFallback(proposal, context)
     : proposal.kind === PROPOSAL_KINDS.IMAGE_SPEC
-      ? `Ich habe die Kandidatenvorbereitung aus dem freigegebenen Arbeitsblatt-Konzept abgeleitet.${referencePolicyMessage(proposal.data?.referencePolicy)} Wenn das passt, übernehme ich sie als Grundlage für die Bildgenerierung.`
+      ? `Ich habe die Entwurfsvorbereitung aus dem freigegebenen Arbeitsblatt-Konzept abgeleitet.${referencePolicyMessage(proposal.data?.referencePolicy)} Wenn das passt, übernehme ich sie als Grundlage für die Bildgenerierung.`
       : `${proposalSummaryText(proposal.kind, proposal.data)} ist vorbereitet. Soll ich das übernehmen?`;
   const message = await narrateChatMoment(projectDir, {
     kind: "proposal_ready",
@@ -1042,7 +1118,7 @@ async function appendAssistantProposalMessage(projectDir, proposal, now, context
     step: proposal.kind === PROPOSAL_KINDS.CONTENT_WARNINGS
       ? "pruefung"
       : proposal.kind === PROPOSAL_KINDS.IMAGE_SPEC
-        ? "kandidaten"
+        ? "entwuerfe"
         : "content",
     payload: {
       mode: proposal.createdBy?.mode || "openai",
@@ -1081,7 +1157,7 @@ async function generateProposal(projectId, kind, input = {}, options = {}) {
       await appendEvent(projectDir, {
         type: EVENT_TYPES.ASSISTANT_MESSAGE,
         createdAt: now,
-        step: kind === PROPOSAL_KINDS.IMAGE_SPEC ? "kandidaten" : "content",
+        step: kind === PROPOSAL_KINDS.IMAGE_SPEC ? "entwuerfe" : "content",
         payload: {
           mode: "openai_error",
           message: failedProposalMessage(kind, error),
@@ -1200,7 +1276,7 @@ async function adoptProposal(projectId, kind, input = {}, options = {}) {
   await supersedeOpenSiblingProposals(projectDir, proposal, { now });
   if (!input.silent) {
     const fallback = kind === PROPOSAL_KINDS.IMAGE_SPEC
-      ? "Die Kandidatenvorbereitung ist übernommen. Daraus kann jetzt ein Bild-Kandidat erzeugt werden."
+      ? "Die Entwurfsvorbereitung ist übernommen. Daraus kann jetzt ein Bild-Entwurf erzeugt werden."
       : `${proposalSummaryText(kind, proposal.data)} wurde als ${kind === PROPOSAL_KINDS.CONTENT_WARNINGS ? "Prüfstand" : "Arbeitsblatt-Konzept"} übernommen.`;
     const message = await narrateChatMoment(projectDir, {
       kind: "proposal_adopted",
@@ -1217,7 +1293,7 @@ async function adoptProposal(projectId, kind, input = {}, options = {}) {
       step: kind === PROPOSAL_KINDS.CONTENT_WARNINGS
         ? "pruefung"
         : kind === PROPOSAL_KINDS.IMAGE_SPEC
-          ? "kandidaten"
+          ? "entwuerfe"
           : "content",
       payload: {
         mode: "narration",

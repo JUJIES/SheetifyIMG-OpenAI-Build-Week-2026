@@ -10,6 +10,7 @@ const DEFAULT_IMAGE_TIMEOUT_MS = 180000;
 const DEFAULT_CODEX_IMAGE_TIMEOUT_MS = 300000;
 const DEFAULT_REASONING_EFFORT = "low";
 const DEFAULT_CODEX_REASONING_EFFORT = "low";
+const DEFAULT_IMAGE_PROVIDER = "codex_cli";
 const DEFAULT_IMAGE_SIZE = "1120x1584";
 const DEFAULT_IMAGE_OUTPUT_FORMAT = "png";
 const DEFAULT_IMAGE_PRESET = "standard";
@@ -24,7 +25,7 @@ const IMAGE_QUALITY_PRESETS = {
     id: "standard",
     label: "Standard",
     quality: "medium",
-    description: "Normaler SheetifyIMG-Kandidatenlauf fuer Arbeitsblaetter mit Text."
+    description: "Normaler SheetifyIMG-Entwurfslauf fuer Arbeitsblaetter mit Text."
   },
   druckqualitaet: {
     id: "druckqualitaet",
@@ -45,11 +46,22 @@ function normalizedMode(value) {
 }
 
 function normalizedImageProvider(value) {
-  const provider = nonEmpty(value || "openai").toLowerCase().replace(/[-\s]+/g, "_");
+  const provider = nonEmpty(value || DEFAULT_IMAGE_PROVIDER).toLowerCase().replace(/[-\s]+/g, "_");
   if (["codex", "codex_cli", "codex_usage", "chatgpt", "chatgpt_codex"].includes(provider)) {
     return "codex_cli";
   }
   return "openai";
+}
+
+function preferredImageProvider(env = process.env, overrides = {}) {
+  const explicit = overrides.imageProvider
+    || env.SHEETIFYIMG_IMAGE_PROVIDER
+    || env.SHEETIFYIMG_IMAGE_MODE
+    || env.SHEETIFYIMG_AI_MODE;
+  if (nonEmpty(explicit)) {
+    return normalizedImageProvider(explicit);
+  }
+  return codexImageEnabled(env) ? DEFAULT_IMAGE_PROVIDER : "openai";
 }
 
 function codexImageEnabled(env = process.env) {
@@ -86,6 +98,17 @@ function normalizedImagePreset(value) {
 function normalizedImageQuality(value) {
   const quality = nonEmpty(value).toLowerCase();
   return ["low", "medium", "high"].includes(quality) ? quality : null;
+}
+
+function normalizedBoolean(value, fallback = false) {
+  const text = nonEmpty(value).toLowerCase();
+  if (["1", "true", "on", "yes"].includes(text)) {
+    return true;
+  }
+  if (["0", "false", "off", "no"].includes(text)) {
+    return false;
+  }
+  return fallback;
 }
 
 function presetForQuality(quality) {
@@ -146,12 +169,7 @@ function getOpenAiRequestConfig(env = process.env) {
 }
 
 function getImageRuntimeStatus(env = process.env, overrides = {}) {
-  const imageProvider = normalizedImageProvider(
-    overrides.imageProvider
-    || env.SHEETIFYIMG_IMAGE_PROVIDER
-    || env.SHEETIFYIMG_IMAGE_MODE
-    || env.SHEETIFYIMG_AI_MODE
-  );
+  const imageProvider = preferredImageProvider(env, overrides);
   const configuredMode = imageProvider;
   const apiKeyConfigured = Boolean(nonEmpty(env.OPENAI_API_KEY));
   const canUseOpenAi = apiKeyConfigured;
@@ -175,13 +193,13 @@ function getImageRuntimeStatus(env = process.env, overrides = {}) {
         id: "codex_cli",
         label: "Codex Usage",
         enabled: canUseCodex,
-        description: "Nutzt den lokalen Codex-Login und erzeugt Bilder über Codex."
+        description: "Schneller Entwurfsweg über den lokalen Codex-Login; das Seitenformat wird technisch geprüft."
       },
       {
         id: "openai",
         label: "OpenAI API",
         enabled: canUseOpenAi,
-        description: "Nutzt den OpenAI API-Key und kann API-Kosten verursachen."
+        description: "Stabilerer Produktionsweg mit fester Bildgröße über den hinterlegten API-Key."
       }
     ],
     imageModel: nonEmpty(env.SHEETIFYIMG_IMAGE_MODEL) || DEFAULT_IMAGE_MODEL,
@@ -190,6 +208,7 @@ function getImageRuntimeStatus(env = process.env, overrides = {}) {
     imageOutputFormat: nonEmpty(env.SHEETIFYIMG_IMAGE_OUTPUT_FORMAT) || DEFAULT_IMAGE_OUTPUT_FORMAT,
     imageBackground: nonEmpty(env.SHEETIFYIMG_IMAGE_BACKGROUND) || "opaque",
     imageModeration: nonEmpty(env.SHEETIFYIMG_IMAGE_MODERATION) || "auto",
+    openAiImageStreaming: normalizedBoolean(overrides.openAiImageStreaming ?? env.SHEETIFYIMG_OPENAI_IMAGE_STREAMING, false),
     maxCandidateCount: numberFromEnv(env.SHEETIFYIMG_MAX_IMAGE_CANDIDATES, 1),
     codexBin: nonEmpty(env.SHEETIFYIMG_CODEX_BIN) || nonEmpty(env.CODEX_CLI_PATH) || "codex",
     codexModel: nonEmpty(env.SHEETIFYIMG_CODEX_IMAGE_MODEL) || DEFAULT_CODEX_IMAGE_MODEL,

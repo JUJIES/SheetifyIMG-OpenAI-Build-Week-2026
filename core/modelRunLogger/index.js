@@ -28,6 +28,9 @@ function publicEntry(entry = {}, now) {
     toolCallCount: Number(entry.toolCallCount) || 0,
     durationMs: Number(entry.durationMs) || null,
     uiEvent: entry.uiEvent || null,
+    usage: entry.usage && typeof entry.usage === "object" ? entry.usage : null,
+    costEstimate: entry.costEstimate && typeof entry.costEstimate === "object" ? entry.costEstimate : null,
+    metadata: entry.metadata && typeof entry.metadata === "object" ? entry.metadata : null,
     error: entry.error ? sanitizeErrorMessage(entry.error) : null
   };
 }

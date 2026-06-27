@@ -15,6 +15,7 @@ const {
   normalizeConceptReference
 } = require("../conceptReference");
 const { updateRunAnalysisReport } = require("../runAnalysisManager");
+const { writeJsonFile } = require("../jsonFile");
 
 async function pathExists(filePath) {
   try {
@@ -30,8 +31,7 @@ async function readJson(filePath) {
 }
 
 async function writeJson(filePath, value) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await writeJsonFile(filePath, value);
 }
 
 function normalizePages(pages = []) {
@@ -99,7 +99,7 @@ async function registerCandidate(projectDir, runId, candidate, options = {}) {
     type: ARTIFACT_TYPES.CANDIDATE,
     path: `runs/${runId}/run-manifest.json`,
     status: status === "pending_generation" ? ARTIFACT_STATUSES.DRAFT : ARTIFACT_STATUSES.CURRENT,
-    step: "kandidaten",
+    step: "entwuerfe",
     createdAt: now,
     createdFrom: createdFromWithConcept([runId], concept),
     thumbnailPath: pages[0]?.path ? `runs/${runId}/${pages[0].path}` : null
@@ -108,7 +108,7 @@ async function registerCandidate(projectDir, runId, candidate, options = {}) {
   await appendEvent(projectDir, {
     type: EVENT_TYPES.CANDIDATE_CREATED,
     createdAt: now,
-    step: "kandidaten",
+    step: "entwuerfe",
     runId,
     artifactId,
     payload: {

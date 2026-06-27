@@ -76,7 +76,7 @@ async function proposalById(projectDir, proposalId) {
   const files = await fs.readdir(proposalsDir);
   const fileName = files.find((entry) => entry.startsWith(`${proposalId}.`) && entry.endsWith(".json"));
   if (!fileName) {
-    throw new Error(`Kandidatenvorbereitung nicht gefunden: ${proposalId}`);
+    throw new Error(`Entwurfsvorbereitung nicht gefunden: ${proposalId}`);
   }
   const filePath = path.join(proposalsDir, fileName);
   return {
@@ -406,7 +406,7 @@ async function createAppTemplate(projectDir, policy, options = {}) {
     qrContent: templateMeta?.content || null,
     coordinatePlan: templateMeta?.plan || null,
     note: policy.category === "code_asset"
-      ? "Echter QR-Code als Bildmodell-Referenz und Benchmark. Nach der Kandidatenerzeugung muss die Ausgabe gescannt werden."
+      ? "Echter QR-Code als Bildmodell-Referenz und Benchmark. Nach der Entwurfserstellung muss die Ausgabe gescannt werden."
       : "Koordinatensystem-Vorlage fuer Bildmodell-Referenz."
   };
   await writeJson(path.join(dir, "reference-manifest.json"), manifest);
@@ -432,7 +432,7 @@ async function prepareReferenceAsset(projectDir, input = {}, options = {}) {
     ? await proposalById(projectDir, input.proposalId)
     : await latestImageSpecProposal(projectDir);
   if (!target?.proposal) {
-    throw new Error("Es gibt noch keine Kandidatenvorbereitung fuer eine Referenz.");
+    throw new Error("Es gibt noch keine Entwurfsvorbereitung fuer eine Referenz.");
   }
   const proposal = target.proposal;
   const imageSpec = proposal.data || {};
@@ -491,12 +491,12 @@ async function prepareReferenceAsset(projectDir, input = {}, options = {}) {
   const message = policy.category === "factual_map"
     ? "Ich habe das hochgeladene Bild als Kartenreferenz übernommen. Die Bildgenerierung soll sich daran für Umrisse, Stadtlagen und räumliche Logik orientieren."
     : policy.category === "code_asset"
-      ? "Ich habe einen echten QR-Code deterministisch erzeugt und als Referenz an die Kandidatenvorbereitung gehängt. Nach der Bildgenerierung prüfen wir, ob der QR-Code im fertigen Kandidaten noch scanbar ist."
-      : "Ich habe eine App-Vorlage als Referenz erzeugt und an die Kandidatenvorbereitung gehängt. Die Bildgenerierung kann sie für Raster, Aufbau oder Fachstruktur nutzen.";
+      ? "Ich habe einen echten QR-Code deterministisch erzeugt und als Referenz an die Entwurfsvorbereitung gehängt. Nach der Bildgenerierung prüfen wir, ob der QR-Code im fertigen Entwurf noch scanbar ist."
+      : "Ich habe eine App-Vorlage als Referenz erzeugt und an die Entwurfsvorbereitung gehängt. Die Bildgenerierung kann sie für Raster, Aufbau oder Fachstruktur nutzen.";
   await appendEvent(projectDir, {
     type: EVENT_TYPES.ASSISTANT_MESSAGE,
     createdAt: now,
-    step: "kandidaten",
+    step: "entwuerfe",
     payload: {
       mode: "reference_asset",
       message,
@@ -519,7 +519,7 @@ async function prepareWebReferenceAsset(projectDir, input = {}, options = {}) {
     ? await proposalById(projectDir, input.proposalId)
     : await latestImageSpecProposal(projectDir);
   if (!target?.proposal) {
-    throw new Error("Es gibt noch keine Kandidatenvorbereitung fuer eine Webreferenz.");
+    throw new Error("Es gibt noch keine Entwurfsvorbereitung fuer eine Webreferenz.");
   }
   const proposal = target.proposal;
   const imageSpec = proposal.data || {};
@@ -573,7 +573,7 @@ async function prepareWebReferenceAsset(projectDir, input = {}, options = {}) {
   await appendEvent(projectDir, {
     type: EVENT_TYPES.ASSISTANT_MESSAGE,
     createdAt: now,
-    step: "kandidaten",
+    step: "entwuerfe",
     payload: {
       mode: "reference_asset",
       message: `Ich habe eine offene Webreferenz aus Wikimedia Commons geladen und als Bildreferenz angehängt. Für die Generierung nutze ich sie nur für Stil, Form und Ortsanmutung; die neue Fake-Beschriftung kommt aus deinem Arbeitsblatt-Konzept.`,

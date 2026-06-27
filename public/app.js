@@ -2,9 +2,31 @@
 
 const SETTINGS_STORAGE_KEY = "sheetifyimg.settings.v1";
 const imageProviderSettingIds = new Set(["codex_cli", "openai"]);
+const imageQualitySettingIds = new Set(["sparsam", "standard", "druckqualitaet"]);
 
 function normalizeImageProviderSetting(value) {
   return imageProviderSettingIds.has(value) ? value : null;
+}
+
+function normalizeImageQualitySetting(value, fallback = "standard") {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+  const aliases = {
+    low: "sparsam",
+    schnell: "sparsam",
+    sparsam: "sparsam",
+    medium: "standard",
+    mittel: "standard",
+    standard: "standard",
+    high: "druckqualitaet",
+    hoch: "druckqualitaet",
+    druck: "druckqualitaet",
+    druckqualitaet: "druckqualitaet"
+  };
+  const preset = aliases[normalized] || normalized;
+  return imageQualitySettingIds.has(preset) ? preset : fallback;
 }
 
 function loadSettings() {
@@ -13,39 +35,118 @@ function loadSettings() {
     const parsed = raw ? JSON.parse(raw) : {};
     const imageProviderConfigured = parsed.imageProviderConfigured === true;
     return {
-      imageProvider: imageProviderConfigured ? normalizeImageProviderSetting(parsed.imageProvider) : null
+      imageProvider: imageProviderConfigured ? normalizeImageProviderSetting(parsed.imageProvider) : null,
+      imageQualityPreset: normalizeImageQualitySetting(parsed.imageQualityPreset, null),
+      openAiImageStreaming: parsed.openAiImageStreaming === true
     };
   } catch {
-    return { imageProvider: null };
+    return { imageProvider: null, imageQualityPreset: null, openAiImageStreaming: false };
   }
 }
 
 function saveSettings(settings = {}) {
   try {
     const imageProvider = normalizeImageProviderSetting(settings.imageProvider);
+    const imageQualityPreset = normalizeImageQualitySetting(settings.imageQualityPreset, null);
     window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
       imageProvider,
-      imageProviderConfigured: Boolean(imageProvider)
+      imageProviderConfigured: Boolean(imageProvider),
+      ...(imageQualityPreset ? { imageQualityPreset } : {}),
+      openAiImageStreaming: settings.openAiImageStreaming === true
     }));
   } catch {
     // Browser storage can be unavailable in restricted contexts. The current session still works.
   }
 }
 
+const initialUrlParams = new URLSearchParams(window.location.search);
+
+function normalizeRouteView(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "workspace" || normalized === "projects" || normalized === "worksheets"
+    ? normalized
+    : "";
+}
+
+function parseInitialRoute(params) {
+  const projectId = String(params.get("project") || "").trim();
+  const worksheetId = String(params.get("worksheet") || "").trim();
+  const view = normalizeRouteView(params.get("view"));
+
+  if (worksheetId) {
+    return {
+      view: "worksheets",
+      projectId,
+      worksheetId,
+      itemId: `worksheet:${worksheetId}`
+    };
+  }
+
+  if (projectId) {
+    return {
+      view: view === "workspace" ? "workspace" : "projects",
+      projectId,
+      worksheetId: "",
+      itemId: `project:${projectId}`
+    };
+  }
+
+  if (view === "worksheets" || view === "projects") {
+    return {
+      view,
+      projectId: "",
+      worksheetId: "",
+      itemId: ""
+    };
+  }
+
+  return null;
+}
+
+const initialRoute = parseInitialRoute(initialUrlParams);
+
 const state = {
   mode: "library",
+  libraryView: initialRoute?.view === "worksheets" ? "worksheets" : "projects",
+  librarySelections: {
+    projects: initialRoute?.itemId?.startsWith("project:") ? initialRoute.itemId : null,
+    worksheets: initialRoute?.itemId?.startsWith("worksheet:") ? initialRoute.itemId : null
+  },
   query: "",
   selectedId: null,
+  selectedTreeItemIds: new Set(),
+  treeSelectionAnchorId: null,
   selectedItem: null,
   workspace: null,
   settings: loadSettings(),
   settingsModal: {
-    lastFocusedElement: null
+    lastFocusedElement: null,
+    billingStatus: null,
+    billingProjectId: null,
+    billingLoading: false,
+    billingError: null
+  },
+  sharePanel: {
+    open: false,
+    pinned: false,
+    loading: false,
+    error: null,
+    data: null,
+    requestKey: "",
+    selectedTargetId: null,
+    lastFocusedElement: null,
+    closeTimer: null,
+    suppressFocusOpen: false
   },
   activeStatusStep: null,
+  activeLibraryConceptId: null,
   activeCanvasMode: "content",
+  activeArtifactSelection: null,
+  artifactRelationPulseKey: "",
+  artifactRelationPulseTimer: null,
   tree: null,
   collapsedFolders: new Set(),
+  collapsedArtifactGroups: new Set(),
   draggingTreeNodeId: null,
   pendingChat: null,
   pendingCommand: null,
@@ -81,6 +182,15 @@ const state = {
     currentY: 0
   },
   debugSnapshot: null,
+  projectSplitLayout: {
+    collapsed: false,
+    height: 196,
+    lastExpandedHeight: 196,
+    resizing: false,
+    pointerId: null,
+    startY: 0,
+    suppressClick: false
+  },
   canvasLayout: {
     collapsed: true,
     docked: false,
@@ -91,27 +201,48 @@ const state = {
     startX: 0,
     suppressClick: false
   },
+  canvasSheetWidthFrame: null,
   mobilePreview: {
     mode: null,
     source: "workspace",
-    presentation: "sheet",
     minimized: false,
     lastFocusedElement: null
   }
 };
 
-const spriteHref = "/icons/lucide-sprite.svg?v=12";
-const initialUrlParams = new URLSearchParams(window.location.search);
-const initialProjectId = initialUrlParams.get("project") || "";
-let pendingInitialSelectedId = initialProjectId ? `project:${initialProjectId}` : null;
+const spriteHref = "/icons/lucide-sprite.svg?v=15";
+let pendingInitialRoute = initialRoute;
+let backgroundRefreshTimer = null;
+let backgroundRefreshInFlight = false;
+let selectedItemRefreshId = 0;
+let workspaceRefreshId = 0;
+let shareRefreshId = 0;
+let nextConceptCopyId = 1;
+const conceptCopyTexts = new Map();
 
 const elements = {
   topbarProject: document.querySelector("#topbarProject"),
   workspaceProjectTitle: document.querySelector("#workspaceProjectTitle"),
+  workspaceMobileProjectTitle: document.querySelector("#workspaceMobileProjectTitle"),
   workspaceLibraryButton: document.querySelector("#workspaceLibraryButton"),
-  workspaceCopyButton: document.querySelector("#workspaceCopyButton"),
+  workspaceMobileLibraryButton: document.querySelector("#workspaceMobileLibraryButton"),
+  shareButton: document.querySelector("#shareButton"),
+  workspaceMobileShareButton: document.querySelector("#workspaceMobileShareButton"),
+  workspaceMobileSettingsButton: document.querySelector("#workspaceMobileSettingsButton"),
+  sharePopover: document.querySelector("#sharePopover"),
+  shareCloseButton: document.querySelector("#shareCloseButton"),
+  shareQrCode: document.querySelector("#shareQrCode"),
+  shareStatus: document.querySelector("#shareStatus"),
+  shareUrlText: document.querySelector("#shareUrlText"),
+  shareTargetList: document.querySelector("#shareTargetList"),
+  shareHint: document.querySelector("#shareHint"),
+  shareCopyLinkButton: document.querySelector("#shareCopyLinkButton"),
   backToLibraryButton: document.querySelector("#backToLibraryButton"),
   librarySidebar: document.querySelector("#librarySidebar"),
+  sidebarEyebrow: document.querySelector("#sidebarEyebrow"),
+  sidebarTitle: document.querySelector("#sidebarTitle"),
+  projectsViewButton: document.querySelector("#projectsViewButton"),
+  worksheetsViewButton: document.querySelector("#worksheetsViewButton"),
   productionSidebar: document.querySelector("#productionSidebar"),
   productionSidebarTitle: document.querySelector("#productionSidebarTitle"),
   productionStepList: document.querySelector("#productionStepList"),
@@ -119,6 +250,8 @@ const elements = {
   tree: document.querySelector("#libraryTree"),
   searchInput: document.querySelector("#librarySearchInput"),
   emptyState: document.querySelector("#emptyState"),
+  emptyStateTitle: document.querySelector("#emptyStateTitle"),
+  emptyStateCopy: document.querySelector("#emptyStateCopy"),
   projectView: document.querySelector("#projectView"),
   workspaceView: document.querySelector("#workspaceView"),
   chatPanel: document.querySelector(".chat-panel"),
@@ -137,16 +270,20 @@ const elements = {
   mobilePreviewMiniLabel: document.querySelector("#mobilePreviewMiniLabel"),
   projectTitle: document.querySelector("#projectTitle"),
   statusList: document.querySelector("#statusList"),
+  statusArtifactSummary: document.querySelector("#statusArtifactSummary"),
+  projectSplitView: document.querySelector("#projectSplitView"),
+  statusPanel: document.querySelector("#statusPanel"),
+  projectSplitHandle: document.querySelector("#projectSplitHandle"),
   previewGrid: document.querySelector("#previewGrid"),
   previewTitle: document.querySelector("#previewTitle"),
   previewEyebrow: document.querySelector("#previewEyebrow"),
-  openPreviewButton: document.querySelector("#openPreviewButton"),
   downloadButton: document.querySelector("#downloadButton"),
   refreshButton: document.querySelector("#refreshButton"),
   settingsButton: document.querySelector("#settingsButton"),
   settingsModal: document.querySelector("#settingsModal"),
   settingsCloseButton: document.querySelector("#settingsCloseButton"),
   imageProviderSettings: document.querySelector("#imageProviderSettings"),
+  billingStatusPanel: document.querySelector("#billingStatusPanel"),
   newWorksheetButton: document.querySelector("#newWorksheetButton"),
   newWorksheetForm: document.querySelector("#newWorksheetForm"),
   newWorksheetTitle: document.querySelector("#newWorksheetTitle"),
@@ -157,7 +294,6 @@ const elements = {
   createNewWorksheetButton: document.querySelector("#createNewWorksheetButton"),
   loadProjectButton: document.querySelector("#loadProjectButton"),
   loadProjectButtonLabel: document.querySelector("#loadProjectButtonLabel"),
-  copyContentButton: document.querySelector("#copyContentButton"),
   chatTimeline: document.querySelector("#chatTimeline"),
   teachingContextPanel: document.querySelector("#teachingContextPanel"),
   chatComposer: document.querySelector("#chatComposer"),
@@ -172,20 +308,20 @@ const elements = {
   canvasResizeHandle: document.querySelector("#canvasResizeHandle"),
   canvasBody: document.querySelector("#canvasBody"),
   canvasCaptureButton: document.querySelector("#canvasCaptureButton"),
-  canvasDownloadButton: document.querySelector("#canvasDownloadButton"),
-  canvasOpenButton: document.querySelector("#canvasOpenButton"),
   confirmationModal: document.querySelector("#confirmationModal"),
   confirmationEyebrow: document.querySelector("#confirmationEyebrow"),
   confirmationTitle: document.querySelector("#confirmationTitle"),
   confirmationMessage: document.querySelector("#confirmationMessage"),
   confirmationCancelButton: document.querySelector("#confirmationCancelButton"),
   confirmationAcceptButton: document.querySelector("#confirmationAcceptButton"),
+  manualCopyModal: document.querySelector("#manualCopyModal"),
+  manualCopyText: document.querySelector("#manualCopyText"),
+  manualCopyCloseButton: document.querySelector("#manualCopyCloseButton"),
   candidateViewerModal: document.querySelector("#candidateViewerModal"),
   candidateViewerCounter: document.querySelector("#candidateViewerCounter"),
   candidateViewerTitle: document.querySelector("#candidateViewerTitle"),
   candidateViewerMeta: document.querySelector("#candidateViewerMeta"),
   candidateViewerImage: document.querySelector("#candidateViewerImage"),
-  candidateViewerCopyButton: document.querySelector("#candidateViewerCopyButton"),
   candidateViewerCloseButton: document.querySelector("#candidateViewerCloseButton"),
   candidateViewerPreviousButton: document.querySelector("#candidateViewerPreviousButton"),
   candidateViewerNextButton: document.querySelector("#candidateViewerNextButton"),
@@ -199,16 +335,16 @@ const elements = {
 
 const statusLabels = {
   concept: "Arbeitsblatt-Konzept",
-  candidates: "Kandidaten",
-  drafts: "Kandidaten",
-  has_candidates: "Kandidaten",
-  selected: "Kandidaten",
-  exported: "Kandidaten",
+  candidates: "Entwürfe",
+  drafts: "Entwürfe",
+  has_candidates: "Entwürfe",
+  selected: "Entwürfe",
+  exported: "Entwürfe",
   ready_for_generation: "Arbeitsblatt-Konzept",
   needs_approval: "Arbeitsblatt-Konzept",
   draft: "Input",
   error: "Prüfen",
-  export: "Kandidaten",
+  export: "Entwürfe",
   input: "Input"
 };
 
@@ -217,14 +353,11 @@ const canvasLabels = {
   brief: "Arbeitsblatt-Konzept",
   content: "Arbeitsblatt-Konzept",
   warnings: "Arbeitsblatt-Konzept",
-  candidates: "Kandidaten",
-  selection: "Kandidaten",
-  export: "Kandidaten",
-  series: "Reihe",
+  candidates: "Entwürfe",
   lessonbrief_proposal: "Konzept-Vorschlag",
   content_proposal: "Konzept-Vorschlag",
   warnings_proposal: "Prüfvorschlag",
-  image_spec_proposal: "Interne ImageSpec"
+  image_spec_proposal: "Entwurfsvorbereitung"
 };
 
 const CANVAS_DEFAULT_WIDTH = 520;
@@ -233,6 +366,45 @@ const CANVAS_MIN_CHAT_WIDTH = 340;
 const CANVAS_SNAP_THRESHOLD = 120;
 const CANVAS_COLLAPSE_THRESHOLD = 160;
 const CANVAS_HANDLE_WIDTH = 18;
+const PROJECT_SPLIT_DEFAULT_HEIGHT = 196;
+const PROJECT_SPLIT_MIN_HEIGHT = 120;
+const PROJECT_SPLIT_MIN_PREVIEW_HEIGHT = 220;
+const PROJECT_SPLIT_HANDLE_HEIGHT = 16;
+const PROJECT_SPLIT_COLLAPSE_THRESHOLD = 70;
+const FOLDER_COLOR_PALETTE = [
+  { label: "Standard", value: "" },
+  { label: "Blau", value: "#bfdbfe" },
+  { label: "Himmel", value: "#bae6fd" },
+  { label: "Cyan", value: "#a5f3fc" },
+  { label: "Türkis", value: "#99f6e4" },
+  { label: "Mint", value: "#a7f3d0" },
+  { label: "Grün", value: "#bbf7d0" },
+  { label: "Gelb", value: "#fef3c7" },
+  { label: "Honig", value: "#fde68a" },
+  { label: "Orange", value: "#fed7aa" },
+  { label: "Koralle", value: "#fecdd3" },
+  { label: "Rot", value: "#fecaca" },
+  { label: "Rosa", value: "#fce7f3" },
+  { label: "Pink", value: "#fbcfe8" },
+  { label: "Lila", value: "#ddd6fe" },
+  { label: "Indigo", value: "#c7d2fe" },
+  { label: "Grau", value: "#e2e8f0" }
+];
+
+const LEGACY_FOLDER_COLOR_MAP = {
+  "#1f63d6": "#bfdbfe",
+  "#168b4f": "#bbf7d0",
+  "#d99a00": "#fef3c7",
+  "#e46f2b": "#fed7aa",
+  "#c24135": "#fecaca",
+  "#7c3aed": "#ddd6fe",
+  "#64748b": "#e2e8f0"
+};
+
+function displayFolderColor(value) {
+  const color = String(value || "").trim().toLowerCase();
+  return LEGACY_FOLDER_COLOR_MAP[color] || color;
+}
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -250,6 +422,9 @@ function renderIcon(name, extraClass = "") {
 const icon = renderIcon;
 
 function renderStepMarkerContent(step) {
+  if (step.icon) {
+    return renderIcon(step.icon, "step-marker-icon");
+  }
   if (step.tone === "done") {
     return renderIcon("check", "step-marker-icon");
   }
@@ -291,6 +466,61 @@ function normalizeGermanDisplayText(value) {
     .replaceAll("Fuehr", "Führ")
     .replaceAll("Eintraege", "Einträge")
     .replaceAll("eintraege", "einträge");
+}
+
+function normalizeVisibleProductTerminology(value) {
+  return String(value ?? "")
+    .replace(/\bcandidate_0*(\d+)\b/gi, (_, number) => `Entwurf ${String(Number(number)).padStart(2, "0")}`)
+    .replace(/\bKandidatenvorbereitung\b/g, "Entwurfsvorbereitung")
+    .replace(/\bKandidatenvorlage\b/g, "Entwurfsvorlage")
+    .replace(/\bKandidatenfeedback\b/g, "Entwurfsfeedback")
+    .replace(/\bKandidatenkontext\b/g, "Entwurfskontext")
+    .replace(/\bKandidatenlauf\b/g, "Entwurfslauf")
+    .replace(/\bKandidatenerzeugung\b/g, "Entwurfserstellung")
+    .replace(/\bKandidaten-Schritt\b/g, "Entwurfs-Schritt")
+    .replace(/\bKandidatenschritt\b/g, "Entwurfsschritt")
+    .replace(/\bKandidatenansicht\b/g, "Entwurfsansicht")
+    .replace(/\bKandidatenvorschau\b/g, "Entwurfsvorschau")
+    .replace(/\bBildentwürfe\b/g, "Bildentwürfe")
+    .replace(/\bBildentwurf\b/g, "Bildentwurf")
+    .replace(/\beine Kandidatenreihe\b/g, "einen mehrseitigen Entwurf")
+    .replace(/\bEine Kandidatenreihe\b/g, "Ein mehrseitiger Entwurf")
+    .replace(/\bdie Kandidatenreihe\b/g, "der mehrseitige Entwurf")
+    .replace(/\bDie Kandidatenreihe\b/g, "Der mehrseitige Entwurf")
+    .replace(/\bKandidatenreihe\b/g, "mehrseitiger Entwurf")
+    .replace(/\bWenn er passt, kannst du ihn als Auswahl (?:übernehmen|uebernehmen)\b/g, "Wenn er passt, kannst du ihn als Arbeitsblatt ablegen")
+    .replace(/\bWenn er passt, (?:übernimm|uebernimm) ihn als Auswahl\b/g, "Wenn er passt, lege ihn als Arbeitsblatt ab")
+    .replace(/\b(ihn|sie|es|diesen|den|die|das)\s+als\s+Auswahl\s+(?:übernehmen|uebernehmen)\b/gi, "$1 als Arbeitsblatt ablegen")
+    .replace(/\bals Auswahl (?:übernehmen|uebernehmen)\b/gi, "als Arbeitsblatt ablegen")
+    .replace(/\bals Auswahl vorhanden\b/gi, "vorhanden")
+    .replace(/\bAuswahl (?:übernehmen|uebernehmen)\b/g, "Arbeitsblatt ablegen")
+    .replace(/\beine weitere Auswahl\b/g, "einen weiteren Entwurf")
+    .replace(/\bEine weitere Auswahl\b/g, "Einen weiteren Entwurf")
+    .replace(/\bweitere Auswahl\b/g, "weiteren Entwurf")
+    .replace(/\bWeitere Auswahl\b/g, "Weiteren Entwurf")
+    .replace(/\bruhigere Auswahl\b/g, "ruhigeren Entwurf")
+    .replace(/\bRuhigere Auswahl\b/g, "Ruhigeren Entwurf")
+    .replace(/\bAuswahl mit\b/g, "Entwurf mit")
+    .replace(/\bdiesen Kandidaten\b/g, "diesen Entwurf")
+    .replace(/\bDiesen Kandidaten\b/g, "Diesen Entwurf")
+    .replace(/\bden Kandidaten\b/g, "den Entwurf")
+    .replace(/\bDen Kandidaten\b/g, "Den Entwurf")
+    .replace(/\beinen Kandidaten\b/g, "einen Entwurf")
+    .replace(/\bEinen Kandidaten\b/g, "Einen Entwurf")
+    .replace(/\beinem Kandidaten\b/g, "einem Entwurf")
+    .replace(/\bdiesem Kandidaten\b/g, "diesem Entwurf")
+    .replace(/\baktuellen Kandidaten\b/g, "aktuellen Entwurf")
+    .replace(/\bnächsten Kandidaten\b/g, "nächsten Entwurf")
+    .replace(/\bneuen Kandidaten\b/g, "neuen Entwurf")
+    .replace(/\bfertigen Kandidaten\b/g, "fertigen Entwurf")
+    .replace(/\bpassenden Kandidaten\b/g, "passenden Entwurf")
+    .replace(/\bletzten Kandidaten\b/g, "letzten Entwurf")
+    .replace(/\bvorhandenen Kandidaten\b/g, "vorhandenen Entwurf")
+    .replace(/\bKandidat erzeugen\b/g, "Entwurf erstellen")
+    .replace(/\bKandidaten erzeugen\b/g, "Entwürfe erstellen")
+    .replace(/\bEntwurf erzeugen\b/g, "Entwurf erstellen")
+    .replace(/\bKandidaten\b/g, "Entwürfe")
+    .replace(/\bKandidat\b/g, "Entwurf");
 }
 
 function renderInlineRichText(value) {
@@ -526,6 +756,116 @@ function toggleVoiceInput() {
   startVoiceInput();
 }
 
+function projectSplitHeightAvailable() {
+  return elements.projectSplitView?.getBoundingClientRect().height || 0;
+}
+
+function clampProjectSplitHeight(height) {
+  const totalHeight = projectSplitHeightAvailable();
+  if (!totalHeight) {
+    return Math.max(PROJECT_SPLIT_MIN_HEIGHT, Number(height) || PROJECT_SPLIT_DEFAULT_HEIGHT);
+  }
+  const maxHeight = Math.max(
+    PROJECT_SPLIT_MIN_HEIGHT,
+    totalHeight - PROJECT_SPLIT_MIN_PREVIEW_HEIGHT - PROJECT_SPLIT_HANDLE_HEIGHT
+  );
+  return Math.max(PROJECT_SPLIT_MIN_HEIGHT, Math.min(Number(height) || PROJECT_SPLIT_DEFAULT_HEIGHT, maxHeight));
+}
+
+function applyProjectSplitLayout() {
+  if (!elements.projectSplitView || !elements.statusPanel || !elements.projectSplitHandle) {
+    return;
+  }
+  const layout = state.projectSplitLayout;
+  const expandedHeight = clampProjectSplitHeight(layout.lastExpandedHeight || layout.height || PROJECT_SPLIT_DEFAULT_HEIGHT);
+  elements.projectSplitView.classList.toggle("status-collapsed", layout.collapsed);
+  elements.statusPanel.classList.toggle("collapsed", layout.collapsed);
+  elements.projectSplitHandle.classList.toggle("dragging", layout.resizing);
+  elements.projectSplitHandle.setAttribute(
+    "aria-label",
+    layout.collapsed ? "Statusbereich aufklappen" : "Höhe zwischen Status und Vorschau anpassen"
+  );
+  elements.projectSplitHandle.setAttribute(
+    "title",
+    layout.collapsed ? "Statusbereich aufklappen" : "Höhe zwischen Status und Vorschau anpassen"
+  );
+
+  if (layout.collapsed) {
+    elements.statusPanel.style.height = "0px";
+    return;
+  }
+
+  layout.height = clampProjectSplitHeight(layout.height || expandedHeight);
+  layout.lastExpandedHeight = layout.height;
+  elements.statusPanel.style.height = `${layout.height}px`;
+}
+
+function expandProjectSplit(height = state.projectSplitLayout.lastExpandedHeight || PROJECT_SPLIT_DEFAULT_HEIGHT) {
+  state.projectSplitLayout.collapsed = false;
+  state.projectSplitLayout.height = clampProjectSplitHeight(height);
+  state.projectSplitLayout.lastExpandedHeight = state.projectSplitLayout.height;
+  applyProjectSplitLayout();
+}
+
+function collapseProjectSplit() {
+  if (!state.projectSplitLayout.collapsed) {
+    state.projectSplitLayout.lastExpandedHeight = clampProjectSplitHeight(
+      state.projectSplitLayout.height || state.projectSplitLayout.lastExpandedHeight
+    );
+  }
+  state.projectSplitLayout.collapsed = true;
+  applyProjectSplitLayout();
+}
+
+function updateProjectSplitFromPointer(clientY) {
+  const rect = elements.projectSplitView?.getBoundingClientRect();
+  if (!rect) {
+    return;
+  }
+  const nextHeight = clientY - rect.top;
+  if (nextHeight <= PROJECT_SPLIT_COLLAPSE_THRESHOLD) {
+    state.projectSplitLayout.collapsed = true;
+    applyProjectSplitLayout();
+    return;
+  }
+  state.projectSplitLayout.collapsed = false;
+  state.projectSplitLayout.height = clampProjectSplitHeight(nextHeight);
+  state.projectSplitLayout.lastExpandedHeight = state.projectSplitLayout.height;
+  applyProjectSplitLayout();
+}
+
+function startProjectSplitResize(event) {
+  if (event.button !== 0) {
+    return;
+  }
+  event.preventDefault();
+  state.projectSplitLayout.resizing = true;
+  state.projectSplitLayout.pointerId = event.pointerId;
+  state.projectSplitLayout.startY = event.clientY;
+  state.projectSplitLayout.suppressClick = false;
+  elements.projectSplitHandle.setPointerCapture?.(event.pointerId);
+  applyProjectSplitLayout();
+}
+
+function moveProjectSplitResize(event) {
+  if (!state.projectSplitLayout.resizing) {
+    return;
+  }
+  if (Math.abs(event.clientY - state.projectSplitLayout.startY) > 3) {
+    state.projectSplitLayout.suppressClick = true;
+  }
+  updateProjectSplitFromPointer(event.clientY);
+}
+
+function endProjectSplitResize() {
+  if (!state.projectSplitLayout.resizing) {
+    return;
+  }
+  state.projectSplitLayout.resizing = false;
+  state.projectSplitLayout.pointerId = null;
+  applyProjectSplitLayout();
+}
+
 function resetCanvasLayout() {
   state.canvasLayout = {
     collapsed: true,
@@ -560,6 +900,47 @@ function applyCanvasLayout() {
     "aria-label",
     layout.collapsed ? "Canvas aufziehen" : layout.docked ? "Canvas zurückziehen" : "Canvasgröße verändern"
   );
+  requestCanvasCandidateSheetWidthSync();
+}
+
+function syncCanvasCandidateSheetWidths() {
+  const cards = elements.canvasBody?.querySelectorAll(".canvas-candidate-grid .candidate-preview-card") || [];
+  cards.forEach((card) => {
+    const stack = card.querySelector(".candidate-page-stack");
+    const image = card.querySelector(".candidate-page-tile img");
+    if (!image) {
+      return;
+    }
+    if (stack?.classList.contains("multi")) {
+      card.style.removeProperty("--canvas-sheet-width");
+      return;
+    }
+    const updateCardWidth = () => {
+      card.style.removeProperty("--canvas-sheet-width");
+      const width = Math.round(image.getBoundingClientRect().width || 0);
+      if (width > 0) {
+        card.style.setProperty("--canvas-sheet-width", `${width}px`);
+      }
+    };
+    updateCardWidth();
+    if (!image.complete && !image.dataset.sheetWidthLoadBound) {
+      image.dataset.sheetWidthLoadBound = "true";
+      image.addEventListener("load", () => requestCanvasCandidateSheetWidthSync(), { once: true });
+    }
+  });
+}
+
+function requestCanvasCandidateSheetWidthSync() {
+  if (state.activeCanvasMode !== "candidates" || !elements.canvasBody) {
+    return;
+  }
+  if (state.canvasSheetWidthFrame) {
+    window.cancelAnimationFrame(state.canvasSheetWidthFrame);
+  }
+  state.canvasSheetWidthFrame = window.requestAnimationFrame(() => {
+    state.canvasSheetWidthFrame = null;
+    syncCanvasCandidateSheetWidths();
+  });
 }
 
 function expandCanvas(width = state.canvasLayout.lastExpandedWidth || CANVAS_DEFAULT_WIDTH) {
@@ -577,6 +958,20 @@ function collapseCanvas() {
   state.canvasLayout.collapsed = true;
   state.canvasLayout.docked = false;
   applyCanvasLayout();
+}
+
+function revealCanvasPanel() {
+  if (isMobileViewport() || !state.canvasLayout.collapsed) {
+    return;
+  }
+  window.requestAnimationFrame(() => {
+    expandCanvas();
+    elements.canvasPanel?.scrollIntoView?.({
+      behavior: "smooth",
+      block: "nearest",
+      inline: "nearest"
+    });
+  });
 }
 
 function dockCanvas() {
@@ -680,7 +1075,7 @@ function apiUnavailableMessage() {
 
 function showToast(message, kind = "default") {
   elements.toast.textContent = message;
-  elements.toast.classList.remove("success", "error");
+  elements.toast.classList.remove("success", "error", "warning", "info");
   if (kind !== "default") {
     elements.toast.classList.add(kind);
   }
@@ -691,18 +1086,38 @@ function showToast(message, kind = "default") {
   }, 2600);
 }
 
+function worksheetDepositToastMessage(result = {}) {
+  const item = result.item || result.existing || result.items?.[0] || null;
+  if (result.duplicate) {
+    return item?.kind === "worksheet_bundle"
+      ? "Arbeitsblätter waren schon abgelegt"
+      : "Arbeitsblatt war schon abgelegt";
+  }
+  return `${worksheetDepositStoredLabel(item)} abgelegt`;
+}
+
+function isImageUrl(url) {
+  return /\.(png|jpe?g|webp|gif|svg)(?:\?|$)/i.test(String(url || ""));
+}
+
+function openAssetViewer(url, options = {}) {
+  if (!url) {
+    return;
+  }
+  openCandidateViewer([{
+    viewerKind: "asset",
+    url,
+    title: options.title || fileName(url),
+    role: options.role || "Bild"
+  }], 0);
+}
+
 function openUrl(url) {
   if (!url) {
     return;
   }
-  if (/\.(png|jpe?g|webp|gif|svg)(?:\?|$)/i.test(String(url))) {
-    const viewerUrl = `/preview.html?${new URLSearchParams({
-      project: currentProjectId() || "",
-      asset: url,
-      assetType: "image",
-      assetLabel: fileName(url)
-    })}`;
-    window.open(viewerUrl, "_blank", "noopener");
+  if (isImageUrl(url)) {
+    openAssetViewer(url);
     return;
   }
   window.open(url, "_blank", "noopener");
@@ -723,8 +1138,12 @@ function downloadUrl(url, fileNameHint) {
 
 async function writeClipboardText(text) {
   if (navigator.clipboard?.writeText && window.isSecureContext) {
-    await navigator.clipboard.writeText(text);
-    return;
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall through to the legacy copy path when the page is not focused.
+    }
   }
 
   const textarea = document.createElement("textarea");
@@ -735,10 +1154,303 @@ async function writeClipboardText(text) {
   textarea.style.top = "0";
   document.body.append(textarea);
   textarea.select();
-  const copied = document.execCommand("copy");
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } catch {
+    copied = false;
+  }
   textarea.remove();
   if (!copied) {
-    throw new Error("Clipboard fallback failed.");
+    openManualCopy(text);
+    return false;
+  }
+  return true;
+}
+
+function isManualCopyOpen() {
+  return elements.manualCopyModal && !elements.manualCopyModal.classList.contains("hidden");
+}
+
+function openManualCopy(text) {
+  if (!elements.manualCopyModal || !elements.manualCopyText) {
+    return;
+  }
+  elements.manualCopyText.value = text;
+  elements.manualCopyModal.classList.remove("hidden");
+  elements.manualCopyModal.setAttribute("aria-hidden", "false");
+  window.setTimeout(() => {
+    elements.manualCopyText.focus();
+    elements.manualCopyText.select();
+    elements.manualCopyText.setSelectionRange(0, elements.manualCopyText.value.length);
+  }, 0);
+}
+
+function closeManualCopy() {
+  if (!elements.manualCopyModal) {
+    return;
+  }
+  elements.manualCopyModal.classList.add("hidden");
+  elements.manualCopyModal.setAttribute("aria-hidden", "true");
+}
+
+function shareButtons() {
+  return [elements.shareButton, elements.workspaceMobileShareButton].filter(Boolean);
+}
+
+function currentWorksheetId() {
+  return state.selectedItem?.worksheet?.worksheetId
+    || (isTreeWorksheetItemId(state.selectedId) ? worksheetIdFromItemId(state.selectedId) : "");
+}
+
+function currentShareRoute() {
+  if (state.mode === "workspace") {
+    return {
+      view: "workspace",
+      projectId: currentProjectId(),
+      worksheetId: ""
+    };
+  }
+
+  if (!isProjectsLibraryView()) {
+    return {
+      view: "worksheets",
+      projectId: currentProjectId(),
+      worksheetId: currentWorksheetId()
+    };
+  }
+
+  return {
+    view: "projects",
+    projectId: currentProjectId(),
+    worksheetId: ""
+  };
+}
+
+function shareUrlFromLocation() {
+  const url = new URL(window.location.href);
+  url.hash = "";
+  url.search = "";
+  const route = currentShareRoute();
+  if (route.view) {
+    url.searchParams.set("view", route.view);
+  }
+  if (route.projectId) {
+    url.searchParams.set("project", route.projectId);
+  }
+  if (route.worksheetId) {
+    url.searchParams.set("worksheet", route.worksheetId);
+  }
+  return url.toString();
+}
+
+function shareRequestKey() {
+  return [shareUrlFromLocation(), currentProjectId() || ""].join("|");
+}
+
+function selectedShareTarget() {
+  const share = state.sharePanel.data || {};
+  const targets = share.targets || [];
+  return targets.find((target) => target.id === state.sharePanel.selectedTargetId)
+    || targets.find((target) => target.id === share.primaryTargetId)
+    || targets[0]
+    || null;
+}
+
+function syncShareButtons() {
+  for (const button of shareButtons()) {
+    button.classList.toggle("active", state.sharePanel.open);
+    button.setAttribute("aria-expanded", state.sharePanel.open ? "true" : "false");
+  }
+}
+
+function allowShareFocusOpenSoon() {
+  window.setTimeout(() => {
+    state.sharePanel.suppressFocusOpen = false;
+  }, 0);
+}
+
+function clearShareCloseTimer() {
+  if (state.sharePanel.closeTimer) {
+    window.clearTimeout(state.sharePanel.closeTimer);
+    state.sharePanel.closeTimer = null;
+  }
+}
+
+function isSharePanelOpen() {
+  return Boolean(elements.sharePopover && state.sharePanel.open && !elements.sharePopover.classList.contains("hidden"));
+}
+
+function renderSharePanel() {
+  if (!elements.sharePopover) {
+    return;
+  }
+
+  const panel = state.sharePanel;
+  const target = selectedShareTarget();
+  const loading = panel.loading && !target;
+  elements.sharePopover.classList.toggle("loading", loading);
+
+  if (elements.shareStatus) {
+    elements.shareStatus.textContent = panel.error
+      ? "Nicht verbunden"
+      : target ? `${target.label}${target.detail ? ` · ${target.detail}` : ""}` : "Adresse wird geladen...";
+  }
+
+  if (elements.shareQrCode) {
+    if (target?.qrSvg) {
+      elements.shareQrCode.innerHTML = target.qrSvg;
+    } else if (panel.error) {
+      elements.shareQrCode.innerHTML = `<span>${escapeHtml(panel.error)}</span>`;
+    } else {
+      elements.shareQrCode.innerHTML = '<span class="mini-spinner" aria-hidden="true"></span>';
+    }
+  }
+
+  if (elements.shareUrlText) {
+    elements.shareUrlText.textContent = target?.url || shareUrlFromLocation();
+  }
+
+  if (elements.shareHint) {
+    elements.shareHint.textContent = panel.error
+      ? "Die aktuelle Adresse kann trotzdem kopiert werden."
+      : panel.data?.message || "";
+  }
+
+  const targets = panel.data?.targets || [];
+  if (elements.shareTargetList) {
+    elements.shareTargetList.innerHTML = targets.length > 1
+      ? targets.map((entry) => `
+        <button class="share-target-button${entry.id === target?.id ? " active" : ""}" type="button" data-share-target-id="${escapeHtml(entry.id)}">
+          <span>${escapeHtml(entry.label)}</span>
+          <small>${escapeHtml(entry.detail || "")}</small>
+        </button>
+      `).join("")
+      : "";
+    elements.shareTargetList.classList.toggle("hidden", targets.length <= 1);
+    elements.shareTargetList.querySelectorAll("[data-share-target-id]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        clearShareCloseTimer();
+        state.sharePanel.selectedTargetId = button.dataset.shareTargetId || null;
+        state.sharePanel.pinned = true;
+        renderSharePanel();
+        syncShareButtons();
+      });
+    });
+  }
+}
+
+async function refreshShareTargets() {
+  const key = shareRequestKey();
+  if (state.sharePanel.loading) {
+    renderSharePanel();
+    return;
+  }
+
+  const refreshId = ++shareRefreshId;
+  state.sharePanel.loading = true;
+  state.sharePanel.error = null;
+  state.sharePanel.requestKey = key;
+  renderSharePanel();
+
+  try {
+    const params = new URLSearchParams({
+      currentUrl: shareUrlFromLocation()
+    });
+    const projectId = currentProjectId();
+    if (projectId) {
+      params.set("projectId", projectId);
+    }
+    const payload = await fetchJson(`/api/share/targets?${params}`);
+    if (refreshId !== shareRefreshId) {
+      return;
+    }
+    state.sharePanel.data = payload.share;
+    const targetStillExists = payload.share?.targets?.some((target) => target.id === state.sharePanel.selectedTargetId);
+    if (!targetStillExists) {
+      state.sharePanel.selectedTargetId = payload.share?.primaryTargetId || payload.share?.targets?.[0]?.id || null;
+    }
+  } catch (error) {
+    if (refreshId !== shareRefreshId) {
+      return;
+    }
+    state.sharePanel.error = "QR nicht verfügbar";
+    state.sharePanel.data = null;
+  } finally {
+    if (refreshId === shareRefreshId) {
+      state.sharePanel.loading = false;
+      renderSharePanel();
+    }
+  }
+}
+
+function openSharePanel(options = {}) {
+  if (!elements.sharePopover) {
+    return;
+  }
+  clearShareCloseTimer();
+  state.sharePanel.open = true;
+  state.sharePanel.pinned = Boolean(options.pinned || state.sharePanel.pinned);
+  if (state.sharePanel.pinned && !state.sharePanel.lastFocusedElement) {
+    state.sharePanel.lastFocusedElement = document.activeElement;
+  }
+  elements.sharePopover.classList.remove("hidden");
+  elements.sharePopover.setAttribute("aria-hidden", "false");
+  syncShareButtons();
+  renderSharePanel();
+  refreshShareTargets();
+}
+
+function closeSharePanel(options = {}) {
+  if (!elements.sharePopover) {
+    return;
+  }
+  clearShareCloseTimer();
+  state.sharePanel.open = false;
+  state.sharePanel.pinned = false;
+  state.sharePanel.suppressFocusOpen = true;
+  elements.sharePopover.classList.add("hidden");
+  elements.sharePopover.setAttribute("aria-hidden", "true");
+  syncShareButtons();
+  if (options.restoreFocus) {
+    const lastFocusedElement = state.sharePanel.lastFocusedElement;
+    state.sharePanel.lastFocusedElement = null;
+    lastFocusedElement?.focus?.();
+  } else {
+    state.sharePanel.lastFocusedElement = null;
+  }
+  allowShareFocusOpenSoon();
+}
+
+function scheduleSharePanelClose() {
+  clearShareCloseTimer();
+  if (state.sharePanel.pinned) {
+    return;
+  }
+  state.sharePanel.closeTimer = window.setTimeout(() => {
+    closeSharePanel();
+  }, 280);
+}
+
+function togglePinnedSharePanel() {
+  if (isSharePanelOpen() && state.sharePanel.pinned) {
+    closeSharePanel({ restoreFocus: true });
+    return;
+  }
+  state.sharePanel.pinned = false;
+  openSharePanel({ pinned: true });
+}
+
+async function copySelectedShareUrl() {
+  const target = selectedShareTarget();
+  const url = target?.url || shareUrlFromLocation();
+  try {
+    await writeClipboardText(url);
+    showToast("Link kopiert", "success");
+  } catch (error) {
+    showToast(error.message || "Link konnte nicht kopiert werden.", "error");
   }
 }
 
@@ -750,36 +1462,6 @@ function imageFromUrl(url) {
     image.onerror = () => reject(new Error("Bild konnte nicht geladen werden."));
     image.src = url;
   });
-}
-
-function canvasToBlob(canvas, type = "image/png", quality) {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (blob) {
-        resolve(blob);
-        return;
-      }
-      reject(new Error("Bild konnte nicht erzeugt werden."));
-    }, type, quality);
-  });
-}
-
-async function copyImageToClipboard(url) {
-  const image = await imageFromUrl(url);
-  const canvas = document.createElement("canvas");
-  canvas.width = image.naturalWidth || image.width;
-  canvas.height = image.naturalHeight || image.height;
-  const context = canvas.getContext("2d");
-  context.drawImage(image, 0, 0);
-  const blob = await canvasToBlob(canvas, "image/png");
-
-  if (navigator.clipboard?.write && window.ClipboardItem && window.isSecureContext) {
-    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-    return;
-  }
-
-  downloadUrl(url, fileName(url));
-  throw new Error("Bild-Clipboard ist in diesem Browser nicht freigegeben. Das Bild wurde stattdessen heruntergeladen.");
 }
 
 function clamp(value, min, max) {
@@ -825,7 +1507,7 @@ function setCanvasCaptureActive(active) {
   elements.canvasCaptureButton?.classList.toggle("active", state.canvasCapture.active);
   elements.canvasCaptureButton?.setAttribute("aria-pressed", state.canvasCapture.active ? "true" : "false");
   if (state.canvasCapture.active) {
-    showToast("Ausschnitt auf einem Kandidaten markieren.");
+    showToast("Ausschnitt auf einem Entwurf markieren.");
   }
 }
 
@@ -855,7 +1537,7 @@ function renderCaptureSelection() {
 
 function feedbackAttachmentLabel(source = {}) {
   return [
-    source.candidateId || "Kandidat",
+    draftDisplayLabel({ id: source.candidateId }),
     source.page ? `Seite ${source.page}` : null
   ].filter(Boolean).join(" · ");
 }
@@ -863,10 +1545,10 @@ function feedbackAttachmentLabel(source = {}) {
 async function attachVisualFeedbackFromSelection(card, displayRect) {
   const image = card.querySelector("[data-capture-image]");
   if (!image) {
-    throw new Error("Kein Kandidatenbild gefunden.");
+    throw new Error("Kein Entwurfsbild gefunden.");
   }
   if (!image.naturalWidth || !image.naturalHeight) {
-    throw new Error("Das Kandidatenbild ist noch nicht bereit.");
+    throw new Error("Das Entwurfsbild ist noch nicht bereit.");
   }
 
   const scaleX = image.naturalWidth / image.getBoundingClientRect().width;
@@ -941,12 +1623,12 @@ function startCanvasCapture(event) {
   }
   const card = event.target.closest("[data-capture-kind='candidate']");
   if (!card || !elements.canvasBody.contains(card)) {
-    showToast("Bitte direkt auf einem Kandidatenbild markieren.", "error");
+    showToast("Bitte direkt auf einem Entwurfsbild markieren.", "error");
     return;
   }
   const image = card.querySelector("[data-capture-image]");
   if (!image) {
-    showToast("Dieser Kandidat kann nicht markiert werden.", "error");
+    showToast("Dieser Entwurf kann nicht markiert werden.", "error");
     return;
   }
   event.preventDefault();
@@ -1092,6 +1774,102 @@ function conceptLabel(reference = {}) {
   return reference.conceptVersion ? `Konzept v${reference.conceptVersion}` : "Arbeitsblatt-Konzept";
 }
 
+function conceptVersionDisplayName(version) {
+  const normalized = Number(version || 0) || null;
+  return normalized ? `Version ${normalized}` : "Aktueller Stand";
+}
+
+function worksheetConceptCollectionLabel(count = 1) {
+  return (Number(count || 0) || 0) > 1 ? "Arbeitsblatt-Konzepte" : "Arbeitsblatt-Konzept";
+}
+
+function worksheetDepositActionLabel(pageCount = 1) {
+  return (Number(pageCount || 0) || 1) > 1 ? "Arbeitsblätter ablegen" : "Arbeitsblatt ablegen";
+}
+
+const candidateCardRenderer = window.SheetifyIMGCandidateCards.createCandidateCardRenderer({
+  escapeHtml,
+  icon,
+  fileName,
+  conceptLabel,
+  worksheetDepositActionLabel,
+  draftDisplayLabel,
+  draftFilePrefix,
+  draftMetaLabel
+});
+
+const actionBindings = window.SheetifyIMGActionBindings.createActionBindings({
+  executeCommand,
+  parsePayload,
+  handleCanvasModeRequest,
+  artifactSelectionFromButton,
+  openCandidateInfo,
+  downloadUrl,
+  fileName,
+  showToast,
+  depositCandidateWorksheet,
+  openWorksheetInLibrary,
+  isCanvasCaptureActive: () => state.canvasCapture.active,
+  isMobileViewport,
+  openMobilePreview,
+  openCandidateViewerFromCard,
+  openWorksheetViewerFromCard,
+  openUrl
+});
+
+const mobilePreviewRenderer = window.SheetifyIMGMobilePreviewRenderer.createMobilePreviewRenderer({
+  escapeHtml,
+  icon,
+  renderIcon,
+  fileName,
+  conceptLabel,
+  sourceFilesFrom,
+  sourceFileUrl,
+  projectIdFromItemId,
+  conceptSectionsFromContent,
+  renderConceptDocumentHeader,
+  renderConceptSections,
+  proposalForMode,
+  buttonActionForCommand,
+  isBusyGenerateCandidateAction,
+  shouldDisableGenerateCandidateAction,
+  renderCandidateImageDownloadButton,
+  candidateImageDownloads,
+  draftDisplayLabel,
+  draftFilePrefix,
+  annotateCandidateDisplayList,
+  teachingContextNote,
+  teachingContextFieldRows,
+  buildStatusRows,
+  countPreviewCandidates,
+  candidateCountLabel,
+  inputArtifactMeta,
+  worksheetConceptSubtitle
+});
+
+const canvasRenderer = window.SheetifyIMGCanvasRenderer.createCanvasRenderer({
+  escapeHtml,
+  sourceFilesFrom,
+  renderSourceInputs,
+  renderRawInputMessages,
+  conceptSectionsFromContent,
+  renderConceptDocumentHeader,
+  renderConceptSections,
+  statusWord,
+  workspaceConceptArtifacts,
+  currentConceptArtifact,
+  annotateCandidateDisplayList,
+  workspaceCandidateHistory,
+  candidateGenerationStateForWorkspace,
+  renderCandidateGenerationPreviewCard,
+  renderCandidateCard,
+  renderPageCard
+});
+
+function worksheetDepositStoredLabel(item = {}) {
+  return item?.kind === "worksheet_bundle" ? "Arbeitsblätter" : "Arbeitsblatt";
+}
+
 function sourceFilesFrom(source = {}) {
   return Array.isArray(source.manifest?.files) ? source.manifest.files : [];
 }
@@ -1184,15 +1962,12 @@ function labelForStatus(status) {
 
 function productStageOfProject(project = {}) {
   if (project.productStage) {
-    return project.productStage;
+    return ["export", "selected", "exported"].includes(project.productStage) ? "drafts" : project.productStage;
   }
-  if (project.status === "exported") {
-    return "export";
-  }
-  if (project.status === "selected" || project.status === "has_candidates") {
+  if (project.status === "exported" || project.status === "selected" || project.status === "has_candidates") {
     return "drafts";
   }
-  if (project.status === "needs_approval" || project.status === "ready_for_generation" || project.status === "draft" || project.status === "in_progress") {
+  if (project.status === "needs_approval" || project.status === "ready_for_generation" || project.status === "draft") {
     return "concept";
   }
   return "input";
@@ -1206,10 +1981,7 @@ function productStageSignalLabel(stage) {
   if (stage === "error") {
     return `Fehler: ${productStageLabel(stage)}`;
   }
-  if (stage === "export" || stage === "selected" || stage === "exported") {
-    return `Fertig: ${productStageLabel(stage)}`;
-  }
-  if (stage === "concept" || stage === "drafts" || stage === "has_candidates" || stage === "needs_approval" || stage === "ready_for_generation") {
+  if (stage === "concept" || stage === "drafts" || stage === "has_candidates" || stage === "needs_approval" || stage === "ready_for_generation" || stage === "export" || stage === "selected" || stage === "exported") {
     return `In Arbeit: ${productStageLabel(stage)}`;
   }
   return `Offen: ${productStageLabel(stage)}`;
@@ -1219,8 +1991,429 @@ function projectIdFromItemId(itemId) {
   return String(itemId || "").replace(/^project:/, "");
 }
 
+function worksheetIdFromItemId(itemId) {
+  return String(itemId || "").replace(/^worksheet:/, "");
+}
+
+function isTreeProjectItemId(itemId) {
+  return /^project:/.test(String(itemId || ""));
+}
+
+function isTreeWorksheetItemId(itemId) {
+  return /^worksheet:/.test(String(itemId || ""));
+}
+
+function isSelectableTreeItemId(itemId) {
+  return isTreeProjectItemId(itemId) || isTreeWorksheetItemId(itemId);
+}
+
+function selectedTreeProjectItemIds() {
+  return [...state.selectedTreeItemIds].filter((itemId) => isTreeProjectItemId(itemId));
+}
+
+function treeSelectionCount() {
+  return selectedTreeProjectItemIds().length;
+}
+
+function isProjectsLibraryView() {
+  return state.libraryView === "projects";
+}
+
+function libraryViewForItemId(itemId) {
+  if (isTreeWorksheetItemId(itemId)) {
+    return "worksheets";
+  }
+  if (isTreeProjectItemId(itemId)) {
+    return "projects";
+  }
+  return "";
+}
+
+function rememberLibrarySelection(itemId = state.selectedId) {
+  if (!isSelectableTreeItemId(itemId)) {
+    return;
+  }
+  const view = libraryViewForItemId(itemId);
+  if (!view) {
+    return;
+  }
+  state.librarySelections[view] = itemId;
+}
+
+function rememberedLibrarySelection(view = state.libraryView) {
+  return state.librarySelections?.[view] || null;
+}
+
+function restoreRememberedLibrarySelection(view = state.libraryView) {
+  const itemId = rememberedLibrarySelection(view);
+  if (!itemId) {
+    setTreeSelection([]);
+    return;
+  }
+  setTreeSelection([itemId], {
+    primaryId: itemId,
+    anchorId: itemId
+  });
+}
+
+function forgetLibrarySelection(itemId) {
+  for (const view of ["projects", "worksheets"]) {
+    if (state.librarySelections[view] === itemId) {
+      state.librarySelections[view] = null;
+    }
+  }
+}
+
+function renderLibraryViewChrome() {
+  const projectsActive = isProjectsLibraryView();
+  elements.projectsViewButton?.classList.toggle("active", projectsActive);
+  elements.worksheetsViewButton?.classList.toggle("active", !projectsActive);
+  elements.projectsViewButton?.setAttribute("aria-selected", projectsActive ? "true" : "false");
+  elements.worksheetsViewButton?.setAttribute("aria-selected", projectsActive ? "false" : "true");
+
+  if (elements.sidebarEyebrow) {
+    elements.sidebarEyebrow.textContent = "Übersicht";
+  }
+  if (elements.sidebarTitle) {
+    elements.sidebarTitle.textContent = projectsActive ? "Projekte" : "Arbeitsblätter";
+  }
+  if (elements.newWorksheetButton) {
+    elements.newWorksheetButton.classList.toggle("hidden", !projectsActive);
+    elements.newWorksheetButton.disabled = !projectsActive;
+    elements.newWorksheetButton.title = "Neues Projekt";
+    elements.newWorksheetButton.setAttribute("aria-label", "Neues Projekt");
+  }
+  if (elements.searchInput) {
+    elements.searchInput.disabled = false;
+    elements.searchInput.placeholder = projectsActive ? "Projekte suchen" : "Arbeitsblätter suchen";
+    elements.searchInput.setAttribute("aria-label", projectsActive ? "Projekte durchsuchen" : "Arbeitsblätter durchsuchen");
+  }
+  if (elements.tree) {
+    elements.tree.setAttribute("aria-label", projectsActive ? "Projekt-Baum" : "Arbeitsblatt-Ablage");
+  }
+}
+
+function renderWorksheetsEmptyState() {
+  elements.projectView.classList.add("hidden");
+  elements.workspaceView.classList.add("hidden");
+  elements.emptyState.classList.remove("hidden");
+  if (elements.emptyStateTitle) {
+    elements.emptyStateTitle.textContent = "Noch kein Arbeitsblatt abgelegt.";
+  }
+  if (elements.emptyStateCopy) {
+    elements.emptyStateCopy.textContent = "Lege einen Entwurf aus einem Projekt als Arbeitsblatt oder Arbeitsblatt-Bundle ab. Dann erscheint er hier als feste PDF.";
+  }
+}
+
+function renderMissingRouteState(route = {}) {
+  const target = route.worksheetId ? "Arbeitsblatt" : "Projekt";
+  elements.projectView.classList.add("hidden");
+  elements.workspaceView.classList.add("hidden");
+  elements.emptyState.classList.remove("hidden");
+  if (elements.emptyStateTitle) {
+    elements.emptyStateTitle.textContent = `${target} nicht gefunden.`;
+  }
+  if (elements.emptyStateCopy) {
+    elements.emptyStateCopy.textContent = `Der geöffnete Link zeigt auf ein ${target}, das in dieser Ablage nicht mehr vorhanden ist. Wähle links einen anderen Eintrag oder prüfe den QR-/Share-Link.`;
+  }
+  showToast(`${target} nicht gefunden`, "warning");
+}
+
+function setLibraryView(view) {
+  const nextView = view === "worksheets" ? "worksheets" : "projects";
+  if (state.libraryView === nextView) {
+    rememberLibrarySelection();
+    renderLibraryViewChrome();
+    loadTree({ keepSelection: true, selectAfterLoad: state.mode === "library" });
+    return;
+  }
+
+  rememberLibrarySelection();
+  state.libraryView = nextView;
+  restoreRememberedLibrarySelection(nextView);
+  state.query = "";
+  if (elements.searchInput) {
+    elements.searchInput.value = "";
+  }
+  renderLibraryViewChrome();
+  if (elements.emptyStateTitle) {
+    elements.emptyStateTitle.textContent = nextView === "projects" ? "Wähle links ein Projekt." : "Wähle links ein Arbeitsblatt.";
+  }
+  if (elements.emptyStateCopy) {
+    elements.emptyStateCopy.textContent = nextView === "projects"
+      ? "Dann erscheint hier die schnelle Vorschau mit Status, Aktionen und vorhandenen Entwürfen."
+      : "Dann erscheint hier die feste PDF-Vorschau mit Rückweg zum Projekt.";
+  }
+  loadTree({ keepSelection: true, selectAfterLoad: true });
+}
+
+function isTreeItemSelected(itemId) {
+  return state.selectedTreeItemIds.has(itemId);
+}
+
+function setTreeSelection(itemIds = [], options = {}) {
+  const nextIds = [...new Set((itemIds || []).filter((itemId) => isSelectableTreeItemId(itemId)))];
+  state.selectedTreeItemIds = new Set(nextIds);
+  if (!nextIds.length) {
+    state.selectedId = null;
+    state.treeSelectionAnchorId = null;
+    return;
+  }
+
+  const primaryId = nextIds.includes(options.primaryId) ? options.primaryId : nextIds[0];
+  state.selectedId = primaryId;
+  rememberLibrarySelection(primaryId);
+  const anchorId = isSelectableTreeItemId(options.anchorId) ? options.anchorId : state.treeSelectionAnchorId;
+  state.treeSelectionAnchorId = nextIds.includes(anchorId) ? anchorId : primaryId;
+}
+
+function ensureTreePrimarySelection(itemId) {
+  if (!isTreeProjectItemId(itemId)) {
+    return;
+  }
+  if (!state.selectedTreeItemIds.size || !state.selectedTreeItemIds.has(itemId)) {
+    setTreeSelection([itemId], { primaryId: itemId, anchorId: itemId });
+    return;
+  }
+  state.selectedId = itemId;
+  rememberLibrarySelection(itemId);
+  if (!state.treeSelectionAnchorId || !state.selectedTreeItemIds.has(state.treeSelectionAnchorId)) {
+    state.treeSelectionAnchorId = itemId;
+  }
+}
+
+function collapseTreeSelectionToPrimary() {
+  const primaryId = isTreeProjectItemId(state.selectedId)
+    ? state.selectedId
+    : selectedTreeProjectItemIds()[0] || null;
+  if (!primaryId) {
+    setTreeSelection([]);
+    return;
+  }
+  setTreeSelection([primaryId], { primaryId, anchorId: primaryId });
+}
+
+function visibleTreeProjectItemIds() {
+  return [...elements.tree?.querySelectorAll("[data-item-id]") || []]
+    .filter((button) => button.offsetParent !== null && isTreeProjectItemId(button.dataset.itemId))
+    .map((button) => button.dataset.itemId);
+}
+
+function treeSelectionRangeTo(itemId) {
+  const visibleIds = visibleTreeProjectItemIds();
+  if (!visibleIds.includes(itemId)) {
+    return [itemId];
+  }
+  const anchorId = visibleIds.includes(state.treeSelectionAnchorId)
+    ? state.treeSelectionAnchorId
+    : visibleIds.includes(state.selectedId)
+      ? state.selectedId
+      : itemId;
+  const start = visibleIds.indexOf(anchorId);
+  const end = visibleIds.indexOf(itemId);
+  if (start < 0 || end < 0) {
+    return [itemId];
+  }
+  const range = start <= end
+    ? visibleIds.slice(start, end + 1)
+    : visibleIds.slice(end, start + 1);
+  return range.length ? range : [itemId];
+}
+
 function currentProjectId() {
-  return state.workspace?.project?.projectId || state.selectedItem?.project?.projectId || projectIdFromItemId(state.selectedId);
+  return state.workspace?.project?.projectId
+    || state.selectedItem?.project?.projectId
+    || state.selectedItem?.worksheet?.source?.projectId
+    || (isTreeProjectItemId(state.selectedId) ? projectIdFromItemId(state.selectedId) : "");
+}
+
+function candidateGenerationStateForWorkspace(workspace = null) {
+  return workspace?.candidateGeneration || null;
+}
+
+function isBackgroundCandidateGenerationRunning(candidateGeneration = null) {
+  return Boolean(candidateGeneration?.isRunning);
+}
+
+function candidateGenerationRenderSignature(candidateGeneration = null) {
+  const activeJob = candidateGeneration?.activeJob || {};
+  const latestCompletion = candidateGeneration?.latestCompletion || {};
+  const latestFailure = candidateGeneration?.latestFailure || {};
+  return [
+    candidateGeneration?.isRunning ? "running" : "idle",
+    activeJob.jobId || "",
+    activeJob.startedAt || "",
+    latestCompletion.completedAt || "",
+    latestCompletion.candidateId || "",
+    latestFailure.completedAt || "",
+    latestFailure.message || "",
+    candidateGeneration?.hasUnreadCompletion ? "unread" : "seen"
+  ].join("|");
+}
+
+function treeRenderSignature(node = null) {
+  if (!node) {
+    return "";
+  }
+  if (node.type === "worksheet") {
+    return [
+      "worksheet",
+      node.id || "",
+      node.label || "",
+      node.previewType || "",
+      node.hasUnreadCandidateCompletion ? "candidate-update" : "",
+      candidateGenerationRenderSignature(node.candidateGeneration)
+    ].join("|");
+  }
+  const children = (node.children || []).map(treeRenderSignature).join(",");
+  return [
+    node.type || "folder",
+    node.id || "",
+    node.label || "",
+    node.color || "",
+    node.locked ? "locked" : "",
+    children
+  ].join("|");
+}
+
+function selectedTreeSignature() {
+  return selectedTreeProjectItemIds().join("|");
+}
+
+function workspaceBackgroundRenderSignature(workspace = null) {
+  const latestRun = workspace?.latestRun || {};
+  const preview = workspace?.preview || {};
+  return [
+    workspace?.project?.projectId || "",
+    candidateGenerationRenderSignature(workspace?.candidateGeneration),
+    latestRun.runId || "",
+    latestRun.candidateCount || 0,
+    latestRun.renderedCandidateCount || 0,
+    latestRun.selectedPageCount || 0,
+    preview.previewType || "",
+    preview.previewMeta?.renderedCandidateCount || 0,
+    countPreviewCandidates(preview),
+    countPreviewCandidatePages(preview),
+    preview.pdfs?.length || 0,
+    preview.pages?.length || 0
+  ].join("|");
+}
+
+function selectedItemBackgroundRenderSignature(item = null) {
+  const project = item?.project || {};
+  const derived = project.derivedStatus || {};
+  const preview = item?.preview || {};
+  const artifactSummary = item?.artifacts?.summary || {};
+  const candidateGroups = Array.isArray(artifactSummary.candidateGroups)
+    ? artifactSummary.candidateGroups.map((group) => [
+      group.conceptId || "",
+      group.conceptVersion || "",
+      group.candidateCount || 0
+    ].join(":")).join(",")
+    : "";
+  return [
+    project.projectId || "",
+    project.title || "",
+    project.status || "",
+    derived.previewState || "",
+    derived.runs?.at?.(-1)?.runId || "",
+    derived.runs?.at?.(-1)?.candidateCount || 0,
+    derived.runs?.at?.(-1)?.renderedCandidateCount || 0,
+    candidateGenerationRenderSignature(project.candidateGeneration),
+    preview.previewType || "",
+    preview.previewMeta?.renderedCandidateCount || 0,
+    countPreviewCandidates(preview),
+    countPreviewCandidatePages(preview),
+    preview.pdfs?.length || 0,
+    preview.pages?.length || 0,
+    artifactSummary.conceptCount || 0,
+    artifactSummary.candidateCount || 0,
+    candidateGroups
+  ].join("|");
+}
+
+function treeHasRunningCandidateGeneration(node = null) {
+  if (!node) {
+    return false;
+  }
+  if (node.type === "worksheet" && isBackgroundCandidateGenerationRunning(node.candidateGeneration)) {
+    return true;
+  }
+  return (node.children || []).some((child) => treeHasRunningCandidateGeneration(child));
+}
+
+function clearBackgroundRefreshTimer() {
+  if (backgroundRefreshTimer) {
+    window.clearTimeout(backgroundRefreshTimer);
+    backgroundRefreshTimer = null;
+  }
+}
+
+function shouldPollBackgroundRefresh() {
+  if (state.mode === "workspace") {
+    return isBackgroundCandidateGenerationRunning(candidateGenerationStateForWorkspace(state.workspace))
+      || treeHasRunningCandidateGeneration(state.tree);
+  }
+  return treeHasRunningCandidateGeneration(state.tree);
+}
+
+async function runBackgroundRefresh() {
+  if (backgroundRefreshInFlight) {
+    return;
+  }
+  backgroundRefreshInFlight = true;
+  try {
+    if (state.mode === "workspace" && state.workspace?.project?.projectId) {
+      const projectId = state.workspace.project.projectId;
+      const refreshId = ++workspaceRefreshId;
+      const previousGeneration = candidateGenerationStateForWorkspace(state.workspace);
+      const previousWorkspaceSignature = workspaceBackgroundRenderSignature(state.workspace);
+      const payload = await fetchJson(`/api/workspace/${encodeURIComponent(projectId)}`);
+      if (refreshId !== workspaceRefreshId || state.mode !== "workspace" || state.workspace?.project?.projectId !== projectId) {
+        return;
+      }
+      state.workspace = payload.workspace;
+      const nextGeneration = candidateGenerationStateForWorkspace(state.workspace);
+      if (previousWorkspaceSignature !== workspaceBackgroundRenderSignature(state.workspace)) {
+        renderWorkspace();
+      }
+      if (previousGeneration?.isRunning && !nextGeneration?.isRunning) {
+        if (nextGeneration?.latestFailure?.completedAt && nextGeneration.latestFailure.completedAt !== previousGeneration?.latestFailure?.completedAt) {
+          showToast(nextGeneration.latestFailure.message || "Die Bildgenerierung konnte nicht abgeschlossen werden.", "error");
+        } else if (nextGeneration?.latestCompletion?.candidateId && nextGeneration.latestCompletion.completedAt !== previousGeneration?.latestCompletion?.completedAt) {
+          showToast("Neuer Entwurf ist fertig.", "success");
+        }
+      }
+    }
+    await loadTree({
+      keepSelection: true,
+      selectAfterLoad: false,
+      quiet: true,
+      preserveScroll: true,
+      renderIfChangedOnly: true
+    });
+    if (state.mode === "library") {
+      await refreshSelectedLibraryItem({
+        preferCandidatesOnChange: true,
+        renderIfChangedOnly: true
+      });
+    }
+  } catch {
+    // Keep the current UI and try again on the next cycle.
+  } finally {
+    backgroundRefreshInFlight = false;
+    syncBackgroundRefresh();
+  }
+}
+
+function syncBackgroundRefresh() {
+  clearBackgroundRefreshTimer();
+  if (!shouldPollBackgroundRefresh()) {
+    return;
+  }
+  backgroundRefreshTimer = window.setTimeout(() => {
+    runBackgroundRefresh();
+  }, 2500);
 }
 
 function isFolderCollapsed(folderId) {
@@ -1237,7 +2430,7 @@ function toggleFolder(folderId) {
 }
 
 function treeInteractionsEnabled() {
-  return !state.query.trim() && state.tree?.id !== "library:search";
+  return !state.query.trim() && !/search$/.test(String(state.tree?.id || ""));
 }
 
 function findTreeNodeById(tree, nodeId, parentId = null) {
@@ -1271,8 +2464,13 @@ function renderTreeFolder(folder, depth = 0) {
   const contextAttrs = interactive ? ` data-tree-node-id="${escapeHtml(folder.id)}"` : "";
   const dragAttrs = canDrag ? ' draggable="true"' : "";
   const rootClass = folder.locked ? " root-folder" : " nested-folder";
+  const folderColor = displayFolderColor(folder.color);
+  const colorStyle = [
+    `--folder-fill: ${escapeHtml(folderColor || "none")}`,
+    `--folder-shadow: ${folderColor ? "drop-shadow(0 1px 1px rgba(16, 24, 39, 0.12))" : "none"}`
+  ].join("; ");
   return `
-    <section class="tree-group${rootClass}" style="--tree-depth: ${escapeHtml(depth)}" data-drop-folder-id="${escapeHtml(folder.id)}">
+    <section class="tree-group${rootClass}" style="--tree-depth: ${escapeHtml(depth)}; ${colorStyle}" data-drop-folder-id="${escapeHtml(folder.id)}">
       <button class="tree-folder${collapsed ? " collapsed" : ""}" type="button" data-toggle-folder-id="${escapeHtml(folder.id)}"${contextAttrs}${dragAttrs}>
         ${renderIcon("chevron-right", "tree-chevron")}
         ${renderIcon(collapsed ? "folder" : "folder-open", "folder-glyph")}
@@ -1294,39 +2492,67 @@ function renderTreeNode(node, parentId, depth) {
 
 function renderTreeItem(item, parentId, depth = 0) {
   const active = item.id === state.selectedId ? " active" : "";
-  const stage = item.productStage || "input";
-  const signalStage = item.status === "selected"
-    ? "selected"
-    : item.status === "exported"
-      ? "exported"
-      : item.status === "has_candidates"
-        ? "has_candidates"
-        : stage;
+  const selected = isTreeItemSelected(item.id) ? " selected" : "";
+  const isWorksheetItem = item.itemType === "worksheet" || isTreeWorksheetItemId(item.id);
+  const candidateGenerationRunning = isBackgroundCandidateGenerationRunning(item.candidateGeneration);
+  const hasUnreadCandidateCompletion = Boolean(item.hasUnreadCandidateCompletion);
+  const unreadMarker = hasUnreadCandidateCompletion && !candidateGenerationRunning
+    ? '<span class="tree-unread-dot" title="Neuer Entwurf fertig" aria-label="Neuer Entwurf fertig"></span>'
+    : "";
+  const worksheetIcon = isWorksheetItem
+    ? renderIcon("file-text", `tree-item-icon${item.unseen ? " unseen" : ""}`)
+    : "";
+  const candidateStatus = candidateGenerationRunning
+    ? `<span class="tree-status candidate-rendering" title="Entwurf wird erstellt" aria-label="Entwurf wird erstellt"><span class="tree-status-spinner" aria-hidden="true"></span><span class="tree-status-label">Wird erstellt</span></span>`
+    : "";
   const interactive = treeInteractionsEnabled();
   const dragAttrs = interactive && item.draggable ? ' draggable="true"' : "";
   const contextAttrs = interactive ? ` data-tree-node-id="${escapeHtml(item.id)}"` : "";
   return `
-    <button class="tree-item${active}" type="button" style="--tree-depth: ${escapeHtml(depth)}" data-item-id="${escapeHtml(item.id)}" data-parent-folder-id="${escapeHtml(parentId)}"${contextAttrs}${dragAttrs}>
-      ${renderIcon(item.type === "series" ? "folder" : "file", "file-glyph")}
+    <button class="tree-item${active}${selected}${candidateGenerationRunning ? " is-rendering-candidate" : ""}${hasUnreadCandidateCompletion && !candidateGenerationRunning ? " has-candidate-update" : ""}" type="button" style="--tree-depth: ${escapeHtml(depth)}" data-item-id="${escapeHtml(item.id)}" data-parent-folder-id="${escapeHtml(parentId)}" aria-selected="${isTreeItemSelected(item.id) ? "true" : "false"}"${contextAttrs}${dragAttrs}>
+      ${unreadMarker}
+      ${worksheetIcon}
       <span class="tree-item-label">${escapeHtml(item.label)}</span>
-      <span class="tree-status ${escapeHtml(stage)}" title="${escapeHtml(productStageSignalLabel(signalStage))}"></span>
+      ${candidateStatus}
     </button>
   `;
 }
 
-function renderTree(tree) {
+function captureTreeScroll() {
+  if (!elements.tree) {
+    return null;
+  }
+  return {
+    left: elements.tree.scrollLeft,
+    top: elements.tree.scrollTop
+  };
+}
+
+function restoreTreeScroll(scrollState) {
+  if (!elements.tree || !scrollState) {
+    return;
+  }
+  const maxTop = Math.max(0, elements.tree.scrollHeight - elements.tree.clientHeight);
+  const maxLeft = Math.max(0, elements.tree.scrollWidth - elements.tree.clientWidth);
+  elements.tree.scrollTop = Math.min(scrollState.top, maxTop);
+  elements.tree.scrollLeft = Math.min(scrollState.left, maxLeft);
+}
+
+function renderTree(tree, options = {}) {
   if (!tree) {
     return;
   }
+  const scrollState = options.scrollState || (options.preserveScroll ? captureTreeScroll() : null);
   closeTreeContextMenu();
   elements.tree.innerHTML = (tree.children || []).map((folder) => renderTreeFolder(folder, 0)).join("");
   elements.tree.querySelectorAll("[data-toggle-folder-id]").forEach((button) => {
     button.addEventListener("click", () => toggleFolder(button.dataset.toggleFolderId));
   });
   elements.tree.querySelectorAll("[data-item-id]").forEach((button) => {
-    button.addEventListener("click", () => selectItem(button.dataset.itemId, { openMobileSheet: isMobileViewport() }));
+    button.addEventListener("click", (event) => handleTreeItemClick(button.dataset.itemId, event));
   });
   bindTreeOrganizationEvents();
+  restoreTreeScroll(scrollState);
 }
 
 function clearTreeDropIndicators() {
@@ -1375,6 +2601,22 @@ function projectIdsFromTree(tree) {
   return ids;
 }
 
+function selectableIdsFromTree(tree) {
+  const ids = [];
+  function walk(node) {
+    if (isSelectableTreeItemId(node.id)) {
+      ids.push(node.id);
+    }
+    for (const child of node.children || []) {
+      walk(child);
+    }
+  }
+  for (const folder of tree?.children || []) {
+    walk(folder);
+  }
+  return ids;
+}
+
 function findDefaultProject(tree) {
   const items = [];
   function walk(node) {
@@ -1388,10 +2630,47 @@ function findDefaultProject(tree) {
   for (const folder of tree?.children || []) {
     walk(folder);
   }
-  return items.find((item) => item.previewType === "selected_pages" || item.previewType === "pdf")?.id
-    || items.find((item) => item.previewType === "candidates")?.id
+  return items.find((item) => item.previewType === "candidates")?.id
     || projectIdsFromTree(tree)[0]
     || null;
+}
+
+function findDefaultWorksheet(tree) {
+  const ids = selectableIdsFromTree(tree).filter((itemId) => isTreeWorksheetItemId(itemId));
+  return ids[0] || null;
+}
+
+function findDefaultLibraryItem(tree) {
+  return isProjectsLibraryView() ? findDefaultProject(tree) : findDefaultWorksheet(tree);
+}
+
+async function handleTreeItemClick(itemId, event) {
+  const shiftRangeSelection = Boolean(event?.shiftKey)
+    && !isMobileViewport()
+    && state.mode === "library"
+    && isProjectsLibraryView()
+    && isTreeProjectItemId(itemId);
+
+  if (shiftRangeSelection) {
+    const rangeIds = treeSelectionRangeTo(itemId);
+    setTreeSelection(rangeIds, {
+      primaryId: itemId,
+      anchorId: state.treeSelectionAnchorId || state.selectedId || itemId
+    });
+    await selectItem(itemId, {
+      openMobileSheet: false,
+      preserveTreeScroll: true,
+      skipSelectionUpdate: true
+    });
+    return;
+  }
+
+  setTreeSelection([itemId], { primaryId: itemId, anchorId: itemId });
+  await selectItem(itemId, {
+    openMobileSheet: isMobileViewport(),
+    preserveTreeScroll: true,
+    skipSelectionUpdate: true
+  });
 }
 
 function bindTreeOrganizationEvents() {
@@ -1495,11 +2774,7 @@ function openTreeContextMenu(nodeId, clientX, clientY) {
   const menu = document.createElement("div");
   menu.className = "tree-context-menu";
   menu.setAttribute("role", "menu");
-  menu.innerHTML = treeContextMenuActions(node).map((action) => `
-    <button type="button" role="menuitem" data-tree-action="${escapeHtml(action.id)}" class="${action.danger ? "danger" : ""}">
-      ${escapeHtml(action.label)}
-    </button>
-  `).join("");
+  menu.innerHTML = treeContextMenuActions(node).map((action) => renderTreeContextAction(action, node)).join("");
   document.body.append(menu);
   const rect = menu.getBoundingClientRect();
   const left = Math.min(clientX, window.innerWidth - rect.width - 8);
@@ -1513,11 +2788,52 @@ function openTreeContextMenu(nodeId, clientX, clientY) {
       handleTreeContextAction(action, nodeId);
     });
   });
+  menu.querySelectorAll("[data-folder-color]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const color = button.dataset.folderColor || "";
+      closeTreeContextMenu();
+      updateFolderColor(nodeId, color);
+    });
+  });
+}
+
+function renderTreeContextAction(action, node = {}) {
+  if (action.palette) {
+    const currentColor = displayFolderColor(node.color);
+    return `
+      <div class="tree-context-palette" role="group" aria-label="Ordnerfarbe">
+        <span>Farbe</span>
+        <div class="tree-context-swatches">
+          ${FOLDER_COLOR_PALETTE.map((entry) => {
+            const selected = displayFolderColor(entry.value) === currentColor;
+            return `
+              <button
+                class="folder-color-swatch ${selected ? "selected" : ""} ${entry.value ? "" : "is-reset"}"
+                type="button"
+                data-folder-color="${escapeHtml(entry.value)}"
+                aria-label="${escapeHtml(entry.label)}"
+                title="${escapeHtml(entry.label)}"
+                style="${entry.value ? `--swatch-color: ${escapeHtml(entry.value)};` : ""}"
+              ></button>
+            `;
+          }).join("")}
+        </div>
+      </div>
+    `;
+  }
+  return `
+    <button type="button" role="menuitem" data-tree-action="${escapeHtml(action.id)}" class="${action.danger ? "danger" : ""}">
+      ${escapeHtml(action.label)}
+    </button>
+  `;
 }
 
 function treeContextMenuActions(node) {
   if (node.type === "folder") {
-    const actions = [{ id: "new_folder", label: "Neuer Ordner" }];
+    const actions = [
+      { id: "new_folder", label: "Neuer Ordner" },
+      { id: "folder_color", label: "Farbe", palette: true }
+    ];
     if (node.canRename) {
       actions.push({ id: "rename_folder", label: "Umbenennen" });
     }
@@ -1526,9 +2842,25 @@ function treeContextMenuActions(node) {
     }
     return actions;
   }
+  if (isTreeWorksheetItemId(node.id)) {
+    return [
+      { id: "rename_worksheet", label: "Umbenennen" },
+      { id: "open_source_project", label: "Zum Projekt" },
+      { id: "delete_worksheet", label: "Arbeitsblatt löschen", danger: true }
+    ];
+  }
+  if (treeSelectionCount() > 1 && isTreeItemSelected(node.id)) {
+    return [
+      {
+        id: "delete_selected_projects",
+        label: `${treeSelectionCount()} Projekte löschen`,
+        danger: true
+      }
+    ];
+  }
   return [
     { id: "rename_project", label: "Umbenennen" },
-    { id: "delete_project", label: "Arbeitsblatt löschen", danger: true }
+    { id: "delete_project", label: "Projekt löschen", danger: true }
   ];
 }
 
@@ -1541,8 +2873,36 @@ function handleTreeContextAction(action, nodeId) {
     deleteLibraryFolder(nodeId);
   } else if (action === "rename_project") {
     renameProjectFromTree(projectIdFromItemId(nodeId));
+  } else if (action === "rename_worksheet") {
+    renameWorksheetFromTree(nodeId);
+  } else if (action === "open_source_project") {
+    const found = findTreeNodeById(state.tree, nodeId);
+    const projectId = found?.node?.sourceProjectId || state.selectedItem?.worksheet?.source?.projectId || "";
+    if (projectId) {
+      openWorkspace(projectId);
+    }
+  } else if (action === "delete_worksheet") {
+    deleteWorksheetFromTree(nodeId);
+  } else if (action === "delete_selected_projects") {
+    deleteSelectedProjectsFromTree();
   } else if (action === "delete_project") {
     deleteProjectFromTree(projectIdFromItemId(nodeId));
+  }
+}
+
+async function updateFolderColor(folderId, color) {
+  try {
+    const endpoint = isProjectsLibraryView()
+      ? `/api/library/folders/${encodeURIComponent(folderId)}`
+      : `/api/worksheets/folders/${encodeURIComponent(folderId)}`;
+    await fetchJson(endpoint, {
+      method: "PATCH",
+      body: JSON.stringify({ color: color || null })
+    });
+    await loadTree({ keepSelection: true, selectAfterLoad: false, preserveScroll: true });
+    showToast(color ? "Ordnerfarbe geändert" : "Ordnerfarbe zurückgesetzt", "success");
+  } catch (error) {
+    showToast(error.message, "error");
   }
 }
 
@@ -1551,7 +2911,7 @@ async function moveTreeItem(itemId, targetFolderId, beforeId) {
     return;
   }
   try {
-    await fetchJson("/api/library/move", {
+    await fetchJson(isProjectsLibraryView() ? "/api/library/move" : "/api/worksheets/move", {
       method: "POST",
       body: JSON.stringify({ itemId, targetFolderId, beforeId })
     });
@@ -1568,7 +2928,7 @@ async function createLibraryFolder(parentId) {
     return;
   }
   try {
-    await fetchJson("/api/library/folders", {
+    await fetchJson(isProjectsLibraryView() ? "/api/library/folders" : "/api/worksheets/folders", {
       method: "POST",
       body: JSON.stringify({ parentId, label: label.trim() })
     });
@@ -1587,7 +2947,10 @@ async function renameLibraryFolder(folderId) {
     return;
   }
   try {
-    await fetchJson(`/api/library/folders/${encodeURIComponent(folderId)}`, {
+    const endpoint = isProjectsLibraryView()
+      ? `/api/library/folders/${encodeURIComponent(folderId)}`
+      : `/api/worksheets/folders/${encodeURIComponent(folderId)}`;
+    await fetchJson(endpoint, {
       method: "PATCH",
       body: JSON.stringify({ label: label.trim() })
     });
@@ -1600,9 +2963,10 @@ async function renameLibraryFolder(folderId) {
 
 async function deleteLibraryFolder(folderId) {
   const found = findTreeNodeById(state.tree, folderId);
+  const itemName = isProjectsLibraryView() ? "Projekte" : "Arbeitsblätter";
   const confirmed = await requestConfirmation({
     title: "Ordner löschen?",
-    message: `Der Ordner "${found?.node?.label || "Ordner"}" wird entfernt. Enthaltene Arbeitsblätter bleiben erhalten und wandern eine Ebene nach oben.`,
+    message: `Der Ordner "${found?.node?.label || "Ordner"}" wird entfernt. Enthaltene ${itemName} bleiben erhalten und wandern eine Ebene nach oben.`,
     acceptLabel: "Ordner löschen",
     danger: true
   });
@@ -1610,7 +2974,10 @@ async function deleteLibraryFolder(folderId) {
     return;
   }
   try {
-    await fetchJson(`/api/library/folders/${encodeURIComponent(folderId)}`, { method: "DELETE" });
+    const endpoint = isProjectsLibraryView()
+      ? `/api/library/folders/${encodeURIComponent(folderId)}`
+      : `/api/worksheets/folders/${encodeURIComponent(folderId)}`;
+    await fetchJson(endpoint, { method: "DELETE" });
     await loadTree({ keepSelection: true, selectAfterLoad: false });
     showToast("Ordner gelöscht", "success");
   } catch (error) {
@@ -1620,7 +2987,7 @@ async function deleteLibraryFolder(folderId) {
 
 async function renameProjectFromTree(projectId) {
   const found = findTreeNodeById(state.tree, `project:${projectId}`);
-  const title = window.prompt("Arbeitsblatt umbenennen", found?.node?.label || "");
+  const title = window.prompt("Projekt umbenennen", found?.node?.label || "");
   if (!title?.trim()) {
     return;
   }
@@ -1634,17 +3001,35 @@ async function renameProjectFromTree(projectId) {
       renderWorkspace();
     }
     await loadTree({ keepSelection: true, selectAfterLoad: state.mode === "library" });
+    showToast("Projekt umbenannt", "success");
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+}
+
+async function renameWorksheetFromTree(itemId) {
+  const found = findTreeNodeById(state.tree, itemId);
+  const title = window.prompt("Arbeitsblatt umbenennen", found?.node?.label || "");
+  if (!title?.trim()) {
+    return;
+  }
+  try {
+    await fetchJson(`/api/worksheets/items/${encodeURIComponent(itemId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title: title.trim() })
+    });
+    await loadTree({ keepSelection: true, selectAfterLoad: state.mode === "library" });
     showToast("Arbeitsblatt umbenannt", "success");
   } catch (error) {
     showToast(error.message, "error");
   }
 }
 
-async function deleteProjectFromTree(projectId) {
-  const found = findTreeNodeById(state.tree, `project:${projectId}`);
+async function deleteWorksheetFromTree(itemId) {
+  const found = findTreeNodeById(state.tree, itemId);
   const confirmed = await requestConfirmation({
     title: "Arbeitsblatt löschen?",
-    message: `Das Arbeitsblatt "${found?.node?.label || projectId}" wird dauerhaft aus diesem Workspace gelöscht.`,
+    message: `"${found?.node?.label || "Arbeitsblatt"}" wird aus der Ablage entfernt. Die PDF-Datei wird gelöscht; das Quellprojekt bleibt erhalten.`,
     acceptLabel: "Arbeitsblatt löschen",
     danger: true
   });
@@ -1652,53 +3037,288 @@ async function deleteProjectFromTree(projectId) {
     return;
   }
   try {
-    await fetchJson(`/api/projects/${encodeURIComponent(projectId)}`, { method: "DELETE" });
-    if (state.selectedId === `project:${projectId}`) {
+    await fetchJson(`/api/worksheets/items/${encodeURIComponent(itemId)}`, { method: "DELETE" });
+    forgetLibrarySelection(itemId);
+    if (state.selectedId === itemId) {
       state.selectedId = null;
       state.selectedItem = null;
-      state.workspace = null;
-      elements.projectView.classList.add("hidden");
-      elements.workspaceView.classList.add("hidden");
-      elements.emptyState.classList.remove("hidden");
+      state.selectedTreeItemIds = new Set();
     }
     await loadTree({ keepSelection: true, selectAfterLoad: state.mode === "library" });
+    if (!state.selectedId && !isProjectsLibraryView()) {
+      renderWorksheetsEmptyState();
+    }
     showToast("Arbeitsblatt gelöscht", "success");
   } catch (error) {
     showToast(error.message, "error");
   }
 }
 
-async function loadTree({ keepSelection = false, selectAfterLoad = true } = {}) {
-  elements.tree.innerHTML = '<div class="tree-loading">Lade Arbeitsblätter...</div>';
+function clearProjectViewsAfterDeletion() {
+  state.selectedId = null;
+  state.selectedItem = null;
+  state.workspace = null;
+  elements.projectView.classList.add("hidden");
+  elements.workspaceView.classList.add("hidden");
+  elements.emptyState.classList.remove("hidden");
+}
+
+async function projectWorksheetDeleteSummary(projectIds = []) {
+  const entries = await Promise.all(projectIds.map(async (projectId) => {
+    const payload = await fetchJson(`/api/projects/${encodeURIComponent(projectId)}/worksheets`);
+    const worksheets = Array.isArray(payload.worksheets) ? payload.worksheets : [];
+    return {
+      projectId,
+      count: worksheets.length
+    };
+  }));
+  return {
+    total: entries.reduce((sum, entry) => sum + entry.count, 0),
+    entries
+  };
+}
+
+function projectWorksheetDeleteSentence(count) {
+  if (!count) {
+    return "Zugehörige Arbeitsblätter: keine.";
+  }
+  return count === 1
+    ? "1 zugehöriges Arbeitsblatt wird ebenfalls gelöscht."
+    : `${count} zugehörige Arbeitsblätter werden ebenfalls gelöscht.`;
+}
+
+async function deleteSelectedProjectsFromTree(projectIds = null) {
+  const itemIds = (projectIds || selectedTreeProjectItemIds().map((itemId) => projectIdFromItemId(itemId)))
+    .map((projectId) => String(projectId || "").trim())
+    .filter(Boolean);
+  const uniqueProjectIds = [...new Set(itemIds)];
+  if (!uniqueProjectIds.length) {
+    return;
+  }
+
+  const labels = uniqueProjectIds.map((projectId) => {
+    const found = findTreeNodeById(state.tree, `project:${projectId}`);
+    return found?.node?.label || projectId;
+  });
+  const count = uniqueProjectIds.length;
+  let worksheetSummary;
+  try {
+    worksheetSummary = await projectWorksheetDeleteSummary(uniqueProjectIds);
+  } catch (error) {
+    showToast(error.message, "error");
+    return;
+  }
+  const baseMessage = count === 1
+    ? `Das Projekt "${labels[0]}" wird dauerhaft gelöscht.`
+    : `${count} ausgewählte Projekte werden dauerhaft gelöscht: ${labels.slice(0, 4).join(", ")}${count > 4 ? " ..." : ""}`;
+  const message = `${baseMessage} ${projectWorksheetDeleteSentence(worksheetSummary.total)}`;
+  const confirmed = await requestConfirmation({
+    title: count === 1 ? "Projekt löschen?" : `${count} Projekte löschen?`,
+    message,
+    acceptLabel: count === 1 ? "Projekt löschen" : `${count} Projekte löschen`,
+    danger: true
+  });
+  if (!confirmed) {
+    return;
+  }
+  try {
+    let deletedWorksheetCount = 0;
+    for (const projectId of uniqueProjectIds) {
+      const payload = await fetchJson(`/api/projects/${encodeURIComponent(projectId)}`, { method: "DELETE" });
+      deletedWorksheetCount += Number(payload.deletedWorksheets?.deletedCount || 0);
+    }
+    const deletedItemIds = new Set(uniqueProjectIds.map((projectId) => `project:${projectId}`));
+    for (const itemId of deletedItemIds) {
+      forgetLibrarySelection(itemId);
+    }
+    state.selectedTreeItemIds = new Set(selectedTreeProjectItemIds().filter((itemId) => !deletedItemIds.has(itemId)));
+    if (state.selectedId && deletedItemIds.has(state.selectedId)) {
+      clearProjectViewsAfterDeletion();
+    }
+    if (!state.selectedTreeItemIds.size) {
+      state.treeSelectionAnchorId = null;
+    } else if (!state.treeSelectionAnchorId || deletedItemIds.has(state.treeSelectionAnchorId)) {
+      state.treeSelectionAnchorId = selectedTreeProjectItemIds()[0] || null;
+    }
+    await loadTree({ keepSelection: true, selectAfterLoad: state.mode === "library" });
+    const worksheetToast = deletedWorksheetCount
+      ? `, ${pluralLabel(deletedWorksheetCount, "Arbeitsblatt", "Arbeitsblätter")} mitgelöscht`
+      : "";
+    showToast(count === 1 ? `Projekt gelöscht${worksheetToast}` : `${count} Projekte gelöscht${worksheetToast}`, "success");
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+}
+
+async function deleteProjectFromTree(projectId) {
+  const itemId = `project:${projectId}`;
+  if (treeSelectionCount() > 1 && isTreeItemSelected(itemId)) {
+    await deleteSelectedProjectsFromTree();
+    return;
+  }
+  await deleteSelectedProjectsFromTree([projectId]);
+}
+
+async function loadTree({ keepSelection = false, selectAfterLoad = true, quiet = false, preserveScroll = false, renderIfChangedOnly = false } = {}) {
+  renderLibraryViewChrome();
+  const treeScrollState = preserveScroll ? captureTreeScroll() : null;
+  const previousTreeSignature = renderIfChangedOnly ? treeRenderSignature(state.tree) : "";
+  const previousSelectedId = state.selectedId;
+  const previousSelectionSignature = renderIfChangedOnly ? selectedTreeSignature() : "";
+  if (!quiet) {
+    elements.tree.innerHTML = '<div class="tree-loading">Lade Projekte...</div>';
+  }
   try {
     const query = state.query.trim();
-    const url = query ? `/api/library/tree?q=${encodeURIComponent(query)}` : "/api/library/tree";
+    const baseUrl = isProjectsLibraryView() ? "/api/library/tree" : "/api/worksheets/tree";
+    const url = query ? `${baseUrl}?q=${encodeURIComponent(query)}` : baseUrl;
     const payload = await fetchJson(url);
     state.tree = payload.tree;
-    const availableIds = new Set(projectIdsFromTree(state.tree));
-    if (pendingInitialSelectedId && availableIds.has(pendingInitialSelectedId)) {
-      state.selectedId = pendingInitialSelectedId;
-      pendingInitialSelectedId = null;
-      if (window.history?.replaceState) {
-        window.history.replaceState({}, document.title, window.location.pathname);
+    const availableIds = new Set(selectableIdsFromTree(state.tree));
+    const routeToApply = pendingInitialRoute;
+    let openInitialWorkspace = false;
+    let missingInitialRoute = null;
+    if (keepSelection) {
+      state.selectedTreeItemIds = new Set(selectedTreeProjectItemIds().filter((itemId) => availableIds.has(itemId)));
+      if (state.selectedId && !availableIds.has(state.selectedId)) {
+        state.selectedId = null;
+      }
+    } else {
+      state.selectedTreeItemIds = new Set();
+      state.treeSelectionAnchorId = null;
+      state.selectedId = null;
+    }
+    if (routeToApply) {
+      pendingInitialRoute = null;
+      if (routeToApply.itemId && availableIds.has(routeToApply.itemId)) {
+        setTreeSelection([routeToApply.itemId], {
+          primaryId: routeToApply.itemId,
+          anchorId: routeToApply.itemId
+        });
+        openInitialWorkspace = routeToApply.view === "workspace" && Boolean(routeToApply.projectId);
+      } else if (routeToApply.itemId) {
+        missingInitialRoute = routeToApply;
+        setTreeSelection([]);
       }
     }
-    if (!keepSelection || !availableIds.has(state.selectedId)) {
-      state.selectedId = findDefaultProject(state.tree);
+    if (!missingInitialRoute && (!state.selectedId || !availableIds.has(state.selectedId))) {
+      const nextSelectedId = findDefaultLibraryItem(state.tree);
+      if (nextSelectedId) {
+        setTreeSelection([nextSelectedId], {
+          primaryId: nextSelectedId,
+          anchorId: nextSelectedId
+        });
+      } else {
+        setTreeSelection([]);
+      }
+    } else {
+      ensureTreePrimarySelection(state.selectedId);
     }
-    renderTree(state.tree);
-    if (selectAfterLoad && state.mode === "library" && state.selectedId) {
-      await selectItem(state.selectedId, { openMobileSheet: false });
+    const selectionChanged = previousSelectedId !== state.selectedId || previousSelectionSignature !== selectedTreeSignature();
+    const treeChanged = previousTreeSignature !== treeRenderSignature(state.tree);
+    if (!renderIfChangedOnly || treeChanged || selectionChanged) {
+      renderTree(state.tree, { scrollState: treeScrollState });
     }
+    if (missingInitialRoute) {
+      renderMissingRouteState(missingInitialRoute);
+    } else if (openInitialWorkspace && routeToApply?.projectId) {
+      await openWorkspace(routeToApply.projectId);
+    } else if (selectAfterLoad && state.mode === "library" && state.selectedId) {
+      await selectItem(state.selectedId, {
+        openMobileSheet: Boolean(routeToApply?.itemId),
+        preserveTreeScroll: preserveScroll,
+        skipSelectionUpdate: true
+      });
+    } else if (selectAfterLoad && state.mode === "library" && !state.selectedId && !isProjectsLibraryView()) {
+      renderWorksheetsEmptyState();
+    }
+    syncBackgroundRefresh();
   } catch (error) {
-    elements.tree.innerHTML = `<div class="tree-error">${escapeHtml(error.message)}</div>`;
+    if (!quiet) {
+      elements.tree.innerHTML = `<div class="tree-error">${escapeHtml(error.message)}</div>`;
+    }
+    syncBackgroundRefresh();
+  }
+}
+
+function selectedItemCandidateState(item = null) {
+  const preview = item?.preview || {};
+  return {
+    running: Boolean(item?.project?.candidateGeneration?.isRunning),
+    renderedCount: Number(preview.previewMeta?.renderedCandidateCount || countPreviewCandidates(preview) || 0)
+  };
+}
+
+function shouldPreferCandidatesAfterRefresh(previousItem, nextItem) {
+  const previous = selectedItemCandidateState(previousItem);
+  const next = selectedItemCandidateState(nextItem);
+  return Boolean(next.running || next.renderedCount > previous.renderedCount || (previous.running && next.renderedCount));
+}
+
+async function refreshSelectedLibraryItem(options = {}) {
+  const itemId = state.selectedId;
+  if (state.mode !== "library" || !isProjectsLibraryView() || !isTreeProjectItemId(itemId)) {
+    return;
+  }
+  const refreshId = ++selectedItemRefreshId;
+  const previousItem = state.selectedItem;
+  const previousSignature = options.renderIfChangedOnly ? selectedItemBackgroundRenderSignature(previousItem) : "";
+  const previousStep = state.activeStatusStep;
+  try {
+    const payload = await fetchJson(`/api/library/items/${encodeURIComponent(itemId)}`);
+    if (refreshId !== selectedItemRefreshId || state.mode !== "library" || state.selectedId !== itemId) {
+      return;
+    }
+    state.selectedItem = payload.item;
+    if (options.renderIfChangedOnly && previousSignature === selectedItemBackgroundRenderSignature(payload.item)) {
+      return;
+    }
+    const nextStep = options.preferCandidatesOnChange && shouldPreferCandidatesAfterRefresh(previousItem, payload.item)
+      ? "candidates"
+      : previousStep;
+    renderProject(payload.item, nextStep);
+  } catch {
+    // Background refresh should not replace a usable preview with a transient error.
+  }
+}
+
+async function refreshSelectedWorksheetItem() {
+  const itemId = state.selectedId;
+  if (state.mode !== "library" || isProjectsLibraryView() || !isTreeWorksheetItemId(itemId)) {
+    return;
+  }
+  const refreshId = ++selectedItemRefreshId;
+  try {
+    const payload = await fetchJson(`/api/worksheets/items/${encodeURIComponent(itemId)}`);
+    if (refreshId !== selectedItemRefreshId || state.mode !== "library" || state.selectedId !== itemId) {
+      return;
+    }
+    state.selectedItem = payload.item;
+    renderWorksheetItem(payload.item);
+  } catch {
+    // Background refresh should not replace a usable preview with a transient error.
+  }
+}
+
+async function markWorksheetItemSeen(itemId) {
+  try {
+    await fetchJson(`/api/worksheets/items/${encodeURIComponent(itemId)}/seen`, { method: "POST" });
+  } catch {
+    // Öffnen darf nicht an der Lesestatus-Aktualisierung scheitern.
   }
 }
 
 async function selectItem(itemId, options = {}) {
-  state.selectedId = itemId;
+  const requestId = ++selectedItemRefreshId;
+  if (!options.skipSelectionUpdate) {
+    setTreeSelection([itemId], { primaryId: itemId, anchorId: itemId });
+  } else {
+    state.selectedId = itemId;
+    rememberLibrarySelection(itemId);
+  }
   state.activeStatusStep = null;
-  renderTree(state.tree);
+  state.activeLibraryConceptId = null;
+  renderTree(state.tree, { preserveScroll: Boolean(options.preserveTreeScroll) });
 
   if (state.mode === "workspace") {
     await openWorkspace(projectIdFromItemId(itemId));
@@ -1711,24 +3331,43 @@ async function selectItem(itemId, options = {}) {
   elements.previewGrid.innerHTML = '<div class="no-preview">Lade Vorschau...</div>';
 
   try {
-    const payload = await fetchJson(`/api/library/items/${encodeURIComponent(itemId)}`);
+    if (isTreeWorksheetItemId(itemId)) {
+      await markWorksheetItemSeen(itemId);
+    }
+    const endpoint = isTreeWorksheetItemId(itemId)
+      ? `/api/worksheets/items/${encodeURIComponent(itemId)}`
+      : `/api/library/items/${encodeURIComponent(itemId)}`;
+    const payload = await fetchJson(endpoint);
+    if (requestId !== selectedItemRefreshId || state.mode !== "library" || state.selectedId !== itemId) {
+      return;
+    }
     state.selectedItem = payload.item;
-    renderProject(payload.item);
+    if (isTreeWorksheetItemId(itemId)) {
+      renderWorksheetItem(payload.item);
+      await loadTree({ keepSelection: true, selectAfterLoad: false, quiet: true, preserveScroll: true });
+    } else {
+      renderProject(payload.item);
+    }
+    syncBackgroundRefresh();
     if (options.openMobileSheet && isMobileViewport()) {
-      openMobilePreview("project", { source: "library", presentation: "sheet" });
+      openMobilePreview(isTreeWorksheetItemId(itemId) ? "worksheet" : "project", { source: "library" });
     }
   } catch (error) {
     elements.previewGrid.innerHTML = `<div class="no-preview">${escapeHtml(error.message)}</div>`;
+    syncBackgroundRefresh();
   }
 }
 
 function renderProject(item, requestedStep = null) {
+  elements.projectView.classList.remove("worksheet-detail-view");
+  elements.statusPanel?.querySelector("h3")?.replaceChildren(document.createTextNode("Status"));
   const project = item.project;
   elements.projectTitle.textContent = project.title;
   elements.loadProjectButtonLabel.textContent = editButtonLabel(item);
   const activeStep = requestedStep || state.activeStatusStep || defaultStatusStep(item);
   state.activeStatusStep = activeStep;
   elements.statusList.innerHTML = buildStatusRows(item).map(renderStatusRow).join("");
+  renderStatusArtifactSummary(item);
   elements.statusList.querySelectorAll("[data-status-step]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.preventDefault();
@@ -1737,16 +3376,66 @@ function renderProject(item, requestedStep = null) {
   });
   renderActions(item);
   renderPreviewForStep(item, activeStep);
+  applyProjectSplitLayout();
+}
+
+function worksheetMetaRows(worksheet = {}) {
+  const pageCount = Number(worksheet.pageCount || worksheet.pages?.length || 0);
+  const sourceProject = worksheet.source?.projectTitle || worksheet.source?.projectId || "";
+  return [
+    { id: "kind", title: worksheet.kindLabel || (pageCount > 1 ? "Arbeitsblatt-Bundle" : "Arbeitsblatt"), state: pageCount ? `${pageCount} Seite${pageCount === 1 ? "" : "n"}` : "PDF" },
+    { id: "source", title: "Quellprojekt", state: sourceProject || "Projekt" },
+    { id: "created", title: "Abgelegt", state: worksheet.createdAt ? formatResetTime(worksheet.createdAt) : "Gespeichert" }
+  ];
+}
+
+function renderWorksheetMetaRow(row) {
+  return `
+    <div class="status-row worksheet-meta-row">
+      <span class="step-marker done">${icon(row.id === "kind" ? "file-text" : row.id === "source" ? "folder-open" : "check", "step-marker-icon")}</span>
+      <span class="step-title">${escapeHtml(row.title)}</span>
+      <span class="step-state">${escapeHtml(row.state)}</span>
+    </div>
+  `;
+}
+
+function renderWorksheetItem(item) {
+  const worksheet = item.worksheet || {};
+  const pdf = worksheet.pdf || null;
+  const pages = (worksheet.pages || []).filter((page) => page.url);
+  elements.projectView.classList.add("worksheet-detail-view");
+  elements.statusPanel?.querySelector("h3")?.replaceChildren(document.createTextNode("Details"));
+  elements.projectTitle.textContent = worksheet.title || "Arbeitsblatt";
+  elements.loadProjectButtonLabel.textContent = "Zum Projekt";
+  elements.statusList.innerHTML = worksheetMetaRows(worksheet).map(renderWorksheetMetaRow).join("");
+  elements.statusArtifactSummary.classList.add("hidden");
+  elements.statusArtifactSummary.innerHTML = "";
+  renderActions(item);
+  elements.previewEyebrow.textContent = worksheet.kindLabel || "Arbeitsblatt";
+  elements.previewTitle.textContent = worksheet.title || "PDF";
+  elements.previewGrid.dataset.previewType = pages.length ? "worksheet_pages" : "pdf";
+  applyPreviewLayout({ previewType: pages.length ? "selected_pages" : "pdf" });
+  elements.previewGrid.innerHTML = pages.length
+    ? pages.map((page, index) => renderWorksheetPageCard(page, index, pages.length, worksheet.title || "Arbeitsblatt")).join("")
+    : pdf?.url
+    ? renderPdfCard({
+      ...pdf,
+      pageCount: worksheet.pageCount,
+      concept: worksheet.source?.concept || null
+    })
+    : '<div class="no-preview">PDF nicht gefunden.</div>';
+  bindPreviewCardActions(elements.previewGrid);
+  applyProjectSplitLayout();
 }
 
 function editButtonLabel(item) {
-  if (item?.project?.projectType === "series" || item?.type === "series") {
-    return "Reihe bearbeiten";
-  }
-  return "Arbeitsblatt bearbeiten";
+  return "Projekt öffnen";
 }
 
 function defaultStatusStep(item) {
+  if (item.project?.candidateGeneration?.isRunning || item.project?.derivedStatus?.previewState === "candidate_generation_pending") {
+    return "candidates";
+  }
   const previewType = item.preview?.previewType;
   if (previewType === "pdf" || previewType === "selected_pages") {
     return "candidates";
@@ -1763,31 +3452,83 @@ function defaultStatusStep(item) {
 function buildStatusRows(item) {
   const derived = item.project?.derivedStatus || {};
   const latestRun = Array.isArray(derived.runs) ? derived.runs[derived.runs.length - 1] : null;
-  const candidateGenerationPending = isCandidateGenerationPendingForProject(item.project?.projectId);
-  const plannedCandidateCount = latestRun?.candidateCount || countPreviewCandidates(item.preview);
+  const artifactSummary = item.artifacts?.summary || {};
+  const totalCandidateCount = Number(artifactSummary.candidateCount || 0);
+  const candidateGenerationPending = Boolean(item.project?.candidateGeneration?.isRunning || isCandidateGenerationPendingForProject(item.project?.projectId));
+  const plannedCandidateCount = Math.max(
+    Number(latestRun?.candidateCount || 0),
+    countPreviewCandidates(item.preview),
+    totalCandidateCount
+  );
   const renderedCandidateCount = latestRun?.renderedCandidateCount || item.preview?.previewMeta?.renderedCandidateCount || 0;
-  const renderedCandidatePages = countPreviewCandidatePages(item.preview);
-  const candidatePdfCount = countPreviewCandidatePdfs(item.preview);
-  const hasInput = Boolean(item.documents?.source?.manifest || item.documents?.source?.transferCard || item.documents?.brief?.data || item.documents?.content?.data);
+  const hasInput = item.inputReadiness
+    ? Boolean(item.inputReadiness.ready)
+    : Boolean(item.documents?.source?.manifest || item.documents?.source?.transferCard || item.documents?.brief?.data || item.documents?.content?.data);
   const hasBrief = Boolean(derived.hasEffectiveApprovedBrief || item.documents?.brief?.data);
   const hasContent = Boolean(derived.hasEffectiveApprovedContent || item.documents?.content?.data);
   const hasCandidates = Boolean(renderedCandidateCount || plannedCandidateCount);
+  const conceptState = hasContent || hasBrief ? "Vorhanden" : "Offen";
   const candidateState = candidateGenerationPending
     ? "Wird erstellt"
-    : candidatePdfCount
-      ? `${candidatePdfCount} PDF${candidatePdfCount === 1 ? "" : "s"} bereit`
-      : renderedCandidatePages > renderedCandidateCount
-        ? `${renderedCandidatePages} Seiten sichtbar`
-        : renderedCandidateCount
-          ? `${renderedCandidateCount} sichtbar`
-          : plannedCandidateCount
-            ? `${plannedCandidateCount} geplant`
-            : "Offen";
+    : hasCandidates ? "Vorhanden" : "Offen";
   return [
-    { id: "input", number: 1, title: "Input", state: hasInput ? "Vorhanden" : "Offen", tone: hasInput ? "done" : "active" },
-    { id: "concept", number: 2, title: "Arbeitsblatt-Konzept", state: hasContent || hasBrief ? "Vorhanden" : "Offen", tone: hasContent ? "done" : hasBrief ? "active" : "pending" },
-    { id: "candidates", number: 3, title: "Kandidaten", state: candidateState, tone: candidateGenerationPending ? "working" : hasCandidates ? "done" : "pending" }
+    { id: "input", number: 1, icon: "inbox", title: "Input", state: hasInput ? "Vorhanden" : "Offen", tone: hasInput ? "done" : "active" },
+    { id: "concept", number: 2, icon: "notebook-text", title: "Arbeitsblatt-Konzept", state: conceptState, tone: hasContent ? "done" : hasBrief ? "active" : "pending" },
+    { id: "candidates", number: 3, icon: "images", title: "Entwürfe", state: candidateState, tone: candidateGenerationPending ? "working" : hasCandidates ? "done" : "pending" }
   ];
+}
+
+function pluralLabel(count, singular, plural) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function conceptVersionCountLabel(count) {
+  return pluralLabel(count, "Konzeptversion", "Konzeptversionen");
+}
+
+function candidateCountLabel(count) {
+  return pluralLabel(count, "Entwurf", "Entwürfe");
+}
+
+function projectArtifactSummaryParts(item = {}) {
+  const summary = item.artifacts?.summary || {};
+  const conceptCount = Number(summary.conceptCount || 0);
+  const candidateCount = Number(summary.candidateCount || 0);
+  const candidateGroups = Array.isArray(summary.candidateGroups)
+    ? summary.candidateGroups.filter((group) => Number(group.candidateCount || 0) > 0)
+    : [];
+  const shouldShow = conceptCount > 1 || candidateCount > 1 || candidateGroups.length > 1;
+  if (!shouldShow) {
+    return null;
+  }
+
+  const headline = [
+    conceptCount > 1 ? conceptVersionCountLabel(conceptCount) : null,
+    candidateCount ? candidateCountLabel(candidateCount) : "keine Entwürfe"
+  ].filter(Boolean).join(" · ");
+  const shouldShowDistribution = conceptCount > 1 || candidateGroups.length > 1;
+  const distribution = shouldShowDistribution && candidateGroups.length
+    ? candidateGroups.map((group) => {
+      const label = group.label || (group.conceptVersion ? `v${group.conceptVersion}` : "ohne Version");
+      return `${label}: ${candidateCountLabel(Number(group.candidateCount || 0))}`;
+    }).join(" · ")
+    : "";
+
+  return { headline, distribution };
+}
+
+function renderStatusArtifactSummary(item = {}) {
+  if (!elements.statusArtifactSummary) {
+    return;
+  }
+  const parts = projectArtifactSummaryParts(item);
+  elements.statusArtifactSummary.classList.toggle("hidden", !parts);
+  elements.statusArtifactSummary.innerHTML = parts
+    ? `
+      <strong>${escapeHtml(parts.headline)}</strong>
+      ${parts.distribution ? `<em>${escapeHtml(parts.distribution)}</em>` : ""}
+    `
+    : "";
 }
 
 function renderStatusRow(row) {
@@ -1804,10 +3545,16 @@ function renderStatusRow(row) {
 }
 
 function renderActions(item) {
-  const actions = new Set(item.actions || []);
-  const firstPdf = item.preview?.pdfs?.[0] || null;
-  elements.copyContentButton.disabled = !(actions.has("copy_content_mirror") || actions.has("copy_series_context"));
-  elements.downloadButton.disabled = !firstPdf?.url;
+  if (item.worksheet) {
+    const pdf = item.worksheet.pdf || null;
+    elements.downloadButton.classList.toggle("hidden", !pdf?.url);
+    elements.downloadButton.disabled = !pdf?.url;
+    elements.loadProjectButton.disabled = !item.worksheet.source?.projectId;
+    return;
+  }
+  elements.downloadButton.classList.add("hidden");
+  elements.downloadButton.disabled = true;
+  elements.loadProjectButton.disabled = false;
 }
 
 function countPreviewCandidates(preview) {
@@ -1823,9 +3570,8 @@ function countPreviewCandidatePages(preview) {
   }, 0);
 }
 
-function countPreviewCandidatePdfs(preview) {
-  const candidates = Array.isArray(preview?.candidates) ? preview.candidates : [];
-  return candidates.filter((candidate) => candidate.pdf?.url).length;
+function renderCandidateGenerationPreviewCard(candidateGeneration = {}, options = {}) {
+  return candidateCardRenderer.renderCandidateGenerationPreviewCard(candidateGeneration, options);
 }
 
 function renderPreviewForStep(item, step) {
@@ -1838,7 +3584,20 @@ function renderPreviewForStep(item, step) {
     renderConceptPreview(item);
     return;
   }
-  renderPreview(previewForStep(item.preview, step));
+  const preview = previewForStep(item.preview, step);
+  const candidateGeneration = step === "candidates" ? item.project?.candidateGeneration || null : null;
+  if (step === "candidates") {
+    renderPreview({
+      ...(preview || {}),
+      previewType: "candidates",
+      pdfs: [],
+      pages: [],
+      candidates: preview?.candidates || [],
+      candidateGeneration
+    });
+    return;
+  }
+  renderPreview(preview);
 }
 
 function previewForStep(preview, step) {
@@ -1846,25 +3605,10 @@ function previewForStep(preview, step) {
     return null;
   }
   if (step === "drafts") {
-    if (preview.pages?.length) {
-      return { ...preview, previewType: "selected_pages", pdfs: [], pages: preview.pages || [], candidates: [] };
-    }
     return { ...preview, previewType: "candidates", pdfs: [], pages: [], candidates: preview.candidates || [] };
   }
   if (step === "candidates") {
-    if (preview.candidates?.length) {
-      return { ...preview, previewType: "candidates", pdfs: [], pages: [], candidates: preview.candidates || [] };
-    }
-    if (preview.pdfs?.length) {
-      return { ...preview, previewType: "pdf", pages: [], candidates: [], pdfs: preview.pdfs || [] };
-    }
-    return { ...preview, previewType: "candidates", pdfs: [], pages: [], candidates: [] };
-  }
-  if (step === "selection") {
-    return { ...preview, previewType: "selected_pages", pdfs: [], pages: preview.pages || [], candidates: [] };
-  }
-  if (step === "export") {
-    return { ...preview, previewType: "pdf", pages: [], candidates: [], pdfs: preview.pdfs || [] };
+    return { ...preview, previewType: "candidates", pdfs: [], pages: [], candidates: preview.candidates || [] };
   }
   return preview;
 }
@@ -1877,41 +3621,28 @@ function applyPreviewLayout(preview) {
   elements.previewGrid.classList.add(`preview-kind-${preview.previewType === "selected_pages" ? "pages" : preview.previewType}`);
 }
 
-function hasPreviewContent(preview) {
-  return Boolean(preview?.pdfs?.length || preview?.pages?.length || preview?.candidates?.some((candidate) => candidate.pages?.some((page) => page.url)));
-}
-
-function previewRouteStep(preview, step) {
-  if (step === "drafts") {
-    return preview?.pages?.length ? "selection" : "candidates";
-  }
-  if (step === "input" || step === "concept") {
-    return preview?.previewType === "pdf"
-      ? "export"
-      : preview?.previewType === "selected_pages"
-        ? "selection"
-        : "candidates";
-  }
-  return step || "candidates";
-}
-
 function bindPreviewOpenActions(preview) {
-  const projectId = state.selectedItem?.project?.projectId;
-  const previewUrl = projectId && hasPreviewContent(preview)
-    ? `/preview.html?${new URLSearchParams({ project: projectId, step: previewRouteStep(preview, state.activeStatusStep) })}`
-    : null;
-  elements.openPreviewButton.disabled = !previewUrl;
-  elements.openPreviewButton.onclick = () => openUrl(previewUrl);
   bindPreviewCardActions(elements.previewGrid);
 }
 
+function bindCommandButtons(container) {
+  actionBindings.bindCommandButtons(container);
+}
+
+function bindCanvasModeButtons(container) {
+  actionBindings.bindCanvasModeButtons(container);
+}
+
 function renderPreview(preview) {
+  const candidateGenerationPending = Boolean(preview?.candidateGeneration?.isRunning);
   elements.previewEyebrow.textContent = "Vorschau";
   elements.previewTitle.textContent = titleForPreview(preview);
   elements.previewGrid.dataset.previewType = preview?.previewType || "";
   applyPreviewLayout(preview);
   if (!preview || preview.previewType === "project_status") {
-    elements.previewGrid.innerHTML = '<div class="no-preview">Noch keine Bild- oder PDF-Vorschau vorhanden.</div>';
+    elements.previewGrid.innerHTML = candidateGenerationPending
+      ? renderCandidateGenerationPreviewCard(preview.candidateGeneration)
+      : '<div class="no-preview">Noch keine Bild- oder PDF-Vorschau vorhanden.</div>';
     bindPreviewOpenActions(preview);
     return;
   }
@@ -1922,177 +3653,315 @@ function renderPreview(preview) {
   } else if (preview.previewType === "selected_pages") {
     elements.previewGrid.innerHTML = preview.pages?.length
       ? preview.pages.map(renderPageCard).join("")
-      : '<div class="no-preview">Noch keine Kandidatenvorschau vorhanden.</div>';
+      : '<div class="no-preview">Noch keine Entwurfsvorschau vorhanden.</div>';
   } else if (preview.previewType === "candidates") {
-    elements.previewGrid.innerHTML = preview.candidates?.length
-      ? preview.candidates.map(renderCandidateCard).join("")
-      : '<div class="no-preview">Noch keine Kandidaten vorhanden.</div>';
+    const candidates = annotateCandidateDisplayList(preview.candidates || []);
+    const cards = [
+      ...(candidateGenerationPending ? [renderCandidateGenerationPreviewCard(preview.candidateGeneration)] : []),
+      ...candidates.map((candidate) => renderCandidateCard(candidate, state.workspace, { showConceptTag: false }))
+    ];
+    elements.previewGrid.innerHTML = cards.length
+      ? cards.join("")
+      : '<div class="no-preview">Noch keine Entwürfe vorhanden.</div>';
   }
   bindPreviewOpenActions(preview);
 }
 
 function titleForPreview(preview) {
   const titles = {
-    candidates: "Kandidaten",
+    candidates: "Entwürfe",
     pdf: "PDF",
     project_status: "Input",
-    selected_pages: "Kandidaten"
+    selected_pages: "Entwürfe"
   };
   return titles[preview?.previewType] || "Vorschau";
 }
 
 function renderPageCard(page) {
-  const meta = [page.role || "Arbeitsblatt", page.sourceCandidateId ? `aus ${page.sourceCandidateId}` : null]
-    .filter(Boolean)
-    .join(" · ");
   return `
     <figure class="preview-card is-openable" data-open-url="${escapeHtml(page.url)}">
       <img src="${escapeHtml(page.url)}" alt="Seite ${escapeHtml(page.page)}">
-      <figcaption class="preview-caption">
-        <span>Seite ${escapeHtml(page.page)}</span>
-        <span>${escapeHtml(meta)}</span>
-      </figcaption>
+    </figure>
+  `;
+}
+
+function renderWorksheetPageCard(page = {}, index = 0, pageTotal = 1, worksheetTitle = "") {
+  const label = pageTotal > 1 ? `Seite ${page.page || index + 1}/${pageTotal}` : `Seite ${page.page || index + 1}`;
+  return `
+    <figure
+      class="preview-card worksheet-page-card is-openable"
+      data-open-url="${escapeHtml(page.url)}"
+      data-capture-kind="worksheet-page"
+      data-viewer-title="${escapeHtml(worksheetTitle || "Arbeitsblatt")}"
+      data-page="${escapeHtml(page.page || index + 1)}"
+      data-page-total="${escapeHtml(pageTotal)}"
+      data-page-role="${escapeHtml(page.role || "Arbeitsblatt")}"
+      data-source-candidate-id="${escapeHtml(page.sourceCandidateId || "")}"
+    >
+      <span class="worksheet-page-sheet">
+        <img src="${escapeHtml(page.url)}" alt="${escapeHtml(label)}" loading="lazy">
+      </span>
     </figure>
   `;
 }
 
 function renderPdfCard(pdf) {
-  const exportKind = pdf.solutionSheet?.included
-    ? "PDF mit Lösungsblatt"
-    : "PDF";
-  const meta = [
-    pdf.pageCount ? `${pdf.pageCount} Seite${pdf.pageCount === 1 ? "" : "n"}` : null,
-    conceptLabel(pdf.concept)
-  ].filter(Boolean).join(" · ");
   return `
     <figure class="preview-card is-openable" data-open-url="${escapeHtml(pdf.url)}">
       <iframe src="${escapeHtml(pdf.url)}" title="PDF-Vorschau"></iframe>
-      <figcaption class="preview-caption">
-        <span>${escapeHtml(exportKind)}</span>
-        <span>${escapeHtml(meta || fileName(pdf.path))}</span>
-      </figcaption>
     </figure>
   `;
 }
 
-function renderCandidateCard(candidate) {
-  const pages = (candidate.pages || []).filter((page) => page.url);
-  const firstPage = pages[0];
-  const foundation = conceptLabel(candidate.concept || candidate);
-  if (!firstPage) {
-    return `<div class="missing-preview"><div><strong>${escapeHtml(candidate.id)}</strong><br>${escapeHtml(foundation || "Keine Bilddatei gefunden.")}</div></div>`;
+function candidateCreatedAtValue(candidate = {}) {
+  return candidate.createdAt
+    || candidate.generation?.createdAt
+    || candidate.pages?.[0]?.metadata?.createdAt
+    || "";
+}
+
+function candidateDisplaySortEntries(candidates = []) {
+  return candidates
+    .map((candidate, index) => ({ candidate, index, key: `${candidateKey(candidate)}:${index}` }))
+    .sort((left, right) => {
+      return String(candidateCreatedAtValue(left.candidate)).localeCompare(String(candidateCreatedAtValue(right.candidate)))
+        || String(left.candidate.runId || "").localeCompare(String(right.candidate.runId || ""))
+        || String(left.candidate.id || "").localeCompare(String(right.candidate.id || ""))
+        || left.index - right.index;
+    });
+}
+
+function candidateConceptDisplayLabel(candidate = {}) {
+  const reference = candidate.concept || candidate;
+  const version = Number(candidate.basedOnConceptVersion || reference.conceptVersion || 0) || null;
+  return version ? conceptVersionDisplayName(version) : conceptLabel(reference);
+}
+
+function draftLabelFromNumber(value = 1) {
+  const number = Number(value || 0) || 1;
+  return `Entwurf ${String(number).padStart(2, "0")}`;
+}
+
+function draftNumberFromValue(value = "") {
+  const match = String(value || "").match(/candidate(?:_bundle)?_0*(\d+)/i);
+  return match ? Number(match[1]) : null;
+}
+
+function draftDisplayLabel(candidate = {}, fallbackNumber = 1) {
+  const existing = String(candidate.displayLabel || "").trim();
+  if (/^Entwurf\s+\d+/i.test(existing)) {
+    return existing;
   }
-  const plannedPageCount = Number(candidate.generation?.pageCount || candidate.generation?.plannedPageCount || pages.length) || pages.length;
-  const candidateKind = plannedPageCount > 1
-    ? pages.length >= plannedPageCount ? "Kandidatenreihe" : "Seitenvariante"
-    : "Kandidat";
-  const pageLabel = pages.length > 1 ? `${pages.length} Seiten` : "1 Seite";
-  const pdf = candidate.pdf?.url ? candidate.pdf : null;
-  return `
-    <figure
-      class="preview-card is-openable candidate-preview-card"
-      data-open-url="${escapeHtml(firstPage.url)}"
-      data-capture-kind="candidate"
-      data-run-id="${escapeHtml(candidate.runId || "")}"
-      data-candidate-id="${escapeHtml(candidate.id)}"
-      data-page="${escapeHtml(firstPage.page || 1)}"
-      data-page-role="${escapeHtml(firstPage.role || "worksheet")}"
-      data-source-path="${escapeHtml(firstPage.path || "")}"
-      data-source-url="${escapeHtml(firstPage.url)}"
-    >
-      <div class="preview-paper-meta">
-        <span class="preview-paper-kind">${escapeHtml(candidateKind)}</span>
-        <span class="preview-paper-id">
-          ${escapeHtml(candidate.id)}
-          <button class="candidate-info-button" type="button" data-card-action="candidate-info" data-candidate-id="${escapeHtml(candidate.id)}" data-run-id="${escapeHtml(candidate.runId || "")}" aria-label="Generierungsinfo anzeigen" title="Generierungsinfo anzeigen">
-            ${icon("info", "icon icon-small")}
-          </button>
-        </span>
-      </div>
-      <button class="preview-card-copy" type="button" data-card-action="copy-image" data-copy-image-url="${escapeHtml(firstPage.url)}" aria-label="Bild kopieren" title="Bild kopieren">
-        ${icon("copy", "icon icon-small")}
-      </button>
-      ${pdf ? `
-        <div class="candidate-row-actions">
-          <button class="mini-button primary-button" type="button" data-card-action="download-candidate-pdf" data-download-url="${escapeHtml(pdf.url)}" data-download-name="${escapeHtml(fileName(pdf.path || pdf.url))}">
-            ${icon("download", "icon icon-small")}
-            <span>PDF herunterladen</span>
-          </button>
-        </div>
-      ` : ""}
-      <div class="candidate-page-stack ${pages.length > 1 ? "multi" : ""}">
-        ${pages.map((page, index) => `
-          <div class="candidate-page-tile">
-            <div class="candidate-page-label">Seite ${escapeHtml(page.page || index + 1)}</div>
-            <img
-              ${index === 0 ? "data-capture-image" : ""}
-              src="${escapeHtml(page.url)}"
-              alt="${escapeHtml(`${candidate.id} Seite ${page.page || index + 1}`)}"
-              loading="lazy"
-            >
-          </div>
-        `).join("")}
-      </div>
-      <figcaption class="preview-caption">
-        <span>${escapeHtml(candidate.id)}</span>
-        <span>${escapeHtml([pageLabel, foundation || candidate.status || "Kandidat"].filter(Boolean).join(" · "))}</span>
-      </figcaption>
-    </figure>
-  `;
+  const number = Number(candidate.displayNumber || 0)
+    || draftNumberFromValue(candidate.id)
+    || draftNumberFromValue(candidate.rawCandidateId)
+    || draftNumberFromValue(existing)
+    || fallbackNumber;
+  return draftLabelFromNumber(number);
+}
+
+function draftFilePrefix(candidate = {}, fallbackNumber = 1) {
+  const number = Number(candidate.displayNumber || 0)
+    || draftNumberFromValue(candidate.id)
+    || draftNumberFromValue(candidate.rawCandidateId)
+    || fallbackNumber;
+  return `entwurf_${String(number).padStart(2, "0")}`;
+}
+
+function draftPageCount(candidate = {}) {
+  const pages = (candidate.pages || []).filter((page) => page.url).length;
+  return pages || Number(candidate.generation?.generatedPageCount || candidate.generation?.pageCount || candidate.generation?.plannedPageCount || 0) || 0;
+}
+
+function draftVersionLabel(candidate = {}) {
+  const reference = candidate.concept || candidate;
+  const version = Number(candidate.basedOnConceptVersion || reference.conceptVersion || 0) || null;
+  return version ? conceptVersionDisplayName(version) : "";
+}
+
+function draftMetaLabel(candidate = {}) {
+  const pageCount = draftPageCount(candidate);
+  return [
+    pageCount > 1 ? `${pageCount} Seiten` : null,
+    draftVersionLabel(candidate) || null
+  ].filter(Boolean).join(" · ");
+}
+
+function draftChatBasisLabel(candidate = {}) {
+  const versionLabel = draftVersionLabel(candidate);
+  return versionLabel ? `AB-Konzept ${versionLabel}` : "";
+}
+
+function candidateForDisplay(candidate = {}, workspace = state.workspace) {
+  const candidates = annotateCandidateDisplayList(workspaceCandidateHistory(workspace || {}));
+  const found = candidates.find((entry) => candidateKey(entry) === candidateKey(candidate));
+  return found || {
+    ...candidate,
+    displayLabel: draftDisplayLabel(candidate),
+    conceptDisplayLabel: candidateConceptDisplayLabel(candidate),
+    rawCandidateId: candidate.id || null
+  };
+}
+
+function candidateConceptGroupKey(candidate = {}) {
+  const reference = candidate.concept || {};
+  return candidate.basedOnConceptId
+    || reference.contentMirrorId
+    || reference.conceptId
+    || (candidate.basedOnConceptVersion || reference.conceptVersion ? `version:${candidate.basedOnConceptVersion || reference.conceptVersion}` : "")
+    || "unknown";
+}
+
+function candidateImageSpecKey(candidate = {}) {
+  return candidate.generation?.imageSpecProposalId
+    || candidate.generation?.imageSpecId
+    || candidate.generation?.imageSpecSummary
+    || "";
+}
+
+function annotateCandidateDisplayList(candidates = []) {
+  if (!Array.isArray(candidates) || !candidates.length) {
+    return [];
+  }
+  const sortedEntries = candidateDisplaySortEntries(candidates);
+  const byDisplayKey = new Map();
+  const conceptGroups = new Map();
+
+  sortedEntries.forEach((entry, index) => {
+    byDisplayKey.set(entry.key, index + 1);
+    const conceptKey = candidateConceptGroupKey(entry.candidate);
+    if (!conceptGroups.has(conceptKey)) {
+      conceptGroups.set(conceptKey, []);
+    }
+    conceptGroups.get(conceptKey).push(entry);
+  });
+
+  return sortedEntries.map((entry) => {
+    const { candidate, key } = entry;
+    const displayNumber = byDisplayKey.get(key) || entry.index + 1;
+    return {
+      ...candidate,
+      displayNumber,
+      displayLabel: draftLabelFromNumber(displayNumber),
+      conceptDisplayLabel: candidateConceptDisplayLabel(candidate),
+      rawCandidateId: candidate.id || null
+    };
+  });
+}
+
+function candidateImageDownloads(pages = [], fallbackPrefix = "candidate") {
+  return candidateCardRenderer.candidateImageDownloads(pages, fallbackPrefix);
+}
+
+function renderCandidateImageDownloadButton(downloads = []) {
+  return candidateCardRenderer.renderCandidateImageDownloadButton(downloads);
+}
+
+function candidateWorksheetDepositKey(runId = "", candidateId = "") {
+  return candidateCardRenderer.candidateWorksheetDepositKey(runId, candidateId);
+}
+
+function candidateWorksheetDeposits(candidate = {}, workspace = state.workspace) {
+  return candidateCardRenderer.candidateWorksheetDeposits(candidate, workspace);
+}
+
+function candidateHasWorksheetDeposit(candidate = {}, workspace = state.workspace) {
+  return candidateCardRenderer.candidateHasWorksheetDeposit(candidate, workspace);
+}
+
+function renderCandidateWorksheetStoreAction(candidate = {}, pageCount = 1, workspace = state.workspace) {
+  return candidateCardRenderer.renderCandidateWorksheetStoreAction(candidate, pageCount, workspace);
+}
+
+function renderCandidateCard(candidate, workspace = state.workspace, options = {}) {
+  return candidateCardRenderer.renderCandidateCard(candidate, workspace, options);
+}
+
+async function openWorksheetInLibrary(worksheetId) {
+  if (!worksheetId) {
+    return;
+  }
+  state.libraryView = "worksheets";
+  state.query = "";
+  if (elements.searchInput) {
+    elements.searchInput.value = "";
+  }
+  setTreeSelection([`worksheet:${worksheetId}`], {
+    primaryId: `worksheet:${worksheetId}`,
+    anchorId: `worksheet:${worksheetId}`
+  });
+  closeWorkspace();
+  await loadTree({ keepSelection: true, selectAfterLoad: true });
+}
+
+async function depositCandidateWorksheet(button) {
+  const projectId = state.selectedItem?.project?.projectId || state.workspace?.project?.projectId || currentProjectId();
+  const candidateId = button.dataset.candidateId || "";
+  const runId = button.dataset.runId || "";
+  if (!projectId || !candidateId) {
+    showToast("Kein Entwurf ausgewählt.", "error");
+    return;
+  }
+  button.disabled = true;
+  try {
+    const result = await fetchJson("/api/worksheets/deposit-candidate", {
+      method: "POST",
+      body: JSON.stringify({
+        projectId,
+        runId,
+        candidateId
+      })
+    });
+    if (result.duplicate && result.existing?.worksheetId) {
+      const createCopy = await requestConfirmation({
+        eyebrow: "Schon abgelegt",
+        title: "Bereits in Arbeitsblätter",
+        message: `"${result.existing.title || "Dieses Arbeitsblatt"}" wurde aus genau diesem Entwurf schon abgelegt.`,
+        acceptLabel: "Kopie anlegen",
+        cancelLabel: "Bestehendes öffnen"
+      });
+      if (!createCopy) {
+        await openWorksheetInLibrary(result.existing.worksheetId);
+        showToast(worksheetDepositToastMessage(result), "success");
+        return;
+      }
+      const copy = await fetchJson("/api/worksheets/deposit-candidate", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId,
+          runId,
+          candidateId,
+          forceDuplicate: true
+        })
+      });
+      if (copy.item?.worksheetId) {
+        await openWorksheetInLibrary(copy.item.worksheetId);
+        showToast(worksheetDepositToastMessage(copy), "success");
+      }
+      return;
+    }
+    if (result.item?.worksheetId) {
+      await openWorksheetInLibrary(result.item.worksheetId);
+      showToast(worksheetDepositToastMessage(result), "success");
+    }
+  } catch (error) {
+    showToast(error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function downloadCandidateImages(button) {
+  actionBindings.downloadCandidateImages(button);
 }
 
 function bindPreviewCardActions(container) {
-  container.querySelectorAll("[data-card-action='candidate-info']").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      openCandidateInfo(button.dataset.candidateId, button.dataset.runId);
-    });
-  });
-  container.querySelectorAll("[data-copy-image-url]").forEach((button) => {
-    button.addEventListener("click", async (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      try {
-        await copyImageToClipboard(button.dataset.copyImageUrl);
-        showToast("Bild kopiert", "success");
-      } catch (error) {
-        showToast(error.message, "error");
-      }
-    });
-  });
-  container.querySelectorAll("[data-card-action='download-candidate-pdf']").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (button.dataset.downloadUrl) {
-        downloadUrl(button.dataset.downloadUrl, button.dataset.downloadName);
-      }
-    });
-  });
-  container.querySelectorAll("[data-open-url]").forEach((node) => {
-    node.addEventListener("click", (event) => {
-      if (event.target.closest("[data-card-action]") || state.canvasCapture.active) {
-        return;
-      }
-      if (isMobileViewport() && node.closest(".chat-timeline") && node.dataset.captureKind === "candidate") {
-        event.preventDefault();
-        openMobilePreview("candidates");
-        return;
-      }
-      if (node.dataset.captureKind === "candidate") {
-        event.preventDefault();
-        openCandidateViewerFromCard(node, container);
-        return;
-      }
-      openUrl(node.dataset.openUrl);
-    });
-  });
+  actionBindings.bindPreviewCardActions(container);
 }
 
 function currentPreviewCandidates() {
   return state.mode === "workspace"
-    ? state.workspace?.preview?.candidates || []
+    ? workspaceCandidateHistory(state.workspace || {})
     : state.selectedItem?.preview?.candidates || [];
 }
 
@@ -2122,6 +3991,119 @@ function compactJson(value) {
   } catch {
     return String(value);
   }
+}
+
+function finiteNumber(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function formatUsd(value) {
+  const number = finiteNumber(value);
+  if (number === null) {
+    return "";
+  }
+  const digits = number === 0 ? 2 : Math.abs(number) < 0.01 ? 4 : 2;
+  return `$${number.toFixed(digits)}`;
+}
+
+function formatTokenCount(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) {
+    return "";
+  }
+  return new Intl.NumberFormat("de-DE").format(Math.round(number));
+}
+
+function candidatePageCostEstimates(candidate = {}) {
+  return (candidate.pages || [])
+    .map((page) => page.metadata?.costEstimate)
+    .filter(Boolean);
+}
+
+function candidatePageUsage(candidate = {}) {
+  return (candidate.pages || [])
+    .map((page) => page.metadata?.usage)
+    .filter(Boolean);
+}
+
+function usageTotalTokens(usage = {}) {
+  return Number(usage.total_tokens || usage.totalTokens || 0)
+    || (Number(usage.input_tokens || 0) + Number(usage.output_tokens || 0))
+    || 0;
+}
+
+function candidateBillingSummary(candidate = {}) {
+  const generation = candidate.generation || {};
+  const provider = generation.provider || candidate.pages?.[0]?.metadata?.provider || null;
+  if (provider === "codex_cli") {
+    return {
+      provider,
+      shortLabel: "Codex Usage",
+      providerLabel: "Codex/ChatGPT-Kontingent",
+      title: "Dieser Entwurf wurde über Codex Usage erzeugt. Exakte Kosten pro Bildlauf werden von diesem Pfad nicht zurückgegeben.",
+      costLabel: null,
+      tokenLabel: null
+    };
+  }
+
+  const estimates = candidatePageCostEstimates(candidate);
+  const pricedEstimates = estimates.filter((estimate) => estimate.estimatedCostAvailable && finiteNumber(estimate.estimatedCostUsd) !== null);
+  const usageEntries = candidatePageUsage(candidate);
+  const totalTokens = pricedEstimates.reduce((sum, estimate) => sum + Number(estimate.tokens?.totalTokens || 0), 0)
+    || usageEntries.reduce((sum, usage) => sum + usageTotalTokens(usage), 0);
+  const totalCost = pricedEstimates.reduce((sum, estimate) => sum + Number(estimate.estimatedCostUsd || 0), 0);
+  const imageCount = Number(generation.generatedPageCount || pricedEstimates.length || usageEntries.length || 0) || 0;
+  const tokenLabel = totalTokens ? `${formatTokenCount(totalTokens)} Tokens` : null;
+
+  if (pricedEstimates.length) {
+    const costLabel = `ca. ${formatUsd(totalCost)}`;
+    const titleParts = [
+      `${costLabel} für ${imageCount || pricedEstimates.length} Bildlauf${(imageCount || pricedEstimates.length) === 1 ? "" : "e"}`,
+      tokenLabel,
+      pricedEstimates[0]?.pricingSourceDate ? `Preisstand ${pricedEstimates[0].pricingSourceDate}` : null
+    ].filter(Boolean);
+    return {
+      provider: "openai",
+      shortLabel: costLabel,
+      providerLabel: "OpenAI API",
+      title: titleParts.join(" · "),
+      costLabel,
+      tokenLabel,
+      estimatedCostUsd: totalCost,
+      totalTokens,
+      imageCount
+    };
+  }
+
+  if (tokenLabel) {
+    return {
+      provider: "openai",
+      shortLabel: tokenLabel,
+      providerLabel: "OpenAI API",
+      title: "OpenAI API-Usage ist vorhanden, aber für dieses Modell gibt es keine lokale Kostenregel.",
+      costLabel: null,
+      tokenLabel,
+      totalTokens,
+      imageCount
+    };
+  }
+
+  if (provider === "openai") {
+    return {
+      provider: "openai",
+      shortLabel: "API-Kosten",
+      providerLabel: "OpenAI API",
+      title: "Für diesen Entwurf wurden keine Usage-Daten im Bildlauf gespeichert.",
+      costLabel: null,
+      tokenLabel: null
+    };
+  }
+
+  return null;
 }
 
 function candidateUsageLabel(candidate) {
@@ -2175,6 +4157,7 @@ function renderCandidateInfo(candidate) {
   const referencePolicy = generation.referencePolicy || metadata.referencePolicy || null;
   const duration = formatDuration(metadata.durationMs);
   const usage = candidateUsageLabel(candidate);
+  const billing = candidateBillingSummary(candidate);
   const prompt = firstPage.prompt || metadata.revisedPrompt || "";
   return `
     <section class="candidate-info-grid">
@@ -2183,10 +4166,13 @@ function renderCandidateInfo(candidate) {
       ${renderInfoRow("Größe", generation.size || metadata.size)}
       ${renderInfoRow("Format", generation.outputFormat || firstPage.format || metadata.format)}
       ${renderInfoRow("Dauer", duration)}
+      ${renderInfoRow("Kosten", billing?.costLabel)}
+      ${renderInfoRow("Tokens", billing?.tokenLabel)}
+      ${renderInfoRow("Abrechnung", billing?.providerLabel)}
       ${renderInfoRow("Nutzung", usage)}
-      ${renderInfoRow("ImageSpec", generation.imageSpecSummary || generation.imageSpecProposalId)}
+      ${renderInfoRow("Vorbereitung", generation.imageSpecSummary || generation.imageSpecProposalId)}
       ${renderInfoRow("Referenz", referencePolicy ? referencePolicyLabel(referencePolicy) : "")}
-      ${renderInfoRow("Konzept", conceptLabel(candidate.concept || candidate))}
+      ${renderInfoRow("Konzept", draftVersionLabel(candidate) || conceptLabel(candidate.concept || candidate))}
     </section>
     ${referencePolicy ? `
       <section class="candidate-info-section">
@@ -2196,13 +4182,13 @@ function renderCandidateInfo(candidate) {
     ` : ""}
     ${generation.imageSpecProposalId ? `
       <section class="candidate-info-section">
-        <p class="detail-label">ImageSpec-ID</p>
+        <p class="detail-label">Vorbereitungs-ID</p>
         <p>${escapeHtml(generation.imageSpecProposalId)}</p>
       </section>
     ` : ""}
-    <section class="candidate-info-section">
-      <p class="detail-label">Bildprompt</p>
-      <pre>${escapeHtml(prompt || "Kein Prompt im Kandidatenmanifest gefunden.")}</pre>
+      <section class="candidate-info-section">
+        <p class="detail-label">Bildprompt</p>
+      <pre>${escapeHtml(prompt || "Kein Prompt für diesen Entwurf gefunden.")}</pre>
     </section>
     ${metadata.revisedPrompt ? `
       <section class="candidate-info-section">
@@ -2222,13 +4208,14 @@ function renderCandidateInfo(candidate) {
 function openCandidateInfo(candidateId, runId) {
   const candidate = findCandidatePreview(candidateId, runId);
   if (!candidate || !elements.candidateInfoModal) {
-    showToast("Keine Generierungsinfos für diesen Kandidaten gefunden.", "error");
+    showToast("Keine Generierungsinfos für diesen Entwurf gefunden.", "error");
     return;
   }
+  const displayCandidate = candidateForDisplay(candidate);
   state.candidateInfo.lastFocusedElement = document.activeElement;
-  elements.candidateInfoTitle.textContent = candidate.id;
+  elements.candidateInfoTitle.textContent = draftDisplayLabel(displayCandidate);
   elements.candidateInfoMeta.textContent = [
-    candidate.runId,
+    draftMetaLabel(displayCandidate),
     candidate.generation?.provider || "openai",
     candidate.status
   ].filter(Boolean).join(" · ");
@@ -2264,12 +4251,12 @@ function candidateViewerItemFromCard(card) {
   };
   return {
     url: source.sourceUrl,
-    candidateId: source.candidateId || "Kandidat",
+    candidateId: card.dataset.displayLabel || draftDisplayLabel({ id: source.candidateId }),
     runId: source.runId,
     page: source.page,
     role: source.role,
     path: source.sourcePath,
-    meta: conceptLabel({ label: card.querySelector(".preview-caption span:last-child")?.textContent || "" }),
+    meta: card.dataset.viewerMeta || "",
     source
   };
 }
@@ -2288,12 +4275,12 @@ function candidateViewerItemsFromCandidate(candidate) {
       };
       return {
         url: page.url,
-        candidateId: candidate.id || "Kandidat",
+        candidateId: draftDisplayLabel(candidate),
         runId: candidate.runId,
         page: page.page || 1,
         role: page.role,
         path: page.path,
-        meta: conceptLabel(candidate.concept || candidate),
+        meta: draftMetaLabel(candidate),
         source
       };
     });
@@ -2301,12 +4288,46 @@ function candidateViewerItemsFromCandidate(candidate) {
 
 function candidateViewerItemsFromCard(card) {
   const candidate = findCandidatePreview(card.dataset.candidateId, card.dataset.runId);
-  const items = candidate ? candidateViewerItemsFromCandidate(candidate) : [];
+  const displayLabel = card.dataset.displayLabel || null;
+  const items = candidate ? candidateViewerItemsFromCandidate({
+    ...candidate,
+    displayLabel: displayLabel || candidate.displayLabel
+  }) : [];
   if (items.length) {
     return items;
   }
   const item = candidateViewerItemFromCard(card);
   return item?.url ? [item] : [];
+}
+
+function worksheetViewerItemFromCard(card) {
+  const image = card.querySelector("img");
+  const page = Number(card.dataset.page || 1) || 1;
+  const pageTotal = Number(card.dataset.pageTotal || 1) || 1;
+  const title = card.dataset.viewerTitle || state.selectedItem?.worksheet?.title || "Arbeitsblatt";
+  return {
+    viewerKind: "worksheet-page",
+    url: card.dataset.openUrl || image?.currentSrc || image?.src || null,
+    title,
+    page,
+    pageTotal,
+    role: card.dataset.pageRole || "Arbeitsblatt",
+    sourceCandidateId: card.dataset.sourceCandidateId || ""
+  };
+}
+
+function worksheetViewerItemsFrom(container) {
+  return Array.from(container.querySelectorAll("[data-capture-kind='worksheet-page']"))
+    .map(worksheetViewerItemFromCard)
+    .filter((item) => item.url);
+}
+
+function openWorksheetViewerFromCard(card, container) {
+  const host = container || card.closest(".preview-grid, .mobile-preview-body") || document;
+  const cards = Array.from(host.querySelectorAll("[data-capture-kind='worksheet-page']"));
+  const items = worksheetViewerItemsFrom(host);
+  const index = Math.max(0, cards.indexOf(card));
+  openCandidateViewer(items, index);
 }
 
 function candidateViewerItemsFrom(container) {
@@ -2318,11 +4339,19 @@ function candidateViewerItemsFrom(container) {
 function openCandidateViewerFromCard(card, container) {
   const host = container || card.closest(".canvas-body, .preview-grid, .mobile-preview-body") || document;
   if (host === elements.chatTimeline || card.closest(".chat-timeline")) {
-    const items = (state.workspace?.preview?.candidates || [])
+    const items = annotateCandidateDisplayList(state.workspace?.preview?.candidates || [])
       .flatMap(candidateViewerItemsFromCandidate)
       .filter(Boolean);
+    const targetCandidateId = card.dataset.candidateId || "";
+    const targetRunId = card.dataset.runId || "";
+    const targetPage = Number(card.dataset.page || 0) || 0;
     const index = Math.max(0, items.findIndex((item) => {
-      return item.candidateId === card.dataset.candidateId && (!card.dataset.runId || item.runId === card.dataset.runId);
+      const matchesCandidate = !targetCandidateId
+        || item.candidateId === targetCandidateId
+        || item.source?.candidateId === targetCandidateId;
+      const matchesRun = !targetRunId || item.runId === targetRunId;
+      const matchesPage = !targetPage || Number(item.page || 0) === targetPage;
+      return matchesCandidate && matchesRun && matchesPage;
     }));
     openCandidateViewer(items, index);
     return;
@@ -2386,6 +4415,58 @@ function showCandidateViewerAt(index) {
   renderCandidateViewer();
 }
 
+function candidateViewerGroupKey(item = {}) {
+  return [
+    item.runId || "",
+    item.source?.candidateId || item.candidateId || ""
+  ].join("::");
+}
+
+function candidateViewerPosition(items = [], index = 0) {
+  const groups = [];
+  const groupMap = new Map();
+
+  items.forEach((entry, itemIndex) => {
+    const key = candidateViewerGroupKey(entry);
+    let group = groupMap.get(key);
+    if (!group) {
+      group = { key, itemIndexes: [] };
+      groupMap.set(key, group);
+      groups.push(group);
+    }
+    group.itemIndexes.push(itemIndex);
+  });
+
+  const currentItem = items[index] || null;
+  const currentKey = candidateViewerGroupKey(currentItem);
+  const candidateIndex = Math.max(0, groups.findIndex((group) => group.key === currentKey));
+  const currentGroup = groups[candidateIndex] || { itemIndexes: [index] };
+  const pageIndex = Math.max(0, currentGroup.itemIndexes.indexOf(index));
+
+  return {
+    candidateNumber: candidateIndex + 1,
+    candidateTotal: groups.length || 1,
+    pageNumber: pageIndex + 1,
+    pageTotal: currentGroup.itemIndexes.length || 1
+  };
+}
+
+function candidateViewerCounterLabel(position = {}) {
+  const candidateLabel = draftLabelFromNumber(position.candidateNumber || 1);
+  if ((position.pageTotal || 1) > 1) {
+    return `${candidateLabel}, Seite ${position.pageNumber || 1}`;
+  }
+  return candidateLabel;
+}
+
+function worksheetViewerCounterLabel(item = {}, index = 0, total = 1) {
+  const currentPage = Number(item.page || index + 1) || index + 1;
+  if (total > 1) {
+    return `Seite ${currentPage} / ${total}`;
+  }
+  return "Arbeitsblatt";
+}
+
 function renderCandidateViewer() {
   const item = currentCandidateViewerItem();
   if (!item) {
@@ -2393,31 +4474,37 @@ function renderCandidateViewer() {
     return;
   }
   const total = state.candidateViewer.items.length;
-  const current = state.candidateViewer.index + 1;
-  elements.candidateViewerCounter.textContent = `Kandidat ${current} / ${total}`;
-  elements.candidateViewerTitle.textContent = item.candidateId;
-  elements.candidateViewerMeta.textContent = [
-    item.runId,
-    item.page ? `Seite ${item.page}` : null,
-    item.role || null
-  ].filter(Boolean).join(" · ");
-  elements.candidateViewerImage.src = item.url;
-  elements.candidateViewerImage.alt = item.candidateId;
-  elements.candidateViewerPreviousButton.disabled = state.candidateViewer.index <= 0;
-  elements.candidateViewerNextButton.disabled = state.candidateViewer.index >= total - 1;
-}
-
-async function copyCurrentCandidateViewerImage() {
-  const item = currentCandidateViewerItem();
-  if (!item?.url) {
+  if (item.viewerKind === "asset") {
+    elements.candidateViewerCounter.textContent = item.role || "Bild";
+    elements.candidateViewerTitle.textContent = item.title || fileName(item.url);
+    elements.candidateViewerMeta.textContent = item.meta || "";
+    elements.candidateViewerImage.src = item.url;
+    elements.candidateViewerImage.alt = item.title || fileName(item.url);
+    elements.candidateViewerPreviousButton.disabled = true;
+    elements.candidateViewerNextButton.disabled = true;
     return;
   }
-  try {
-    await copyImageToClipboard(item.url);
-    showToast("Bild kopiert", "success");
-  } catch (error) {
-    showToast(error.message, "error");
+  if (item.viewerKind === "worksheet-page") {
+    elements.candidateViewerCounter.textContent = worksheetViewerCounterLabel(item, state.candidateViewer.index, total);
+    elements.candidateViewerTitle.textContent = item.title || "Arbeitsblatt";
+    elements.candidateViewerMeta.textContent = [
+      item.role || null,
+      item.sourceCandidateId ? `aus ${draftDisplayLabel({ id: item.sourceCandidateId })}` : null
+    ].filter(Boolean).join(" · ");
+    elements.candidateViewerImage.src = item.url;
+    elements.candidateViewerImage.alt = worksheetViewerCounterLabel(item, state.candidateViewer.index, total);
+    elements.candidateViewerPreviousButton.disabled = state.candidateViewer.index <= 0;
+    elements.candidateViewerNextButton.disabled = state.candidateViewer.index >= total - 1;
+    return;
   }
+  const position = candidateViewerPosition(state.candidateViewer.items, state.candidateViewer.index);
+  elements.candidateViewerCounter.textContent = candidateViewerCounterLabel(position);
+  elements.candidateViewerTitle.textContent = item.candidateId;
+  elements.candidateViewerMeta.textContent = item.meta || "";
+  elements.candidateViewerImage.src = item.url;
+  elements.candidateViewerImage.alt = candidateViewerCounterLabel(position);
+  elements.candidateViewerPreviousButton.disabled = state.candidateViewer.index <= 0;
+  elements.candidateViewerNextButton.disabled = state.candidateViewer.index >= total - 1;
 }
 
 function markdownToHtml(markdown) {
@@ -2594,14 +4681,6 @@ function stripLeadingTaskNumber(value) {
   return valueText(value).replace(/^\s*(?:aufgabe\s*)?\d+\s*[\).:-]\s*/i, "");
 }
 
-function compactConceptText(value, maxLength = 92) {
-  const text = valueText(value).replace(/\s+/g, " ");
-  if (!text || text.length <= maxLength) {
-    return text;
-  }
-  return `${text.slice(0, maxLength - 3).trim()}...`;
-}
-
 function teachingContextFieldValue(context = {}, id) {
   return valueText(context.fields?.[id]?.value);
 }
@@ -2649,8 +4728,29 @@ function taskPromptText(task = {}) {
   return stripLeadingTaskNumber(firstNonEmpty(task.prompt, task.text));
 }
 
+function taskVisibleContent(task = {}) {
+  const text = normalizeGermanDisplayText(
+    stripLeadingTaskNumber(firstNonEmpty(task.text, task.prompt))
+  );
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!lines.length) {
+    return { title: "", body: "" };
+  }
+  if (lines.length === 1) {
+    return { title: lines[0], body: "" };
+  }
+  return {
+    title: lines[0],
+    body: lines.slice(1).join("\n")
+  };
+}
+
 function taskActionLabel(task = {}) {
-  const text = normalizeGermanDisplayText(taskPromptText(task)).toLowerCase();
+  const prompt = normalizeGermanDisplayText(taskPromptText(task));
+  const text = prompt.toLowerCase();
   if (/phrase|satzstarter|sprachmittel|useful phrase/.test(text)) {
     return /zuordn/.test(text) ? "Phrasen zuordnen" : "Phrasen sichern";
   }
@@ -2678,7 +4778,7 @@ function taskActionLabel(task = {}) {
   if (/lies|lese|read/.test(text)) {
     return "Lesen";
   }
-  return compactConceptText(text, 42) || "Bearbeiten";
+  return prompt || "Bearbeiten";
 }
 
 function conceptFrameItems(project = {}, teachingContext = {}, brief = {}, content = {}) {
@@ -2712,29 +4812,28 @@ function conceptFrameItems(project = {}, teachingContext = {}, brief = {}, conte
 function conceptStructureItems(content = {}, brief = {}) {
   const tasks = Array.isArray(content.tasks) ? content.tasks : [];
   const readingTexts = Array.isArray(content.readingTexts) ? content.readingTexts : [];
-  const imageMaterials = Array.isArray(content.imageMaterials) ? content.imageMaterials : [];
   const pages = worksheetPagesValue(brief, content);
   const taskPrefix = pages && pages > 1 && tasks.length <= pages ? "Blatt" : "Aufgabe";
-  const taskItems = tasks.map((task, index) => ({
-    kicker: `${taskPrefix} ${index + 1}`,
-    title: taskActionLabel(task),
-    meta: firstNonEmpty(task.difficulty)
-  })).filter((item) => item.title);
+  const visibleBlocks = [
+    ...readingTexts.map((_, index) => ({
+      title: readingTexts.length > 1 ? `Text ${index + 1}` : "Text",
+      structureTone: "text"
+    })),
+    ...tasks.map((_, index) => ({
+      title: `${taskPrefix} ${index + 1}`,
+      structureTone: taskPrefix === "Blatt" ? "sheet" : "task"
+    }))
+  ];
 
-  if (taskItems.length) {
-    return taskItems;
+  if (visibleBlocks.length) {
+    return visibleBlocks;
   }
 
-  return [
-    readingTexts.length ? {
-      kicker: "Material",
-      title: countLabel(readingTexts.length, "Textblock", "Textblöcke")
-    } : null,
-    imageMaterials.length ? {
-      kicker: "Bild",
-      title: countLabel(imageMaterials.length, "Bildidee", "Bildideen")
-    } : null
-  ].filter(Boolean);
+  const imageMaterials = Array.isArray(content.imageMaterials) ? content.imageMaterials : [];
+  return imageMaterials.map((_, index) => ({
+    title: imageMaterials.length > 1 ? `Bild ${index + 1}` : "Bild",
+    structureTone: "image"
+  }));
 }
 
 function conceptLogicItems(content = {}, brief = {}) {
@@ -2766,7 +4865,7 @@ function conceptLogicItems(content = {}, brief = {}) {
   if (firstNonEmpty(brief.goal)) {
     items.push({
       kicker: "Zielbezug",
-      title: compactConceptText(brief.goal, 120)
+      title: firstNonEmpty(brief.goal)
     });
   }
 
@@ -2792,13 +4891,13 @@ function conceptVisibleContentItems(content = {}) {
   });
 
   tasks.forEach((task, index) => {
-    const body = taskPromptText(task);
+    const visibleTask = taskVisibleContent(task);
     const expected = firstNonEmpty(task.expectedAnswer);
-    if (body || expected) {
+    if (visibleTask.title || visibleTask.body || expected) {
       items.push({
         kicker: `Aufgabe ${index + 1}`,
-        title: taskActionLabel(task),
-        body,
+        title: visibleTask.title,
+        body: visibleTask.body,
         expected,
         meta: firstNonEmpty(task.difficulty)
       });
@@ -2857,7 +4956,7 @@ function conceptSectionsFromContent(content = {}, options = {}) {
   const project = options.project || {};
   const sections = [
     { title: "Rahmen", items: conceptFrameItems(project, teachingContext, brief, content) },
-    { title: "Blattaufbau", items: conceptStructureItems(content, brief) },
+    { title: "Blattaufbau", items: conceptStructureItems(content, brief), display: "structure" },
     { title: "Aufgabenlogik", items: conceptLogicItems(content, brief) },
     { title: "Sichtbarer Inhalt", items: conceptVisibleContentItems(content) },
     { title: "Bild & Layout", items: conceptLayoutItems(content, brief) }
@@ -2882,24 +4981,190 @@ function renderConceptItem(item = {}, options = {}) {
   `;
 }
 
+function renderConceptStructureSection(section = {}) {
+  return `
+    <div class="concept-structure-flow" aria-label="${escapeHtml(section.title || "Blattaufbau")}">
+      ${(section.items || []).map((item, index) => `
+        <article class="concept-structure-node tone-${escapeHtml(item.structureTone || "task")}">
+          <span class="concept-structure-step">${index + 1}</span>
+          <strong>${escapeHtml(firstNonEmpty(item.title, item.kicker, `Schritt ${index + 1}`))}</strong>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderConceptSectionBody(section = {}, options = {}) {
+  if (section.display === "structure") {
+    return renderConceptStructureSection(section);
+  }
+  return `
+    <div class="concept-items">
+      ${section.items.map((item) => renderConceptItem(item, { compact: options.compact !== false })).join("")}
+    </div>
+  `;
+}
+
 function renderConceptSections(sections = [], options = {}) {
   if (!sections.length) {
     return '<p class="detail-muted">Keine Konzeptdetails vorhanden.</p>';
   }
   const compact = options.compact !== false;
+  const accordion = options.accordion === true || !compact;
   return `
-    <div class="${compact ? "concept-chat-sections" : "concept-detail-sections"}">
+    <div class="${compact ? "concept-chat-sections" : "concept-detail-sections"}${accordion ? " concept-accordion" : ""}">
       ${sections.map((section) => `
-        <section>
-          <div class="concept-section-heading">
-            <h4>${escapeHtml(section.title)}</h4>
-            <span>${escapeHtml(section.items.length)} ${section.items.length === 1 ? "Eintrag" : "Einträge"}</span>
-          </div>
-          <div class="concept-items">
-            ${section.items.map((item) => renderConceptItem(item, { compact })).join("")}
-          </div>
-        </section>
+        ${accordion ? `
+          <details class="concept-section-panel">
+            <summary>
+              <span class="concept-section-title">${escapeHtml(section.title)}</span>
+              <span class="concept-section-count">${escapeHtml(section.items.length)} ${section.items.length === 1 ? "Eintrag" : "Einträge"}</span>
+            </summary>
+            ${renderConceptSectionBody(section, { compact })}
+          </details>
+        ` : `
+          <section>
+            <div class="concept-section-heading">
+              <h4>${escapeHtml(section.title)}</h4>
+              <span>${escapeHtml(section.items.length)} ${section.items.length === 1 ? "Eintrag" : "Einträge"}</span>
+            </div>
+            ${renderConceptSectionBody(section, { compact })}
+          </section>
+        `}
       `).join("")}
+    </div>
+  `;
+}
+
+function conceptCopyLine(label, value) {
+  const text = valueText(value);
+  return text ? `${label}: ${text}` : "";
+}
+
+function conceptCopyItemText(item = {}) {
+  const lines = [];
+  const title = firstNonEmpty(item.title, item.kicker);
+  const kicker = item.kicker && item.kicker !== title ? `${item.kicker}: ` : "";
+  if (title) {
+    lines.push(`- ${kicker}${valueText(title)}`);
+  }
+  if (item.body) {
+    lines.push(`  ${valueText(item.body)}`);
+  }
+  if (item.expected) {
+    lines.push(`  Erwartung: ${valueText(item.expected)}`);
+  }
+  if (item.meta) {
+    lines.push(`  Hinweis: ${valueText(item.meta)}`);
+  }
+  return lines.join("\n");
+}
+
+function conceptCopyText({
+  project = {},
+  brief = {},
+  content = {},
+  teachingContext = {},
+  versionLabel = "",
+  statusLabel = "",
+  eyebrow = "Arbeitsblatt-Konzept"
+} = {}) {
+  const title = worksheetConceptTitle(project, brief, content, teachingContext);
+  const subtitle = worksheetConceptSubtitle(brief, content, teachingContext);
+  const sections = conceptSectionsFromContent(content, { brief, project, teachingContext });
+  const header = [
+    `${eyebrow}: ${title}`,
+    conceptCopyLine("Version", versionLabel),
+    conceptCopyLine("Status", statusLabel),
+    conceptCopyLine("Kurzinfo", subtitle)
+  ].filter(Boolean);
+  const body = sections.flatMap((section) => {
+    const items = (section.items || [])
+      .map(conceptCopyItemText)
+      .filter(Boolean);
+    return items.length ? [`\n${section.title}`, ...items] : [];
+  });
+  return [...header, ...body].join("\n");
+}
+
+function registerConceptCopyText(options = {}) {
+  const id = `concept-copy-${nextConceptCopyId++}`;
+  conceptCopyTexts.set(id, conceptCopyText(options));
+  return id;
+}
+
+function renderConceptCopyButton(options = {}) {
+  const copyId = registerConceptCopyText(options);
+  return `
+    <button class="icon-button icon-button-plain concept-chat-action-button" type="button" data-concept-copy-id="${escapeHtml(copyId)}" aria-label="Arbeitsblatt-Konzept kopieren" title="Arbeitsblatt-Konzept kopieren">
+      ${icon("copy", "icon icon-small")}
+    </button>
+  `;
+}
+
+function renderConceptPreviewButton(preview = {}) {
+  const proposalAttrs = preview.proposalRef?.proposalId
+    ? `data-artifact-kind="proposal" data-artifact-id="${escapeHtml(preview.proposalRef.proposalId)}" data-proposal-kind="${escapeHtml(preview.proposalRef.kind || "")}"`
+    : "";
+  return `
+    <button class="icon-button icon-button-plain concept-chat-action-button" type="button" data-canvas-mode="${escapeHtml(preview.canvasMode || "content")}" ${proposalAttrs} aria-label="Vorschau öffnen" title="Vorschau öffnen">
+      ${icon("eye", "icon icon-small")}
+    </button>
+  `;
+}
+
+async function copyConceptFromButton(button) {
+  const text = conceptCopyTexts.get(button.dataset.conceptCopyId || "");
+  if (!text) {
+    showToast("Kein Konzept zum Kopieren gefunden.", "error");
+    return;
+  }
+  try {
+    const copied = await writeClipboardText(text);
+    showToast(copied ? "Arbeitsblatt-Konzept kopiert" : "Arbeitsblatt-Konzept zum Kopieren geöffnet", "success");
+  } catch (error) {
+    showToast(error.message || "Konzept konnte nicht kopiert werden.", "error");
+  }
+}
+
+function bindConceptCopyActions(container) {
+  container?.querySelectorAll("[data-concept-copy-id]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      copyConceptFromButton(button);
+    });
+  });
+}
+
+function renderConceptDocumentHeader({
+  project = {},
+  brief = {},
+  content = {},
+  teachingContext = {},
+  label = "Kurzüberblick",
+  titleTag = "h4",
+  versionLabel = "",
+  statusLabel = "",
+  eyebrow = "Arbeitsblatt-Konzept"
+} = {}) {
+  const title = escapeHtml(worksheetConceptTitle(project, brief, content, teachingContext));
+  const copyButton = renderConceptCopyButton({
+    project,
+    brief,
+    content,
+    teachingContext,
+    versionLabel,
+    statusLabel,
+    eyebrow
+  });
+  return `
+    <div class="concept-document-heading concept-document-heading-with-action">
+      <div>
+        <p class="detail-label">${escapeHtml(label)}</p>
+        <${titleTag}>${title}</${titleTag}>
+      </div>
+      ${copyButton}
     </div>
   `;
 }
@@ -2911,12 +5176,22 @@ function statusWord(value) {
   if (value === "draft") {
     return "in Arbeit";
   }
+  if (value === "proposed") {
+    return "Vorschlag";
+  }
+  if (value === "adopted") {
+    return "übernommen";
+  }
+  if (value === "superseded" || value === "outdated") {
+    return "älterer Stand";
+  }
   return "nicht vorhanden";
 }
 
 function renderAssignmentPreview(item) {
   const source = item.documents?.source || {};
-  const hasSourceInput = Boolean(sourceFilesFrom(source).length || source.transferCard);
+  const userMessages = (item.chat?.messages || []).filter((message) => message.role === "user" && String(message.content || "").trim());
+  const hasSourceInput = Boolean(sourceFilesFrom(source).length || source.transferCard || userMessages.length);
   elements.previewGrid.dataset.previewType = "input";
   elements.previewEyebrow.textContent = "Vorschau";
   elements.previewTitle.textContent = "Input";
@@ -2941,6 +5216,7 @@ function renderAssignmentPreview(item) {
         <h4>${escapeHtml(item.project?.title || "Input")}</h4>
       </section>
       ${renderSourceInputs({ source, projectId: item.project?.projectId })}
+      ${renderRawInputMessages(userMessages)}
     </article>
   `;
   applyPreviewLayout(null);
@@ -2948,42 +5224,118 @@ function renderAssignmentPreview(item) {
   bindPreviewOpenActions(null);
 }
 
+function selectedLibraryConceptArtifact(item = {}) {
+  const concepts = workspaceConceptArtifacts(item);
+  const selected = state.activeLibraryConceptId
+    ? concepts.find((concept) => concept.id === state.activeLibraryConceptId)
+    : null;
+  const current = currentConceptArtifact(item, concepts);
+  const fallback = current || concepts[0] || null;
+  if (!selected && state.activeLibraryConceptId) {
+    state.activeLibraryConceptId = null;
+  }
+  return selected || fallback;
+}
+
+function renderConceptVersionOverview(item = {}, selectedConcept = null) {
+  const concepts = workspaceConceptArtifacts(item);
+  if (concepts.length <= 1) {
+    return "";
+  }
+  const selectedId = selectedConcept?.id || null;
+
+  return `
+    <section class="concept-version-overview" aria-label="Konzeptversionen">
+      <div class="concept-version-heading">
+        <span>Konzeptversionen</span>
+        <strong>${escapeHtml(concepts.length)} Versionen</strong>
+      </div>
+      <div class="concept-version-list">
+        ${concepts.map((concept) => {
+          const label = concept.version ? `v${concept.version}` : "Konzept";
+          const meta = [
+            concept.current ? "aktuell" : artifactLifecycleLabel(concept.status),
+            concept.taskCount ? `${concept.taskCount} Aufgaben` : null,
+            concept.readingTextCount ? `${concept.readingTextCount} Texte` : null,
+            concept.imageMaterialCount ? `${concept.imageMaterialCount} Bilder` : null
+          ].filter(Boolean).join(" · ");
+          return `
+            <button class="concept-version-row ${concept.current ? "current" : ""} ${selectedId === concept.id ? "selected" : ""}" type="button" data-library-concept-id="${escapeHtml(concept.id || "")}">
+              <span>${escapeHtml(label)}</span>
+              <strong>${escapeHtml(concept.title || "Arbeitsblatt-Konzept")}</strong>
+              <em>${escapeHtml(meta || "Konzept")}</em>
+            </button>
+          `;
+        }).join("")}
+      </div>
+    </section>
+  `;
+}
+
 function renderConceptPreview(item) {
   const brief = item.documents?.brief || {};
   const content = item.documents?.content || {};
+  const selectedConcept = selectedLibraryConceptArtifact(item);
   const briefData = brief.data || {};
-  const contentData = content.data || {};
+  const contentData = selectedConcept?.data || content.data || {};
   const sections = conceptSectionsFromContent(contentData, {
     brief: briefData,
     project: item.project || {},
     teachingContext: item.teachingContext || {}
   });
+  const versionLabel = selectedConcept?.version ? `Konzept v${selectedConcept.version}` : statusWord(brief.status);
+  const statusLabel = statusWord(selectedConcept?.status || content.status);
   elements.previewGrid.dataset.previewType = "concept";
   elements.previewEyebrow.textContent = "Vorschau";
   elements.previewTitle.textContent = "Arbeitsblatt-Konzept";
   elements.previewGrid.innerHTML = `
     <article class="detail-panel">
       <section class="detail-section">
-        <p class="detail-label">Kurzüberblick</p>
-        <h4>${escapeHtml(worksheetConceptTitle(item.project || {}, briefData, contentData, item.teachingContext || {}))}</h4>
+        ${renderConceptDocumentHeader({
+          project: item.project || {},
+          brief: briefData,
+          content: contentData,
+          teachingContext: item.teachingContext || {},
+          label: "Kurzüberblick",
+          titleTag: "h4",
+          versionLabel,
+          statusLabel
+        })}
         <div class="detail-grid">
           <div><span>Fach</span><strong>${escapeHtml(briefData.subject || "offen")}</strong></div>
           <div><span>Ziel</span><strong>${escapeHtml(briefData.goal || "offen")}</strong></div>
-          <div><span>Konzept</span><strong>${escapeHtml(statusWord(brief.status))}</strong></div>
-          <div><span>Aufgaben</span><strong>${escapeHtml(statusWord(content.status))}</strong></div>
+          <div><span>Konzept</span><strong>${escapeHtml(selectedConcept?.version ? `v${selectedConcept.version}` : statusWord(brief.status))}</strong></div>
+          <div><span>Status</span><strong>${escapeHtml(statusLabel)}</strong></div>
         </div>
       </section>
+      ${renderConceptVersionOverview(item, selectedConcept)}
       ${renderConceptSections(sections, { compact: false })}
     </article>
   `;
   applyPreviewLayout(null);
+  elements.previewGrid.querySelectorAll("[data-library-concept-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.activeLibraryConceptId = button.dataset.libraryConceptId || null;
+      renderConceptPreview(item);
+    });
+  });
+  bindConceptCopyActions(elements.previewGrid);
   bindPreviewOpenActions(null);
+}
+
+async function markProjectCandidateGenerationSeen(projectId) {
+  try {
+    await fetchJson(`/api/workspace/${encodeURIComponent(projectId)}/candidate-generation/seen`, { method: "POST" });
+  } catch {
+    // Öffnen darf nicht an der Lesestatus-Aktualisierung scheitern.
+  }
 }
 
 async function openWorkspace(projectId) {
   if (!projectId) {
     return;
   }
+  const requestId = ++workspaceRefreshId;
   stopVoiceInput();
   resetCanvasLayout();
   setCanvasCaptureActive(false);
@@ -3003,7 +5355,7 @@ async function openWorkspace(projectId) {
   elements.librarySidebar.classList.add("hidden");
   elements.productionSidebar.classList.remove("hidden");
   elements.topbarProject.classList.remove("hidden");
-  state.selectedId = `project:${projectId}`;
+  ensureTreePrimarySelection(`project:${projectId}`);
   renderTree(state.tree);
 
   elements.chatTimeline.innerHTML = '<div class="chat-loading">Workspace wird geladen...</div>';
@@ -3011,12 +5363,19 @@ async function openWorkspace(projectId) {
   applyCanvasLayout();
 
   try {
+    await markProjectCandidateGenerationSeen(projectId);
     const payload = await fetchJson(`/api/workspace/${encodeURIComponent(projectId)}`);
+    if (requestId !== workspaceRefreshId || state.mode !== "workspace" || state.selectedId !== `project:${projectId}`) {
+      return;
+    }
     state.workspace = payload.workspace;
     state.activeCanvasMode = defaultCanvasMode(state.workspace);
+    state.activeArtifactSelection = null;
     renderWorkspace();
+    syncBackgroundRefresh();
   } catch (error) {
     elements.chatTimeline.innerHTML = `<div class="chat-error">${escapeHtml(error.message)}</div>`;
+    syncBackgroundRefresh();
   }
 }
 
@@ -3024,6 +5383,7 @@ function closeWorkspace() {
   stopVoiceInput();
   state.mode = "library";
   state.workspace = null;
+  state.activeArtifactSelection = null;
   setCanvasCaptureActive(false);
   closeCandidateViewer();
   closeCandidateInfo();
@@ -3040,16 +5400,14 @@ function closeWorkspace() {
   elements.librarySidebar.classList.remove("hidden");
   elements.workspaceView.classList.add("hidden");
   if (state.selectedId) {
-    selectItem(state.selectedId);
+    selectItem(state.selectedId, { skipSelectionUpdate: true });
   } else {
     elements.emptyState.classList.remove("hidden");
   }
+  syncBackgroundRefresh();
 }
 
 function defaultCanvasMode(workspace) {
-  if (workspace.project.projectType === "series") {
-    return "series";
-  }
   if (workspace.latestRun?.candidateCount) {
     return "candidates";
   }
@@ -3065,30 +5423,47 @@ function defaultCanvasMode(workspace) {
   return "assignment";
 }
 
-function renderWorkspace() {
-  const workspace = state.workspace;
-  if (!workspace) {
-    return;
+function syncWorkspaceShellTitles(workspace) {
+  elements.workspaceProjectTitle.textContent = workspace.project.title;
+  if (elements.workspaceMobileProjectTitle) {
+    elements.workspaceMobileProjectTitle.textContent = workspace.project.title;
   }
+  elements.productionSidebarTitle.textContent = workspace.project.title;
+}
+
+function renderDesktopWorkspaceShell(workspace) {
   if (!state.canvasLayout.collapsed && !state.canvasLayout.docked) {
     state.canvasLayout.width = clampCanvasWidth(state.canvasLayout.width);
     state.canvasLayout.lastExpandedWidth = state.canvasLayout.width;
   }
   applyCanvasLayout();
-  elements.workspaceProjectTitle.textContent = workspace.project.title;
-  elements.productionSidebarTitle.textContent = workspace.project.title;
   renderProductionSidebar(workspace);
-  renderMobileStatusStrip(workspace);
-  updateWorkspaceDebugSnapshot(workspace);
   renderTeachingContextPanel(workspace);
-  renderChat(workspace);
   renderCanvas(workspace, state.activeCanvasMode);
-  if (isSettingsOpen()) {
-    renderSettings();
-  }
+}
+
+function renderMobileWorkspaceShell(workspace) {
+  renderMobileStatusStrip(workspace);
   if (state.mobilePreview.mode && !state.mobilePreview.minimized && isMobileViewport()) {
     renderMobilePreview();
   }
+}
+
+function renderWorkspace() {
+  const workspace = state.workspace;
+  if (!workspace) {
+    syncBackgroundRefresh();
+    return;
+  }
+  syncWorkspaceShellTitles(workspace);
+  renderDesktopWorkspaceShell(workspace);
+  renderMobileWorkspaceShell(workspace);
+  updateWorkspaceDebugSnapshot(workspace);
+  renderChat(workspace);
+  if (isSettingsOpen()) {
+    renderSettings();
+  }
+  syncBackgroundRefresh();
 }
 
 function productionSteps(workspace) {
@@ -3099,10 +5474,11 @@ function productionSteps(workspace) {
   const hasContent = Boolean(docs.content?.data);
   const hasApprovedContent = Boolean(workspace.approval?.canGenerate);
   const hasCandidates = Boolean(workspace.latestRun?.candidateCount || workspace.preview?.previewMeta?.renderedCandidateCount);
+  const inputComplete = hasInput || hasBrief || hasContent || hasCandidates;
   const checks = [
-    { id: "input", number: 1, label: "Input", complete: hasInput, active: !hasInput, canvasMode: "assignment" },
-    { id: "concept", number: 2, label: "Arbeitsblatt-Konzept", complete: hasApprovedContent, active: (hasBrief || hasContent) && !hasApprovedContent, canvasMode: "content" },
-    { id: "candidates", number: 3, label: "Kandidaten", complete: hasCandidates, active: candidateGenerationPending, state: candidateGenerationPending ? "Wird erstellt" : "", canvasMode: "candidates" }
+    { id: "input", number: 1, icon: "inbox", label: "Input", complete: inputComplete, active: !inputComplete, canvasMode: "assignment" },
+    { id: "concept", number: 2, icon: "notebook-text", label: "Arbeitsblatt-Konzept", complete: hasApprovedContent, active: (hasBrief || hasContent) && !hasApprovedContent, canvasMode: "content" },
+    { id: "candidates", number: 3, icon: "images", label: "Entwürfe", complete: hasCandidates, active: candidateGenerationPending, state: candidateGenerationPending ? "Wird erstellt" : "", canvasMode: "candidates" }
   ];
   const firstActive = checks.find((step) => step.active) || checks.find((step) => !step.complete);
   return checks.map((step) => ({
@@ -3140,28 +5516,17 @@ function renderProductionStep(step) {
 }
 
 function renderProductionSidebar(workspace) {
-  if (workspace.project.projectType === "series") {
-    elements.productionStepList.innerHTML = (workspace.steps || []).map((step, index) => `
-      <button class="production-step ${step.complete ? "done" : "active"}" type="button" data-canvas-mode="series">
-        <span class="step-marker ${step.complete ? "done" : "active"}">${step.complete ? renderIcon("check", "step-marker-icon") : index + 1}</span>
-        <span class="production-step-copy">
-          <span class="production-step-line">
-            <span class="production-step-label">${escapeHtml(step.label)}</span>
-            <span class="production-step-state">${escapeHtml(step.complete ? "Fertig" : step.state || "Aktiv")}</span>
-          </span>
-        </span>
-      </button>
-    `).join("");
-  } else {
-    elements.productionStepList.innerHTML = productionSteps(workspace).map(renderProductionStep).join("");
-  }
-  elements.productionStepList.querySelectorAll("[data-canvas-mode]").forEach((button) => {
-    button.addEventListener("click", () => handleCanvasModeRequest(button.dataset.canvasMode));
-  });
+  elements.productionStepList.innerHTML = productionSteps(workspace).map(renderProductionStep).join("");
+  bindCanvasModeButtons(elements.productionStepList);
   elements.productionArtifactList.innerHTML = artifactRows(workspace).map(renderArtifactRow).join("");
-  elements.productionArtifactList.querySelectorAll("[data-canvas-mode]").forEach((button) => {
-    button.addEventListener("click", () => handleCanvasModeRequest(button.dataset.canvasMode));
+  elements.productionArtifactList.querySelectorAll("[data-artifact-group-toggle]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleArtifactGroup(button.dataset.artifactGroupToggle);
+    });
   });
+  bindCanvasModeButtons(elements.productionArtifactList);
 }
 
 function isMobileViewport() {
@@ -3185,6 +5550,12 @@ function mobileConceptMode(workspace = {}) {
 }
 
 function concreteMobileMode(mode, workspace = state.workspace) {
+  if (mode === "worksheet") {
+    return "worksheet";
+  }
+  if (mode?.includes?.("_proposal") && state.activeArtifactSelection?.kind === "proposal") {
+    return mode;
+  }
   if (mode === "concept" || mode === "content" || mode === "brief" || mode === "lessonbrief_proposal" || mode === "content_proposal") {
     return mobileConceptMode(workspace || {});
   }
@@ -3198,7 +5569,7 @@ function shortStepLabel(step = {}) {
   const labels = {
     input: "Input",
     concept: "Konzept",
-    candidates: "Kandidaten"
+    candidates: "Entwürfe"
   };
   return labels[step.id] || step.label || "Status";
 }
@@ -3207,14 +5578,10 @@ function mobileStatusPreviewChip(workspace = {}) {
   const candidateCount = workspace.latestRun?.candidateCount || workspace.preview?.previewMeta?.renderedCandidateCount || 0;
   if (candidateCount) {
     const candidatePages = countPreviewCandidatePages(workspace.preview);
-    const candidatePdfs = countPreviewCandidatePdfs(workspace.preview);
-    if (candidatePdfs) {
-      return { label: `${candidatePdfs} PDF${candidatePdfs === 1 ? "" : "s"}`, mode: "candidates", tone: "done" };
-    }
     if (candidatePages > candidateCount) {
       return { label: `${candidatePages} Seiten`, mode: "candidates", tone: "active" };
     }
-    return { label: `${candidateCount} Kandidat${candidateCount === 1 ? "" : "en"}`, mode: "candidates", tone: "active" };
+    return { label: `${candidateCount} Entwurf${candidateCount === 1 ? "" : "en"}`, mode: "candidates", tone: "active" };
   }
   if (hasConceptArtifact(workspace)) {
     return { label: "Konzept öffnen", mode: mobileConceptMode(workspace), tone: "active" };
@@ -3236,7 +5603,7 @@ function renderMobileStatusStrip(workspace = {}) {
       mode: activeMode,
       tone: activeStep.tone
     } : null,
-    workspace.teachingContext && workspace.project?.projectType !== "series" ? {
+    workspace.teachingContext ? {
       label: contextReady ? "Rahmen bereit" : "Rahmen offen",
       mode: "context",
       tone: contextReady ? "done" : "pending"
@@ -3254,46 +5621,300 @@ function renderMobileStatusStrip(workspace = {}) {
   });
 }
 
-function handleCanvasModeRequest(mode) {
-  if (isMobileViewport()) {
-    openMobilePreview(concreteMobileMode(mode));
+function artifactSelectionFromButton(button) {
+  const kind = button.dataset.artifactKind || "";
+  if (!kind) {
+    return null;
+  }
+  return {
+    kind,
+    id: button.dataset.artifactId || null,
+    proposalKind: button.dataset.proposalKind || null,
+    runId: button.dataset.runId || null,
+    candidateId: button.dataset.candidateId || null,
+    conceptId: button.dataset.conceptId || null,
+    conceptVersion: button.dataset.conceptVersion || null
+  };
+}
+
+function artifactConceptIdentity(source = {}) {
+  const reference = source.concept || source;
+  return {
+    conceptId: source.basedOnConceptId || reference.conceptId || source.contentMirrorId || reference.contentMirrorId || "",
+    conceptVersion: String(source.basedOnConceptVersion || reference.conceptVersion || source.version || "")
+  };
+}
+
+function artifactConceptKey(identity = {}) {
+  return [
+    identity.conceptId ? `id:${identity.conceptId}` : "",
+    identity.conceptVersion ? `v:${identity.conceptVersion}` : ""
+  ].filter(Boolean).join("|");
+}
+
+function conceptSelectionKey(selection = {}) {
+  if (!selection || selection.kind !== "concept") {
+    return "";
+  }
+  return artifactConceptKey(selection);
+}
+
+function artifactMatchesConceptSelection(row = {}, selection = {}) {
+  if (!selection || selection.kind !== "concept" || row.artifactKind !== "candidate") {
+    return false;
+  }
+  const rowIdentity = artifactConceptIdentity(row);
+  if (selection.conceptId && rowIdentity.conceptId) {
+    return rowIdentity.conceptId === selection.conceptId;
+  }
+  return Boolean(selection.conceptVersion && rowIdentity.conceptVersion && rowIdentity.conceptVersion === selection.conceptVersion);
+}
+
+function hasCandidateForConcept(rows = [], selection = {}) {
+  return rows.some((row) => {
+    if (row.kind === "group") {
+      return hasCandidateForConcept(row.children || [], selection);
+    }
+    return artifactMatchesConceptSelection(row, selection);
+  });
+}
+
+function triggerArtifactRelationPulse(selection = null) {
+  const key = conceptSelectionKey(selection);
+  if (!key) {
+    state.artifactRelationPulseKey = "";
+    if (state.artifactRelationPulseTimer) {
+      window.clearTimeout(state.artifactRelationPulseTimer);
+      state.artifactRelationPulseTimer = null;
+    }
     return;
   }
-  setCanvasMode(mode);
+  state.artifactRelationPulseKey = key;
+  if (state.artifactRelationPulseTimer) {
+    window.clearTimeout(state.artifactRelationPulseTimer);
+  }
+  state.artifactRelationPulseTimer = window.setTimeout(() => {
+    state.artifactRelationPulseKey = "";
+    state.artifactRelationPulseTimer = null;
+    if (state.workspace) {
+      renderProductionSidebar(state.workspace);
+    }
+  }, 760);
+}
+
+function handleCanvasModeRequest(mode, artifactSelection = null) {
+  if (isMobileViewport()) {
+    triggerArtifactRelationPulse(artifactSelection);
+    state.activeCanvasMode = mode || "content";
+    state.activeArtifactSelection = artifactSelection;
+    openMobilePreview(mode || "content");
+    return;
+  }
+  setCanvasMode(mode, artifactSelection);
+  revealCanvasPanel();
 }
 
 function artifactRows(workspace) {
-  if (workspace.project.projectType === "series") {
-    const worksheetCount = workspace.series?.worksheets?.length || 0;
-    return [
-      worksheetCount ? { label: "Input", meta: `${worksheetCount} Arbeitsblaetter`, tag: "IN", mode: "series" } : null,
-      worksheetCount ? { label: "Arbeitsblatt-Konzept", meta: "vorhanden", tag: "AB", mode: "series" } : null,
-      worksheetCount ? { label: "Kandidaten", meta: `${worksheetCount} Arbeitsblaetter`, tag: "KAN", mode: "series" } : null
-    ].filter(Boolean);
-  }
   const rows = [];
   if (hasInputArtifact(workspace)) {
-    rows.push({ label: "Input", meta: inputArtifactMeta(workspace), tag: "IN", mode: "assignment" });
+    rows.push({ label: "Input", meta: inputArtifactMeta(workspace), icon: "inbox", mode: "assignment" });
   }
-  const conceptStatus = workspace.approval?.canGenerate
-    ? "freigegeben"
-    : workspace.documents?.content?.data
-      ? "in Arbeit"
-      : workspace.documents?.brief?.data || workspace.proposals?.latestLessonBrief || workspace.proposals?.latestContentMirror
+  const concepts = workspaceConceptArtifacts(workspace);
+  if (concepts.length) {
+    const currentConcept = currentConceptArtifact(workspace, concepts) || concepts[0];
+    rows.push({
+      kind: "group",
+      group: "concepts",
+      label: worksheetConceptCollectionLabel(concepts.length),
+      meta: conceptGroupMeta(concepts, currentConcept),
+      icon: "notebook-text",
+      mode: "content",
+      artifactKind: "concept",
+      artifactId: currentConcept?.id || null,
+      conceptId: currentConcept?.id || null,
+      conceptVersion: currentConcept?.version || null,
+      children: concepts.map((concept) => ({
+        kind: "concept",
+        label: conceptVersionDisplayName(concept.version),
+        meta: conceptArtifactMeta(concept),
+        mode: "content",
+        artifactKind: "concept",
+        artifactId: concept.id,
+        conceptId: concept.id,
+        conceptVersion: concept.version || null,
+        current: Boolean(concept.current)
+      }))
+    });
+  } else {
+    const conceptStatus = workspace.approval?.canGenerate
+      ? "freigegeben"
+      : workspace.documents?.content?.data
         ? "in Arbeit"
-        : null;
-  if (conceptStatus) {
-    rows.push({ label: "Arbeitsblatt-Konzept", meta: conceptStatus, tag: "AB", mode: "content" });
+        : workspace.documents?.brief?.data || workspace.proposals?.latestLessonBrief || workspace.proposals?.latestContentMirror
+          ? "in Arbeit"
+          : null;
+    if (conceptStatus) {
+      rows.push({ label: "Arbeitsblatt-Konzept", meta: conceptStatus, icon: "notebook-text", mode: "content" });
+    }
   }
-  const candidateCount = workspace.latestRun?.candidateCount || workspace.preview?.previewMeta?.renderedCandidateCount || 0;
-  if (candidateCount) {
-    const pdfCount = countPreviewCandidatePdfs(workspace.preview);
-    const meta = pdfCount
-      ? `${candidateCount} vorhanden · ${pdfCount} PDF${pdfCount === 1 ? "" : "s"}`
-      : `${candidateCount} vorhanden`;
-    rows.push({ label: "Kandidaten", meta: withConceptMeta(meta, workspace), tag: "KAN", mode: "candidates" });
+  const candidates = workspaceCandidateHistory(workspace);
+  if (candidates.length) {
+    const displayedCandidates = annotateCandidateDisplayList(candidates);
+    rows.push({
+      kind: "group",
+      group: "candidates",
+      label: "Entwürfe",
+      meta: candidateGroupMeta(candidates, workspace),
+      icon: "images",
+      mode: "candidates",
+      children: displayedCandidates.map((candidate) => {
+        const identity = artifactConceptIdentity(candidate);
+        return {
+          kind: "candidate",
+          label: draftDisplayLabel(candidate),
+          meta: candidateArtifactMeta(candidate),
+          mode: "candidates",
+          artifactKind: "candidate",
+          artifactId: candidate.artifactId || `${candidate.runId || ""}_${candidate.id || ""}`,
+          runId: candidate.runId || null,
+          candidateId: candidate.id || null,
+          conceptId: identity.conceptId || null,
+          conceptVersion: identity.conceptVersion || null,
+          current: Boolean(candidate.current),
+          blocked: candidateHasFormatError(candidate)
+        };
+      })
+    });
+  } else {
+    const candidateCount = workspace.latestRun?.candidateCount || workspace.preview?.previewMeta?.renderedCandidateCount || 0;
+    if (candidateCount) {
+      const candidatePages = countPreviewCandidatePages(workspace.preview);
+      const meta = candidatePages > candidateCount
+        ? `${candidateCount} vorhanden · ${candidatePages} Seiten`
+        : `${candidateCount} vorhanden`;
+      rows.push({ label: "Entwürfe", meta: withConceptMeta(meta, workspace), icon: "images", mode: "candidates" });
+    }
   }
   return rows;
+}
+
+function workspaceConceptArtifacts(workspace = {}) {
+  const concepts = Array.isArray(workspace.artifacts?.concepts)
+    ? workspace.artifacts.concepts.filter((concept) => concept?.data || concept?.id)
+    : [];
+  if (concepts.length) {
+    return concepts;
+  }
+  const content = workspace.documents?.content;
+  if (!content?.data) {
+    return [];
+  }
+  return [{
+    id: content.data.artifactId || workspace.artifacts?.currentContent?.id || "current_content",
+    version: content.data.version || workspace.artifacts?.currentContent?.version || null,
+    status: content.status,
+    current: true,
+    title: content.data.title || content.data.topic || null,
+    taskCount: Array.isArray(content.data.tasks) ? content.data.tasks.length : 0,
+    readingTextCount: Array.isArray(content.data.readingTexts) ? content.data.readingTexts.length : 0,
+    imageMaterialCount: Array.isArray(content.data.imageMaterials) ? content.data.imageMaterials.length : 0,
+    data: content.data
+  }];
+}
+
+function currentConceptArtifact(workspace = {}, concepts = workspaceConceptArtifacts(workspace)) {
+  return concepts.find((concept) => concept.current)
+    || concepts.find((concept) => concept.id === workspace.artifacts?.currentContent?.id)
+    || concepts[0]
+    || null;
+}
+
+function conceptGroupMeta(concepts = [], currentConcept = null) {
+  const count = concepts.length;
+  const currentLabel = currentConcept?.version
+    ? `${conceptVersionDisplayName(currentConcept.version)} aktuell`
+    : "aktueller Stand";
+  return count === 1 ? currentLabel : `${count} Versionen · ${currentLabel}`;
+}
+
+function conceptArtifactMeta(concept = {}) {
+  const parts = [
+    !concept.current && concept.status ? artifactLifecycleLabel(concept.status) : null,
+    concept.taskCount ? `${concept.taskCount} Aufgaben` : null,
+    concept.title || null
+  ].filter(Boolean);
+  return parts.join(" · ") || "Arbeitsblatt-Konzept";
+}
+
+function artifactLifecycleLabel(status) {
+  if (status === "outdated") {
+    return "älterer Stand";
+  }
+  return statusWord(status);
+}
+
+function candidateKey(candidate = {}) {
+  return `${candidate.runId || ""}:${candidate.id || ""}`;
+}
+
+function workspaceCandidateHistory(workspace = {}) {
+  const history = Array.isArray(workspace.artifacts?.candidates) ? workspace.artifacts.candidates : [];
+  const latestPreview = Array.isArray(workspace.preview?.candidates) ? workspace.preview.candidates : [];
+  const byKey = new Map();
+  for (const candidate of history) {
+    byKey.set(candidateKey(candidate), candidate);
+  }
+  for (const candidate of latestPreview) {
+    const key = candidateKey(candidate);
+    byKey.set(key, {
+      ...(byKey.get(key) || {}),
+      ...candidate,
+      current: byKey.get(key)?.current ?? true
+    });
+  }
+  return Array.from(byKey.values()).filter((candidate) => candidate?.id);
+}
+
+function candidateGroupMeta(candidates = [], workspace = {}) {
+  const pageCount = candidates.reduce((total, candidate) => {
+    const renderedPages = (candidate.pages || []).filter((page) => page.url).length;
+    return total + renderedPages;
+  }, 0);
+  const blockedCount = candidates.filter((candidate) => candidateHasFormatError(candidate)).length;
+  const currentCount = candidates.filter((candidate) => candidate.current && !candidateHasFormatError(candidate)).length;
+  const parts = [
+    `${candidates.length} vorhanden`,
+    pageCount > candidates.length ? `${pageCount} Seiten` : null,
+    blockedCount ? `${blockedCount} Formatfehler` : null,
+    currentCount > 1 ? `${currentCount} aktuell` : currentCount === 1 ? "aktuell" : (workspaceConceptLabel(workspace) || null)
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
+function candidateHasFormatError(candidate = {}) {
+  return candidate.status === "technical_failed" || candidate.qc?.status === "error";
+}
+
+function candidateArtifactMeta(candidate = {}) {
+  const pageCount = draftPageCount(candidate);
+  const foundation = candidateSidebarConceptLabel(candidate);
+  const parts = [
+    pageCount > 1 ? `${pageCount} Seiten` : null,
+    candidateHasFormatError(candidate) ? "Formatprüfung fehlgeschlagen" : null,
+    foundation || null,
+    !candidate.current && candidate.status ? artifactLifecycleLabel(candidate.status) : null
+  ].filter(Boolean);
+  return parts.join(" · ") || "Entwurf";
+}
+
+function candidateSidebarConceptLabel(candidate = {}) {
+  const reference = candidate.concept || candidate;
+  const version = Number(candidate.basedOnConceptVersion || reference.conceptVersion || 0) || null;
+  if (version) {
+    return `Basierend auf Konzeptversion ${version}`;
+  }
+  const label = conceptLabel(reference);
+  return label ? `Basierend auf ${label}` : "";
 }
 
 function hasInputArtifact(workspace) {
@@ -3334,15 +5955,156 @@ function withConceptMeta(meta, workspace) {
   return foundation ? `${meta} · ${foundation}` : meta;
 }
 
-function renderArtifactRow(row) {
+function artifactButtonData(row = {}) {
+  return [
+    row.mode ? `data-canvas-mode="${escapeHtml(row.mode)}"` : "",
+    row.artifactKind ? `data-artifact-kind="${escapeHtml(row.artifactKind)}"` : "",
+    row.artifactId ? `data-artifact-id="${escapeHtml(row.artifactId)}"` : "",
+    row.runId ? `data-run-id="${escapeHtml(row.runId)}"` : "",
+    row.candidateId ? `data-candidate-id="${escapeHtml(row.candidateId)}"` : "",
+    row.conceptId ? `data-concept-id="${escapeHtml(row.conceptId)}"` : "",
+    row.conceptVersion ? `data-concept-version="${escapeHtml(row.conceptVersion)}"` : ""
+  ].filter(Boolean).join(" ");
+}
+
+function isArtifactSelectionActive(row = {}) {
+  const selection = state.activeArtifactSelection;
+  if (!selection) {
+    if (row.group === "concepts") {
+      return state.activeCanvasMode === "content";
+    }
+    if (row.group === "candidates") {
+      return state.activeCanvasMode === "candidates";
+    }
+    return state.activeCanvasMode === row.mode && !row.artifactKind;
+  }
+  if (row.artifactKind === "concept") {
+    return selection.kind === "concept" && selection.id === row.artifactId;
+  }
+  if (row.artifactKind === "candidate") {
+    return selection.kind === "candidate"
+      && selection.runId === row.runId
+      && selection.candidateId === row.candidateId;
+  }
+  return false;
+}
+
+function isArtifactGroupCollapsed(group = "") {
+  return Boolean(group && state.collapsedArtifactGroups.has(group));
+}
+
+function toggleArtifactGroup(group = "") {
+  if (!group || !state.workspace) {
+    return;
+  }
+  if (state.collapsedArtifactGroups.has(group)) {
+    state.collapsedArtifactGroups.delete(group);
+  } else {
+    state.collapsedArtifactGroups.add(group);
+  }
+  const scrollTop = elements.productionSidebar?.scrollTop || 0;
+  renderProductionSidebar(state.workspace);
+  if (elements.productionSidebar) {
+    elements.productionSidebar.scrollTop = scrollTop;
+  }
+}
+
+function artifactChildPositionClass(index, total) {
+  if (total <= 1) {
+    return "only-child";
+  }
+  if (index === 0) {
+    return "first-child";
+  }
+  if (index === total - 1) {
+    return "last-child";
+  }
+  return "middle-child";
+}
+
+function artifactRelationClass(row = {}, relationContext = {}) {
+  if (row.artifactKind !== "candidate" || !relationContext.active) {
+    return "";
+  }
+  if (artifactMatchesConceptSelection(row, relationContext.selection)) {
+    return [
+      "related",
+      state.artifactRelationPulseKey && state.artifactRelationPulseKey === relationContext.key ? "relation-pulse" : ""
+    ].filter(Boolean).join(" ");
+  }
+  return relationContext.hasRelatedCandidate ? "dimmed" : "";
+}
+
+function renderArtifactChild(row, index, total, relationContext = {}) {
+  const selected = isArtifactSelectionActive(row) ? "selected" : "";
+  const currentClass = row.current ? "current" : "";
+  const positionClass = artifactChildPositionClass(index, total);
+  const relationClass = artifactRelationClass(row, relationContext);
   return `
-    <button class="artifact-row ${row.warning ? "warning" : ""}" type="button" data-canvas-mode="${escapeHtml(row.mode)}">
-      ${renderIcon(row.warning ? "file-text" : "file", "artifact-icon")}
-      <span>
-        <strong>${escapeHtml(row.label)}</strong>
+    <li class="artifact-tree-child-item ${positionClass}">
+      <button class="artifact-tree-child-row ${selected} ${currentClass} ${relationClass}" type="button" ${artifactButtonData(row)}>
+        <span class="artifact-tree-copy">
+          <span class="artifact-tree-title-line">
+            <strong>${escapeHtml(row.label)}</strong>
+            ${row.blocked ? '<span class="artifact-tree-inline-status problem">Formatfehler</span>' : row.current ? '<span class="artifact-tree-inline-status">aktuell</span>' : ""}
+          </span>
+          <small>${escapeHtml(row.meta)}</small>
+        </span>
+      </button>
+    </li>
+  `;
+}
+
+function renderArtifactGroup(row) {
+  const selected = isArtifactSelectionActive(row) ? "selected" : "";
+  const collapsed = isArtifactGroupCollapsed(row.group);
+  const selection = state.activeArtifactSelection;
+  const relationContext = {
+    active: selection?.kind === "concept",
+    selection,
+    key: conceptSelectionKey(selection),
+    hasRelatedCandidate: hasCandidateForConcept(row.children || [], selection)
+  };
+  const childHtml = collapsed
+    ? ""
+    : `
+      <ul class="artifact-tree-children">
+        ${(row.children || []).map((child, index) => renderArtifactChild(child, index, row.children.length, relationContext)).join("")}
+      </ul>
+    `;
+  return `
+    <section class="artifact-tree-group ${escapeHtml(row.group || "")} ${collapsed ? "collapsed" : "expanded"}">
+      <div class="artifact-tree-group-header">
+        <button class="artifact-tree-row artifact-tree-parent-row ${selected}" type="button" ${artifactButtonData(row)}>
+          <span class="artifact-tree-copy">
+            <span class="artifact-tree-title-line">
+              <strong>${escapeHtml(row.label)}</strong>
+            </span>
+            <small>${escapeHtml(row.meta)}</small>
+          </span>
+          <span class="artifact-tree-toggle ${collapsed ? "collapsed" : "expanded"}" data-artifact-group-toggle="${escapeHtml(row.group || "")}" aria-label="${escapeHtml(collapsed ? `${row.label} ausklappen` : `${row.label} einklappen`)}" title="${escapeHtml(collapsed ? `${row.label} ausklappen` : `${row.label} einklappen`)}">
+            ${renderIcon("chevron-down", "icon icon-small")}
+          </span>
+        </button>
+      </div>
+      ${childHtml}
+    </section>
+  `;
+}
+
+function renderArtifactRow(row) {
+  if (row.kind === "group") {
+    return renderArtifactGroup(row);
+  }
+  const selected = isArtifactSelectionActive(row) ? "selected" : "";
+  return `
+    <button class="artifact-tree-row artifact-tree-leaf-row ${row.warning ? "warning" : ""} ${selected}" type="button" ${artifactButtonData(row)}>
+      <span class="artifact-tree-copy">
+        <span class="artifact-tree-title-line">
+          <strong>${escapeHtml(row.label)}</strong>
+        </span>
         <small>${escapeHtml(row.meta)}</small>
       </span>
-      <em>${escapeHtml(row.tag)}</em>
     </button>
   `;
 }
@@ -3387,29 +6149,7 @@ function updateWorkspaceDebugSnapshot(workspace) {
 }
 
 function primaryCommand(workspace) {
-  const priorities = [
-    "adopt_lessonbrief_proposal",
-    "adopt_content_mirror_proposal",
-    "adopt_content_warnings_proposal",
-    "adopt_image_spec",
-    "prepare_reference_asset",
-    "prepare_web_reference_asset",
-    "generate_lessonbrief_proposal",
-    "generate_content_mirror_proposal",
-    "generate_content_warnings_proposal",
-    "approve_current_content",
-    "prepare_image_spec",
-    "create_run",
-    "generate_image_candidate",
-    "prepare_series_export",
-    "approve_current_brief",
-    "create_content_draft",
-    "create_brief_draft"
-  ];
-  const commands = visibleCommands(workspace);
-  return priorities.map((id) => commands.find((command) => command.id === id)).find(Boolean)
-    || commands[0]
-    || null;
+  return visibleCommands(workspace)[0] || null;
 }
 
 function hasConversationInput(workspace) {
@@ -3427,13 +6167,29 @@ function hasConceptArtifact(workspace) {
   );
 }
 
-function firstVisibleCommand(commands, ids) {
-  return ids.map((id) => commands.find((command) => command.id === id)).find(Boolean) || null;
+function materializedVisibleCommands(workspace) {
+  if (!Array.isArray(workspace.visibleCommands)) {
+    return null;
+  }
+  const rawCommands = new Map((workspace.commands || []).map((command) => [command.id, command]));
+  return workspace.visibleCommands.map((command) => {
+    const raw = rawCommands.get(command.id || command.command) || {};
+    return {
+      ...raw,
+      ...command,
+      id: command.id || command.command,
+      command: command.command || command.id,
+      enabled: command.enabled !== false,
+      defaultPayload: command.defaultPayload || command.payload || raw.defaultPayload || {},
+      payload: command.payload || command.defaultPayload || raw.payload || raw.defaultPayload || {}
+    };
+  });
 }
 
 function visibleCommands(workspace) {
-  if (!hasInputArtifact(workspace) && !hasConceptArtifact(workspace) && !workspace.latestRun) {
-    return [];
+  const materializedCommands = materializedVisibleCommands(workspace);
+  if (materializedCommands) {
+    return materializedCommands;
   }
 
   const commands = enabledCommands(workspace);
@@ -3444,48 +6200,7 @@ function visibleCommands(workspace) {
       .filter(Boolean);
   }
 
-  const hasBrief = Boolean(workspace.documents?.brief?.data);
-  const hasContent = Boolean(workspace.documents?.content?.data);
-  const hasConcept = hasBrief || hasContent || Boolean(workspace.proposals?.latestLessonBrief || workspace.proposals?.latestContentMirror);
-  const hasSelection = Boolean(workspace.latestRun?.selectedPageCount);
-  const hasExport = Boolean(workspace.workspaceEntry?.availability?.hasExport || workspace.preview?.pdfs?.length);
-  const approveContentCommand = commands.find((command) => command.id === "approve_current_content");
-  const contentNeedsRepair = hasContent
-    && workspace.documents?.content?.status === "draft"
-    && !approveContentCommand
-    && !hasSelection
-    && !hasExport;
-  const commandOrder = [
-    "adopt_lessonbrief_proposal",
-    "adopt_content_mirror_proposal",
-    "adopt_content_warnings_proposal",
-    "prepare_reference_asset",
-    "prepare_web_reference_asset",
-    "adopt_image_spec",
-    ...(hasConcept ? [] : ["generate_lessonbrief_proposal"]),
-    ...(hasBrief && (!hasContent || contentNeedsRepair) ? ["generate_content_mirror_proposal"] : []),
-    ...(hasContent ? ["approve_current_content"] : []),
-    ...(!hasBrief ? ["create_brief_draft"] : []),
-    ...(hasBrief && (!hasContent || contentNeedsRepair) ? ["create_content_draft"] : []),
-    ...(workspace.proposals?.latestImageSpec ? ["prepare_reference_asset", "prepare_web_reference_asset", "adopt_image_spec"] : []),
-    ...(commands.find((command) => command.id === "prepare_image_spec")?.referencePreflight ? ["prepare_image_spec"] : []),
-    ...(workspace.proposals?.activeImageSpec ? ["prepare_reference_asset", "prepare_web_reference_asset"] : []),
-    ...(hasContent ? ["generate_image_candidate"] : [])
-  ];
-  const next = firstVisibleCommand(commands, commandOrder);
-
-  if (!next) {
-    return [];
-  }
-
-  const companionIds = {
-    generate_lessonbrief_proposal: ["create_brief_draft"],
-    generate_content_mirror_proposal: ["create_content_draft"],
-    prepare_reference_asset: next.referencePolicy?.canProceedWithoutReference !== false ? ["adopt_image_spec", "generate_image_candidate"] : ["adopt_image_spec"],
-    prepare_web_reference_asset: next.referencePolicy?.canProceedWithoutReference !== false ? ["adopt_image_spec", "generate_image_candidate"] : ["adopt_image_spec"]
-  };
-  const companion = firstVisibleCommand(commands, companionIds[next.id] || []);
-  return [next, companion].filter(Boolean);
+  return [];
 }
 
 function enabledCommands(workspace) {
@@ -3501,14 +6216,14 @@ function enabledCommands(workspace) {
     "prepare_web_reference_asset",
     "adopt_image_spec",
     "approve_current_content",
+    "deposit_worksheet",
     "generate_image_candidate",
-    "prepare_series_export",
     "approve_current_brief",
     "create_content_draft",
     "create_brief_draft"
   ];
   return (workspace.commands || [])
-    .filter((command) => command.enabled && command.id !== "copy_context")
+    .filter((command) => command.enabled)
     .sort((left, right) => {
       const leftIndex = priorities.indexOf(left.id);
       const rightIndex = priorities.indexOf(right.id);
@@ -3536,13 +6251,13 @@ function fallbackImageProviders() {
       id: "codex_cli",
       label: "Codex Usage",
       enabled: true,
-      description: "Nutzt den lokalen Codex-Login und erzeugt Bilder über Codex."
+      description: "Schneller Entwurfsweg über den lokalen Codex-Login; das Seitenformat wird technisch geprüft."
     },
     {
       id: "openai",
       label: "OpenAI API",
       enabled: true,
-      description: "Nutzt den OpenAI API-Key und kann API-Kosten verursachen."
+      description: "Stabilerer Produktionsweg mit fester Bildgröße über den hinterlegten API-Key."
     }
   ];
 }
@@ -3571,11 +6286,6 @@ function providerById(providerId, workspace = state.workspace, command = null) {
 }
 
 function defaultImageProviderForCommand(command = null, workspace = state.workspace) {
-  const codexProvider = imageProviderOptions(workspace, command)
-    .find((provider) => provider.id === "codex_cli" && provider.enabled !== false);
-  if (codexProvider) {
-    return "codex_cli";
-  }
   const commandDefault = normalizeImageProviderSetting(command?.defaultPayload?.imageProvider);
   if (commandDefault) {
     return commandDefault;
@@ -3584,13 +6294,29 @@ function defaultImageProviderForCommand(command = null, workspace = state.worksp
   if (runtimeDefault) {
     return runtimeDefault;
   }
+  const codexProvider = imageProviderOptions(workspace, command)
+    .find((provider) => provider.id === "codex_cli" && provider.enabled !== false);
+  if (codexProvider) {
+    return "codex_cli";
+  }
   const enabledProvider = imageProviderOptions(workspace, command).find((provider) => provider.enabled !== false);
-  return normalizeImageProviderSetting(enabledProvider?.id) || "openai";
+  return normalizeImageProviderSetting(enabledProvider?.id) || "codex_cli";
 }
 
 function configuredImageProviderId(command = null, workspace = state.workspace) {
   return normalizeImageProviderSetting(state.settings.imageProvider)
     || defaultImageProviderForCommand(command, workspace);
+}
+
+function defaultImageQualityPresetForCommand(command = null, workspace = state.workspace) {
+  return normalizeImageQualitySetting(command?.defaultPayload?.imageQualityPreset, null)
+    || normalizeImageQualitySetting(workspace?.image?.imageQualityPreset, null)
+    || "standard";
+}
+
+function configuredImageQualityPreset(command = null, workspace = state.workspace) {
+  return normalizeImageQualitySetting(state.settings.imageQualityPreset, null)
+    || defaultImageQualityPresetForCommand(command, workspace);
 }
 
 function commandUsesImageProvider(command = {}) {
@@ -3601,9 +6327,12 @@ function withConfiguredImageProvider(command = {}, payload = {}) {
   if (!commandUsesImageProvider(command)) {
     return payload;
   }
+  const imageProvider = configuredImageProviderId(command, state.workspace);
   return {
     ...payload,
-    imageProvider: configuredImageProviderId(command, state.workspace)
+    imageProvider,
+    imageQualityPreset: configuredImageQualityPreset(command, state.workspace),
+    openAiImageStreaming: imageProvider === "openai" && state.settings.openAiImageStreaming === true
   };
 }
 
@@ -3617,12 +6346,315 @@ function imageProviderUnavailableReason(command = {}, providerId = "") {
 
 function providerBillingDescription(provider = {}) {
   if (provider.id === "codex_cli") {
-    return "Verbraucht Codex/ChatGPT-Kontingent. Es entstehen keine OpenAI-API-Kosten über deinen API-Key.";
+    return "Für schnelle Entwürfe. Kein API-Key nötig.";
   }
   if (provider.id === "openai") {
-    return "Verwendet den hinterlegten OpenAI API-Key und kann API-Kosten verursachen.";
+    return "Für stabile Druckläufe. Nutzt deinen API-Key.";
   }
-  return provider.description || "Wird für neue Bildkandidaten verwendet.";
+  return provider.description || "Wird für neue Bildentwürfe verwendet.";
+}
+
+function formatPercent(value) {
+  const number = finiteNumber(value);
+  if (number === null) {
+    return "";
+  }
+  return `${Math.round(number)} %`;
+}
+
+function formatResetTime(value) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toLocaleString("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function windowLabel(durationMins) {
+  const duration = Number(durationMins);
+  if (!Number.isFinite(duration) || duration <= 0) {
+    return "Limit";
+  }
+  if (duration >= 43200) {
+    return `${Math.round(duration / 43200)} Monat${Math.round(duration / 43200) === 1 ? "" : "e"}`;
+  }
+  if (duration >= 10080) {
+    return `${Math.round(duration / 10080)} Woche${Math.round(duration / 10080) === 1 ? "" : "n"}`;
+  }
+  if (duration >= 60) {
+    return `${Math.round(duration / 60)} h`;
+  }
+  return `${duration} min`;
+}
+
+function renderBillingMetric(label, value, tone = "") {
+  const displayValue = value === null || value === undefined || value === "" ? "Nicht verfügbar" : value;
+  return `
+    <div class="billing-metric ${tone ? `tone-${escapeHtml(tone)}` : ""}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(displayValue)}</strong>
+    </div>
+  `;
+}
+
+function latestOpenAiCandidateBillingSummary(workspace = state.workspace) {
+  const candidates = workspace?.preview?.candidates || [];
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const summary = candidateBillingSummary(candidates[index]);
+    if (summary?.provider === "openai" && (summary.costLabel || summary.tokenLabel)) {
+      return {
+        ...summary,
+        candidateId: candidates[index].id || null
+      };
+    }
+  }
+  return null;
+}
+
+function openAiPresetEstimateLabel(openai = {}) {
+  const estimate = openai.requestEstimate || {};
+  if (!estimate.estimatedCostAvailable || finiteNumber(estimate.estimatedOutputCostUsd) === null) {
+    return null;
+  }
+  const quality = openai.imageQualityLabel || estimate.quality || "Standard";
+  const size = estimate.estimateIsExactSize
+    ? estimate.estimateSizeLabel || openai.imageSize || estimate.requestedSize
+    : estimate.estimateSizeLabel
+      ? `nahe ${estimate.estimateSizeLabel}`
+      : openai.imageSize || estimate.requestedSize;
+  return `${formatUsd(estimate.estimatedOutputCostUsd)} ${quality}${size ? ` · ${size}` : ""}`;
+}
+
+function renderOpenAiBillingStatus(openai = {}) {
+  const hasBudget = openai.budgetUsd !== null
+    && openai.budgetUsd !== undefined
+    && Number.isFinite(Number(openai.budgetUsd));
+  const monthCost = finiteNumber(openai.monthCostUsd) !== null ? formatUsd(openai.monthCostUsd) : null;
+  const imageCost = finiteNumber(openai.monthImageCostUsd) !== null ? formatUsd(openai.monthImageCostUsd) : null;
+  const remainingBudget = finiteNumber(openai.remainingBudgetUsd) !== null ? formatUsd(openai.remainingBudgetUsd) : null;
+  const budgetLabel = hasBudget ? formatUsd(openai.budgetUsd) : null;
+  const remainingBudgetLabel = hasBudget
+    ? remainingBudget || (openai.adminConfigured ? "Noch keine Kostendaten" : "Admin-Key fehlt")
+    : "Budget fehlt";
+  const imageCount = finiteNumber(openai.monthImageCount) !== null
+    ? `${new Intl.NumberFormat("de-DE").format(Math.round(Number(openai.monthImageCount)))} Bilder`
+    : null;
+  const lastRun = latestOpenAiCandidateBillingSummary();
+  const lastRunLabel = lastRun
+    ? [lastRun.costLabel, lastRun.tokenLabel].filter(Boolean).join(" · ")
+    : null;
+  const presetEstimate = openAiPresetEstimateLabel(openai);
+  const estimateSource = openai.requestEstimate?.pricingSourceDate
+    ? `Preisstand ${openai.requestEstimate.pricingSourceDate}. `
+    : "";
+  const message = openai.costsError || openai.imageUsageError || openai.message || "";
+  return `
+    <article class="billing-status-card">
+      <header>
+        <strong>OpenAI API</strong>
+        <span>${escapeHtml(openai.adminConfigured ? "Admin-Daten" : openai.apiKeyConfigured ? "API-Key aktiv" : "Nicht konfiguriert")}</span>
+      </header>
+      <div class="billing-metric-grid">
+        ${renderBillingMetric("Noch übrig", remainingBudgetLabel, hasBudget && Number(openai.remainingBudgetUsd) < 0 ? "warning" : "")}
+        ${renderBillingMetric("Monatsbudget", budgetLabel || "Nicht hinterlegt")}
+        ${renderBillingMetric("Schätzung", presetEstimate || "Nicht verfügbar")}
+        ${renderBillingMetric("Letzter Lauf", lastRunLabel || "Noch keine Usage")}
+        ${renderBillingMetric("Verbraucht", monthCost || (openai.adminConfigured ? "Keine Daten" : "Admin-Key fehlt"))}
+        ${renderBillingMetric("Bildnutzung", imageCount || imageCost || "Keine Daten")}
+      </div>
+      ${message ? `<p>${escapeHtml(message)}</p>` : ""}
+      ${presetEstimate ? `<p>${escapeHtml(`${estimateSource}Schätzung ist nur der Bild-Output; Prompt- und Referenz-Input kommen dazu.`)}</p>` : ""}
+    </article>
+  `;
+}
+
+function codexWindowMetric(label, window = {}) {
+  if (!window || finiteNumber(window.usedPercent) === null) {
+    return renderBillingMetric(label, "Nicht verfügbar");
+  }
+  const remainingPercent = finiteNumber(window.remainingPercent) !== null
+    ? window.remainingPercent
+    : Math.max(0, 100 - Number(window.usedPercent));
+  const reset = formatResetTime(window.resetsAt);
+  return renderBillingMetric(
+    label,
+    `${formatPercent(remainingPercent)} übrig${reset ? ` · Reset ${reset}` : ""}`,
+    Number(remainingPercent) <= 15 ? "warning" : ""
+  );
+}
+
+function renderCodexBillingStatus(codex = {}) {
+  const limit = codex.rateLimits || {};
+  const credits = limit.credits || {};
+  const creditLabel = credits.unlimited
+    ? "Unbegrenzt"
+    : credits.balance !== undefined && credits.balance !== null
+      ? `${credits.balance} Credits`
+      : "Nicht verfügbar";
+  const resetCredits = codex.rateLimitResetCredits?.availableCount
+    ? `${codex.rateLimitResetCredits.availableCount} Reset${codex.rateLimitResetCredits.availableCount === 1 ? "" : "s"}`
+    : "Keine";
+  const primaryLabel = limit.primary ? windowLabel(limit.primary.windowDurationMins) : "Aktuell";
+  const secondaryLabel = limit.secondary ? windowLabel(limit.secondary.windowDurationMins) : "Länger";
+  return `
+    <article class="billing-status-card">
+      <header>
+        <strong>Codex Usage</strong>
+        <span>${escapeHtml(codex.available ? (limit.planType || "Verbunden") : codex.enabled ? "Nicht abrufbar" : "Deaktiviert")}</span>
+      </header>
+      <div class="billing-metric-grid">
+        ${codexWindowMetric(primaryLabel, limit.primary)}
+        ${codexWindowMetric(secondaryLabel, limit.secondary)}
+        ${renderBillingMetric("Credits", creditLabel)}
+        ${renderBillingMetric("Reset-Credits", resetCredits)}
+      </div>
+      ${codex.message || codex.error ? `<p>${escapeHtml(codex.message || codex.error)}</p>` : ""}
+    </article>
+  `;
+}
+
+function activityKindLabel(activity = {}) {
+  if (activity.kind === "image_generation") {
+    return "Bild";
+  }
+  return "Chat/API";
+}
+
+function renderCostActivity(activity = {}) {
+  const cost = finiteNumber(activity.estimatedCostUsd) !== null
+    ? formatUsd(activity.estimatedCostUsd)
+    : "Nicht verfügbar";
+  const tokens = activity.totalTokens ? `${formatTokenCount(activity.totalTokens)} Tokens` : "";
+  const when = activity.createdAt ? formatResetTime(activity.createdAt) : "";
+  const meta = [
+    activityKindLabel(activity),
+    activity.model,
+    tokens,
+    when
+  ].filter(Boolean).join(" · ");
+  return `
+    <li class="billing-activity-item">
+      <span>
+        <strong>${escapeHtml(activity.label || activity.purpose || "OpenAI-Aufruf")}</strong>
+        <em>${escapeHtml(meta)}</em>
+      </span>
+      <b>${escapeHtml(cost)}</b>
+    </li>
+  `;
+}
+
+function renderProjectBillingStatus(project = null) {
+  const projectId = currentProjectId();
+  if (!projectId) {
+    return `
+      <article class="billing-status-card">
+        <header>
+          <strong>Projektkosten</strong>
+          <span>Kein Projekt</span>
+        </header>
+        <p>Öffne ein Arbeitsblatt, um die letzten Chat- und Bildkosten dieses Projekts zu sehen.</p>
+      </article>
+    `;
+  }
+  const totals = project?.totals || {};
+  const recentCosts = project?.recentThreeCosts || project?.recentCosts || [];
+  const hasKnownCosts = Number(totals.imageRuns || 0) + Number(totals.llmRuns || 0) > 0;
+  const knownCost = hasKnownCosts && finiteNumber(totals.knownCostUsd) !== null ? formatUsd(totals.knownCostUsd) : "Noch keine Werte";
+  const imageCost = hasKnownCosts && finiteNumber(totals.imageCostUsd) !== null ? formatUsd(totals.imageCostUsd) : "Keine Werte";
+  const llmCost = hasKnownCosts && finiteNumber(totals.llmCostUsd) !== null ? formatUsd(totals.llmCostUsd) : "Keine Werte";
+  const unpricedCount = Number(project?.unpricedModelRunCount || 0);
+  return `
+    <article class="billing-status-card billing-project-card">
+      <header>
+        <strong>Projektkosten</strong>
+        <span>${escapeHtml(project?.projectId || projectId)}</span>
+      </header>
+      <div class="billing-metric-grid">
+        ${renderBillingMetric("Bekannte Summe", knownCost)}
+        ${renderBillingMetric("Bilder", imageCost)}
+        ${renderBillingMetric("Chat/API", llmCost)}
+        ${renderBillingMetric("Letzte Einträge", recentCosts.length ? `${recentCosts.length}` : "Keine")}
+      </div>
+      ${recentCosts.length ? `
+        <ol class="billing-activity-list">
+          ${recentCosts.map(renderCostActivity).join("")}
+        </ol>
+      ` : `<p>Noch keine gespeicherten Usage-Kosten für dieses Projekt.</p>`}
+      ${unpricedCount ? `<p>${escapeHtml(`${unpricedCount} ältere OpenAI-Aufrufe haben keine gespeicherten Usage-Daten und fehlen in der Summe.`)}</p>` : ""}
+    </article>
+  `;
+}
+
+function renderBillingStatusPanel() {
+  const container = elements.billingStatusPanel;
+  if (!container) {
+    return;
+  }
+  const status = state.settingsModal.billingStatus;
+  const loading = state.settingsModal.billingLoading;
+  const error = state.settingsModal.billingError;
+  const updatedAt = status?.generatedAt ? formatResetTime(status.generatedAt) : "";
+  container.innerHTML = `
+    <div class="billing-status-header">
+      <div>
+        <p class="eyebrow">Verbrauch</p>
+        <h4>Kosten und Limits</h4>
+      </div>
+      <button class="secondary-button mini-button" type="button" data-refresh-billing-status ${loading ? "disabled" : ""}>
+        ${loading ? "Prüfe..." : "Aktualisieren"}
+      </button>
+    </div>
+    ${error ? `<p class="billing-status-error">${escapeHtml(error)}</p>` : ""}
+    ${!status && !loading && !error ? `<p class="billing-status-muted">Noch nicht geprüft.</p>` : ""}
+    ${loading && !status ? `<p class="billing-status-muted">Verbrauchsdaten werden geladen.</p>` : ""}
+    ${status ? `
+      <div class="billing-status-grid">
+        ${renderOpenAiBillingStatus(status.openai || {})}
+        ${renderProjectBillingStatus(status.project || null)}
+        ${renderCodexBillingStatus(status.codex || {})}
+      </div>
+      ${updatedAt ? `<p class="billing-status-muted">Stand ${escapeHtml(updatedAt)}</p>` : ""}
+    ` : ""}
+  `;
+  container.querySelector("[data-refresh-billing-status]")?.addEventListener("click", () => {
+    fetchBillingStatus({ force: true });
+  });
+}
+
+async function fetchBillingStatus(options = {}) {
+  if (state.settingsModal.billingLoading) {
+    return;
+  }
+  const projectId = currentProjectId();
+  if (!options.force && state.settingsModal.billingStatus && state.settingsModal.billingProjectId === projectId) {
+    renderBillingStatusPanel();
+    return;
+  }
+  state.settingsModal.billingLoading = true;
+  state.settingsModal.billingError = null;
+  renderBillingStatusPanel();
+  try {
+    const params = new URLSearchParams();
+    if (projectId) {
+      params.set("projectId", projectId);
+    }
+    const response = await fetchJson(`/api/billing/status${params.toString() ? `?${params}` : ""}`);
+    state.settingsModal.billingStatus = response.billing || null;
+    state.settingsModal.billingProjectId = projectId;
+  } catch (error) {
+    state.settingsModal.billingError = error.message;
+  } finally {
+    state.settingsModal.billingLoading = false;
+    renderBillingStatusPanel();
+  }
 }
 
 function commandPageCount(command = {}, payload = {}) {
@@ -3643,6 +6675,31 @@ function isSettingsOpen() {
   return Boolean(elements.settingsModal && !elements.settingsModal.classList.contains("hidden"));
 }
 
+function qualitySettingOptions() {
+  return [
+    {
+      id: "sparsam",
+      label: "Schnell",
+      description: "Kurzer Prüflauf."
+    },
+    {
+      id: "standard",
+      label: "Standard",
+      description: "Normaler Entwurf."
+    },
+    {
+      id: "druckqualitaet",
+      label: "Hoch",
+      description: "Bewusster Qualitätslauf."
+    }
+  ];
+}
+
+function selectedProviderLabel(providerId, providers = []) {
+  const provider = providers.find((entry) => normalizeImageProviderSetting(entry.id) === providerId);
+  return provider?.label || (providerId === "openai" ? "OpenAI API" : "Codex Usage");
+}
+
 function renderSettings() {
   const container = elements.imageProviderSettings;
   if (!container) {
@@ -3651,7 +6708,9 @@ function renderSettings() {
   const command = imageProviderCommand(state.workspace);
   const selectedProviderId = configuredImageProviderId(command, state.workspace);
   const providers = imageProviderOptions(state.workspace, command);
-  container.innerHTML = providers.map((provider) => {
+  const selectedQuality = configuredImageQualityPreset(command, state.workspace);
+  const streamingEnabled = state.settings.openAiImageStreaming === true;
+  const providerOptionsHtml = providers.map((provider) => {
     const providerId = normalizeImageProviderSetting(provider.id) || provider.id;
     const enabled = provider.enabled !== false;
     const selected = providerId === selectedProviderId;
@@ -3667,6 +6726,39 @@ function renderSettings() {
       </label>
     `;
   }).join("");
+  const qualityOptionsHtml = qualitySettingOptions().map((option) => `
+    <button class="segmented-setting-option ${option.id === selectedQuality ? "selected" : ""}" type="button" data-image-quality="${escapeHtml(option.id)}" aria-pressed="${option.id === selectedQuality ? "true" : "false"}">
+      <strong>${escapeHtml(option.label)}</strong>
+      <span>${escapeHtml(option.description)}</span>
+    </button>
+  `).join("");
+  container.innerHTML = `
+    <div class="settings-control-block">
+      <h4>Bildweg</h4>
+      <p>${escapeHtml("Wählt, wie neue Entwürfe erzeugt werden.")}</p>
+      <div class="provider-setting-list" role="radiogroup" aria-label="Bildweg">
+        ${providerOptionsHtml}
+      </div>
+    </div>
+    <div class="settings-control-block">
+      <h4>Qualität</h4>
+      <p>${escapeHtml("Gilt für den ausgewählten Bildweg.")}</p>
+      <div class="segmented-setting-list" role="group" aria-label="Qualität">
+        ${qualityOptionsHtml}
+      </div>
+    </div>
+    <div class="settings-control-block api-streaming-setting ${selectedProviderId === "openai" ? "" : "muted"}">
+      <h4>API-Live-Vorschau</h4>
+      <label class="toggle-setting-option">
+        <input type="checkbox" data-openai-streaming ${streamingEnabled ? "checked" : ""} ${selectedProviderId === "openai" ? "" : "disabled"}>
+        <span>
+          <strong>${escapeHtml(streamingEnabled ? "An" : "Aus")}</strong>
+          <em>${escapeHtml(selectedProviderId === "openai" ? "Für API-Streaming vorbereitet." : "Nur beim OpenAI-API-Weg relevant.")}</em>
+        </span>
+      </label>
+    </div>
+    <p class="settings-summary-note">${escapeHtml(`Neue Entwürfe: ${selectedProviderLabel(selectedProviderId, providers)} · ${qualitySettingOptions().find((option) => option.id === selectedQuality)?.label || "Standard"}`)}</p>
+  `;
   container.querySelectorAll("[data-image-provider]").forEach((input) => {
     input.addEventListener("change", () => {
       const providerId = normalizeImageProviderSetting(input.dataset.imageProvider);
@@ -3684,6 +6776,29 @@ function renderSettings() {
       }
       showToast(providerId === "codex_cli" ? "Bildanbieter: Codex Usage" : "Bildanbieter: OpenAI API", "success");
     });
+  });
+  container.querySelectorAll("[data-image-quality]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const imageQualityPreset = normalizeImageQualitySetting(button.dataset.imageQuality);
+      state.settings = {
+        ...state.settings,
+        imageQualityPreset
+      };
+      saveSettings(state.settings);
+      renderSettings();
+      if (state.workspace) {
+        renderWorkspace();
+      }
+      showToast(`Qualität: ${qualitySettingOptions().find((option) => option.id === imageQualityPreset)?.label || "Standard"}`, "success");
+    });
+  });
+  container.querySelector("[data-openai-streaming]")?.addEventListener("change", (event) => {
+    state.settings = {
+      ...state.settings,
+      openAiImageStreaming: event.currentTarget.checked === true
+    };
+    saveSettings(state.settings);
+    renderSettings();
   });
 }
 
@@ -3731,6 +6846,7 @@ function requestConfirmation(options = {}) {
     title.textContent = options.title || "Aktion bestätigen?";
     message.textContent = options.message || "Diese Aktion kann nicht automatisch rückgängig gemacht werden.";
     accept.textContent = options.acceptLabel || "Bestätigen";
+    cancel.textContent = options.cancelLabel || "Abbrechen";
     accept.classList.toggle("danger-button", Boolean(options.danger));
     modal.classList.remove("hidden");
     accept.focus();
@@ -3738,6 +6854,7 @@ function requestConfirmation(options = {}) {
     const cleanup = (value) => {
       modal.classList.add("hidden");
       accept.classList.remove("danger-button");
+      cancel.textContent = "Abbrechen";
       accept.removeEventListener("click", onAccept);
       cancel.removeEventListener("click", onCancel);
       modal.removeEventListener("click", onBackdrop);
@@ -3787,32 +6904,32 @@ function requestCommandConfirmation(command = {}, payload = {}) {
     return requestConfirmation({
       eyebrow: "API-Kosten",
       title: `Seite ${page} mit OpenAI API neu erzeugen?`,
-      message: `Dieser Schritt nutzt den hinterlegten OpenAI API-Key und kann API-Kosten verursachen. Er erzeugt nur Seite ${page} als neue Bildvariante.`,
+      message: `Dieser Schritt nutzt den hinterlegten OpenAI API-Key und kann API-Kosten verursachen. Er erzeugt nur Seite ${page} als neuen Entwurf.`,
       acceptLabel: `Seite ${page} mit OpenAI API erzeugen`
     });
   }
   if (commandUsesImageProvider(command) && payload.imageProvider === "codex_cli") {
     return requestConfirmation({
       eyebrow: "Usage-Verbrauch",
-      title: command.id === "generate_image_candidate" ? "Kandidat mit Codex Usage erzeugen?" : "Bildschritt mit Codex Usage ausführen?",
-      message: "Dieser Schritt nutzt deinen lokalen Codex-Login und verbraucht Codex/ChatGPT-Kontingent. Es entstehen keine OpenAI-API-Kosten über deinen API-Key. SheetifyIMG importiert das Bild danach als normalen Kandidaten und prüft die Datei.",
+      title: command.id === "generate_image_candidate" ? "Entwurf mit Codex Usage erstellen?" : "Bildschritt mit Codex Usage ausführen?",
+      message: "Dieser Schritt nutzt deinen lokalen Codex-Login und verbraucht Codex/ChatGPT-Kontingent. Es entstehen keine OpenAI-API-Kosten über deinen API-Key. SheetifyIMG importiert das Bild danach als normalen Entwurf und prüft die Datei.",
       acceptLabel: "Mit Codex Usage erzeugen"
     });
   }
   if (commandUsesImageProvider(command)) {
     return requestConfirmation({
       eyebrow: "API-Kosten",
-      title: command.id === "generate_image_candidate" ? "Kandidat mit OpenAI API erzeugen?" : "Bildschritt mit OpenAI API ausführen?",
-      message: "Dieser Schritt nutzt den hinterlegten OpenAI API-Key und kann API-Kosten verursachen. SheetifyIMG importiert das Bild danach als normalen Kandidaten und prüft die Datei.",
+      title: command.id === "generate_image_candidate" ? "Entwurf mit OpenAI API erstellen?" : "Bildschritt mit OpenAI API ausführen?",
+      message: "Dieser Schritt nutzt den hinterlegten OpenAI API-Key und kann API-Kosten verursachen. SheetifyIMG importiert das Bild danach als normalen Entwurf und prüft die Datei.",
       acceptLabel: "Mit OpenAI API erzeugen"
     });
   }
   return requestConfirmation({
     eyebrow: command.confirmationKind === "paid_image_generation" ? "API-Kosten" : "Bestätigung",
-    title: command.confirmationTitle || "Kandidat erzeugen?",
+    title: command.confirmationTitle || "Entwurf erstellen?",
     message: command.confirmationMessage
       || "Dieser Schritt erzeugt ein Bild über die OpenAI Image API und kann Kosten verursachen.",
-    acceptLabel: command.confirmationAcceptLabel || command.label || "Kandidat erzeugen"
+    acceptLabel: command.confirmationAcceptLabel || command.label || "Entwurf erstellen"
   });
 }
 
@@ -3824,14 +6941,33 @@ function pendingCommandMessage(commandId, command = {}, payload = {}) {
       return `Seite ${Number(payload.pageNumber || payload.page)} wird${providerText} neu gerendert.`;
     }
     if (pageCount > 1) {
-      return `Kandidatenreihe mit ${pageCount} Seiten wird${providerText} gerendert. Das kann einen Moment dauern.`;
+      return `Ein mehrseitiger Entwurf mit ${pageCount} Seiten wird${providerText} gerendert. Das kann einen Moment dauern.`;
     }
-    return `Kandidat wird${providerText} gerendert. Das kann einen Moment dauern.`;
+    return `Entwurf wird${providerText} gerendert. Das kann einen Moment dauern.`;
   }
   if (commandId === "generate_lessonbrief_proposal" || commandId === "generate_content_mirror_proposal") {
     return "Konzept-Vorschlag wird vorbereitet.";
   }
+  if (commandId === "deposit_worksheet") {
+    return "Arbeitsblatt wird in der Ablage gespeichert.";
+  }
   return `${command?.label || "Aktion"} wird ausgeführt.`;
+}
+
+function successToastMessageForCommand(commandId, response = {}) {
+  if (commandId === "generate_image_candidate" && response.result?.queued) {
+    return "Bildgenerierung läuft jetzt im Hintergrund.";
+  }
+  const messages = {
+    generate_lessonbrief_proposal: "Erste Konzeptfassung ist vorbereitet.",
+    adopt_lessonbrief_proposal: "Konzeptfassung ist jetzt die Basis.",
+    generate_content_mirror_proposal: "Arbeitsblatt-Konzept ist ausformuliert.",
+    adopt_content_mirror_proposal: "Arbeitsblatt-Konzept ist übernommen und freigegeben.",
+    activate_content_mirror_version: "Konzeptversion ist jetzt die aktuelle Basis.",
+    approve_current_content: "Arbeitsblatt-Konzept ist freigegeben.",
+    generate_image_candidate: "Entwurf ist bereit."
+  };
+  return messages[commandId] || "Schritt erledigt.";
 }
 
 function pendingChatForWorkspace(workspace) {
@@ -3847,7 +6983,63 @@ function isCandidateGenerationPendingForProject(projectId) {
 }
 
 function isCandidateGenerationPendingForWorkspace(workspace) {
-  return isCandidateGenerationPendingForProject(workspace?.project?.projectId);
+  return isBackgroundCandidateGenerationRunning(candidateGenerationStateForWorkspace(workspace))
+    || isCandidateGenerationPendingForProject(workspace?.project?.projectId);
+}
+
+function candidateGenerationBusyPageCount(workspace = {}, command = {}) {
+  return Number(
+    candidateGenerationStateForWorkspace(workspace)?.activeJob?.pageCount
+    || commandPayload(command).pageCount
+    || 0
+  );
+}
+
+function candidateGenerationBusyLabel(workspace = {}, command = {}) {
+  return candidateGenerationBusyPageCount(workspace, command) > 1
+    ? "Mehrseitiger Entwurf läuft bereits"
+    : "Entwurf läuft bereits";
+}
+
+function candidateGenerationBusyReason(workspace = {}, command = {}) {
+  return candidateGenerationBusyPageCount(workspace, command) > 1
+    ? "Der mehrseitige Entwurf wird bereits im Hintergrund erstellt."
+    : "Der Entwurf wird bereits im Hintergrund erstellt.";
+}
+
+function shouldDisableGenerateCandidateAction(workspace = {}, command = {}) {
+  return command?.id === "generate_image_candidate" && isCandidateGenerationPendingForWorkspace(workspace);
+}
+
+function isBusyGenerateCandidateAction(action = {}) {
+  return (action.id || action.command) === "generate_image_candidate" && action.busy === true;
+}
+
+function candidateGenerationDisplayCommand(workspace = {}) {
+  const command = (workspace.commands || []).find((entry) => entry.id === "generate_image_candidate") || null;
+  return command && shouldDisableGenerateCandidateAction(workspace, command) ? command : null;
+}
+
+function buttonActionForCommand(command = {}, workspace = state.workspace, overrides = {}) {
+  if (!command?.id) {
+    return null;
+  }
+  const disabledByBusy = shouldDisableGenerateCandidateAction(workspace, command);
+  const nextPayload = overrides.payload ? { ...overrides.payload } : commandPayload(command);
+  return {
+    id: command.id,
+    label: disabledByBusy
+      ? candidateGenerationBusyLabel(workspace, command)
+      : overrides.label || decisionButtonLabel(command) || command.label,
+    payload: command.id === "generate_image_candidate"
+      ? withConfiguredImageProvider(command, nextPayload)
+      : nextPayload,
+    disabled: Boolean(overrides.disabled || !command.enabled || disabledByBusy),
+    busy: Boolean(disabledByBusy),
+    reason: disabledByBusy
+      ? candidateGenerationBusyReason(workspace, command)
+      : overrides.reason || command.reason || null
+  };
 }
 
 function commandErrorForWorkspace(workspace) {
@@ -3872,6 +7064,22 @@ function chatMessagesForWorkspace(workspace) {
         commandId: pendingCommand.commandId,
         label: pendingCommand.label,
         message: pendingCommand.message
+      }
+    });
+  }
+  const candidateGeneration = candidateGenerationStateForWorkspace(workspace);
+  if (!pendingCommand && candidateGeneration?.isRunning) {
+    messages.push({
+      role: "assistant",
+      content: "",
+      createdAt: candidateGeneration.activeJob?.startedAt || new Date().toISOString(),
+      pending: true,
+      productionCard: {
+        kind: "command_pending",
+        commandId: candidateGeneration.activeJob?.commandId || "generate_image_candidate",
+        label: candidateGeneration.activeJob?.label || "Entwurf wird erstellt",
+        message: candidateGeneration.activeJob?.message || "Der Entwurf wird im Hintergrund erstellt.",
+        pageCount: candidateGeneration.activeJob?.pageCount || 0
       }
     });
   }
@@ -3918,11 +7126,45 @@ function trailingDecisionCommands(workspace) {
   if (pendingChatForWorkspace(workspace) || pendingCommandForWorkspace(workspace)) {
     return [];
   }
-  const commands = visibleCommands(workspace);
-  if (!commands.length || latestAssistantAlreadyOffers(workspace, commands) || latestAssistantIsWaiting(workspace)) {
+  if (latestUserTargetsNonCurrentConcept(workspace)) {
     return [];
   }
-  return commands;
+  const commands = visibleCommands(workspace);
+  const busyCandidateCommand = candidateGenerationDisplayCommand(workspace);
+  const displayCommands = busyCandidateCommand && !commands.some((command) => command.id === busyCandidateCommand.id)
+    ? [busyCandidateCommand, ...commands]
+    : commands;
+  const alreadyOffered = latestAssistantOfferedCommandIds(workspace);
+  const remainingCommands = displayCommands.filter((command) => !alreadyOffered.has(command.id));
+  if (!remainingCommands.length || latestAssistantIsWaiting(workspace)) {
+    return [];
+  }
+  return remainingCommands;
+}
+
+function conceptVersionMention(content = "") {
+  const normalized = normalizeGermanDisplayText(content).toLowerCase();
+  const match = normalized.match(/\b(?:konzept|concept)?\s*v(?:ersion)?\s*0*(\d+)\b/)
+    || normalized.match(/\b(?:konzept|concept)\s*0*(\d+)\b/);
+  return match ? Number(match[1]) || null : null;
+}
+
+function conceptVersionActionText(content = "") {
+  const normalized = normalizeGermanDisplayText(content).toLowerCase();
+  return Boolean(conceptVersionMention(content))
+    && /\b(nehm|nehmen|nimm|setze|setz|basis|aktuell|freigeb|frei|auswähl|auswaehl|verwende|nutze|kandidat|variante|erzeug|generier|render|basierend|grundlage)\w*\b/.test(normalized);
+}
+
+function latestUserTargetsNonCurrentConcept(workspace = {}) {
+  const latestUser = [...(workspace.chat?.messages || [])].reverse()
+    .find((message) => message.role === "user");
+  if (!latestUser || !conceptVersionActionText(latestUser.content || "")) {
+    return false;
+  }
+  const version = conceptVersionMention(latestUser.content || "");
+  const concepts = workspaceConceptArtifacts(workspace);
+  const target = concepts.find((concept) => Number(concept.version || 0) === Number(version)) || null;
+  return Boolean(target && !target.current);
 }
 
 function latestAssistantIndex(messages) {
@@ -3946,12 +7188,24 @@ function latestStableMessageIndex(messages) {
 function renderChat(workspace) {
   const messages = chatMessagesForWorkspace(workspace);
   const visibleCommandIds = new Set(visibleCommands(workspace).map((command) => command.id));
-  const extraCommands = trailingDecisionCommands(workspace);
   const latestStableIndex = latestStableMessageIndex(messages);
   const latestMessage = messages[messages.length - 1] || null;
-  const actionHostIndex = latestMessage?.role !== "user" && latestStableIndex >= 0 && messages[latestStableIndex].role !== "user"
-    ? latestAssistantIndex(messages)
+  const latestAssistantHostIndex = latestAssistantIndex(messages);
+  const actionHostIndex = latestStableIndex >= 0
+    ? messages[latestStableIndex].role === "user"
+      ? latestStableIndex
+      : latestAssistantHostIndex
     : -1;
+  const actionHostMessage = actionHostIndex >= 0 ? messages[actionHostIndex] : null;
+  const worksheetWasDeposited = /^Arbeitsbl(?:att|ätter)\s+abgelegt\.?$/i.test(String(actionHostMessage?.content || "").trim());
+  const extraCommands = worksheetWasDeposited
+    ? []
+    : trailingDecisionCommands(workspace).filter((command) => {
+      if (actionHostMessage?.productionCard?.kind !== "candidate") {
+        return true;
+      }
+      return command.id !== "deposit_worksheet";
+    });
   elements.chatTimeline.innerHTML = `
     ${renderChatRuntime(workspace.chat)}
     ${messages.length ? messages.map((message, index) => renderChatMessage(
@@ -3959,20 +7213,14 @@ function renderChat(workspace) {
       visibleCommandIds,
       index === actionHostIndex ? extraCommands : [],
       workspace,
-      index === actionHostIndex
+      index === actionHostIndex,
+      messages,
+      index
     )).join("") : renderChatIntro(workspace)}
   `;
-  elements.chatTimeline.querySelectorAll("[data-command]").forEach((button) => {
-    button.addEventListener("click", () => executeCommand(button.dataset.command, parsePayload(button.dataset.payload)));
-  });
-  elements.chatTimeline.querySelectorAll("[data-canvas-mode]").forEach((button) => {
-    button.addEventListener("click", () => handleCanvasModeRequest(button.dataset.canvasMode));
-  });
-  elements.chatTimeline.querySelectorAll("[data-chat-message]").forEach((button) => {
-    button.addEventListener("click", () => sendChatMessage(button.dataset.chatMessage || "", {
-      uiEvent: "concept_revision_option"
-    }));
-  });
+  bindCommandButtons(elements.chatTimeline);
+  bindCanvasModeButtons(elements.chatTimeline);
+  bindConceptCopyActions(elements.chatTimeline);
   bindPreviewCardActions(elements.chatTimeline);
   elements.chatTimeline.scrollTop = elements.chatTimeline.scrollHeight;
   updateComposerState();
@@ -3990,7 +7238,7 @@ function renderChatRuntime(chat = {}) {
 }
 
 function teachingContextVisible(workspace = {}) {
-  if (!workspace.teachingContext || workspace.project?.projectType === "series") {
+  if (!workspace.teachingContext) {
     return false;
   }
   return !workspace.documents?.brief?.data
@@ -4078,7 +7326,7 @@ function parsePayload(value) {
 
 function renderChatIntro(workspace) {
   const text = workspace.project.isLegacy
-    ? "Dieses Projekt ist als Legacy-Stand geöffnet. Du kannst es prüfen und Inhalt kopieren."
+    ? "Dieses Projekt ist als Legacy-Stand geöffnet. Du kannst es prüfen, aber nicht direkt weiter produzieren."
     : workspace.chat?.mode === "openai"
       ? "Beschreibe kurz, welches Arbeitsblatt du brauchst, oder hänge Material an. Ich kläre mit dir den Unterrichtsrahmen und schlage danach den nächsten sinnvollen Schritt vor."
       : "Beschreibe kurz, welches Arbeitsblatt du brauchst, oder hänge Material an. Ich kläre mit dir den Unterrichtsrahmen und schlage danach den nächsten sinnvollen Schritt vor.";
@@ -4094,15 +7342,33 @@ function renderChatIntro(workspace) {
 }
 
 function renderActionButtons(actions = []) {
-  return actions.length ? `<div class="message-actions">${actions.map((action) => `
-    <button class="secondary-button mini-button" type="button" data-command="${escapeHtml(action.id || action.command)}" data-payload="${escapeHtml(JSON.stringify(action.payload || {}))}">
-      ${escapeHtml(action.label || decisionButtonLabel({ id: action.id || action.command }))}
-    </button>
-  `).join("")}</div>` : "";
+  if (!actions.length) {
+    return "";
+  }
+  const buttonActions = actions.filter((action) => !isBusyGenerateCandidateAction(action));
+  const disabledStatus = [...new Set(actions
+    .filter((action) => action.disabled)
+    .map((action) => action.id === "generate_image_candidate"
+      ? `${normalizeVisibleProductTerminology(action.label || candidateGenerationBusyLabel())}.`
+      : normalizeVisibleProductTerminology(action.reason))
+    .filter(Boolean))];
+  if (!buttonActions.length) {
+    return disabledStatus.length
+      ? `<div class="message-action-status">${escapeHtml(disabledStatus.join(" "))}</div>`
+      : "";
+  }
+  return `
+    <div class="message-actions">${buttonActions.map((action) => `
+      <button class="secondary-button mini-button" type="button" data-command="${escapeHtml(action.id || action.command)}" data-payload="${escapeHtml(JSON.stringify(action.payload || {}))}"${action.reason ? ` title="${escapeHtml(normalizeVisibleProductTerminology(action.reason))}"` : ""}${action.disabled ? " disabled" : ""}>
+        ${escapeHtml(normalizeVisibleProductTerminology(action.label || decisionButtonLabel({ id: action.id || action.command })))}
+      </button>
+    `).join("")}</div>
+    ${disabledStatus.length ? `<div class="message-action-status">${escapeHtml(disabledStatus.join(" "))}</div>` : ""}
+  `;
 }
 
 function actionLabel(action = {}) {
-  return action.label || decisionButtonLabel({ id: action.id || action.command }) || action.command || action.id || "Aktion";
+  return normalizeVisibleProductTerminology(action.label || decisionButtonLabel({ id: action.id || action.command }) || action.command || action.id || "Aktion");
 }
 
 function actionHistoryLabel(action = {}) {
@@ -4121,17 +7387,11 @@ function actionHistoryLabel(action = {}) {
   if (commandId === "adopt_content_mirror_proposal" || commandId === "adopt_lessonbrief_proposal" || normalized.includes("konzept übernehmen")) {
     return "Konzeptübernahme";
   }
-  if (commandId === "generate_image_candidate" || normalized.includes("kandidat erzeugen") || normalized.includes("variante erzeugen")) {
-    return hasCandidateHistoryLabel(label) ? "Variantenerzeugung" : "Kandidatenerzeugung";
+  if (commandId === "generate_image_candidate" || normalized.includes("entwurf erstellen") || normalized.includes("kandidat erzeugen") || normalized.includes("variante erzeugen") || normalized.includes("variante erstellen")) {
+    return "Entwurfserstellung";
   }
-  if (commandId === "select_candidate" || normalized.includes("auswahl übernehmen") || normalized.includes("kandidat auswählen")) {
-    return "Auswahlübernahme";
-  }
-  if (commandId === "prepare_export" || normalized.includes("pdf ohne lösungsblatt") || normalized.includes("pdf mit lösungsblatt")) {
-    return "PDF-Erstellung";
-  }
-  if (commandId === "prepare_image_spec" || normalized.includes("kandidaten vorbereiten")) {
-    return "Kandidatenvorbereitung";
+  if (commandId === "prepare_image_spec" || normalized.includes("entwürfe vorbereiten") || normalized.includes("kandidaten vorbereiten")) {
+    return "Entwurfsvorbereitung";
   }
   if (commandId === "prepare_reference_asset" || normalized.includes("referenz vorbereiten")) {
     return "Referenzvorbereitung";
@@ -4142,8 +7402,66 @@ function actionHistoryLabel(action = {}) {
   return label;
 }
 
+function actionHistoryResultLabel(action = {}) {
+  const commandId = action.id || action.command || "";
+  const label = actionLabel(action);
+  const normalized = label.toLowerCase();
+  if (commandId === "generate_lessonbrief_proposal" || normalized.includes("konzept vorschlagen")) {
+    return "Konzeptvorschlag wurde erstellt";
+  }
+  if (commandId === "create_brief_draft") {
+    return "Erstes Konzept wurde angelegt";
+  }
+  if (commandId === "generate_content_mirror_proposal" || normalized.includes("konzept überarbeiten")) {
+    if (normalized.includes("überarbeiten")) {
+      return "Konzept wurde überarbeitet";
+    }
+    if (normalized.includes("aktualisieren")) {
+      return "Konzept wurde aktualisiert";
+    }
+    return "Konzept wurde ausformuliert";
+  }
+  if (commandId === "create_content_draft") {
+    return "Konzept wurde direkt angelegt";
+  }
+  if (normalized.includes("konzept aktualisieren")) {
+    return "Konzept wurde aktualisiert";
+  }
+  if (commandId === "adopt_lessonbrief_proposal") {
+    return "Konzeptvorschlag wurde übernommen";
+  }
+  if (commandId === "adopt_content_mirror_proposal" || normalized.includes("konzept übernehmen")) {
+    return "Konzept wurde übernommen";
+  }
+  if (commandId === "approve_current_content") {
+    return "Konzept wurde freigegeben";
+  }
+  if (commandId === "generate_image_candidate" || normalized.includes("entwurf erstellen") || normalized.includes("kandidat erzeugen") || normalized.includes("variante erzeugen") || normalized.includes("variante erstellen")) {
+    if (/(mehrseitig\w* entwurf|kandidatenreihe)/i.test(label)) {
+      return /weitere/i.test(label) ? "Weiterer Entwurf wurde erstellt" : "Entwurf wurde erstellt";
+    }
+    return hasCandidateHistoryLabel(label) ? "Weiterer Entwurf wurde erstellt" : "Entwurf wurde erstellt";
+  }
+  if (commandId === "prepare_image_spec" || normalized.includes("entwürfe vorbereiten") || normalized.includes("kandidaten vorbereiten")) {
+    return "Entwurfsvorbereitung wurde erstellt";
+  }
+  if (commandId === "prepare_reference_asset" || normalized.includes("referenz vorbereiten")) {
+    return "Referenz wurde vorbereitet";
+  }
+  if (commandId === "prepare_web_reference_asset" || normalized.includes("webreferenz suchen")) {
+    return "Webreferenz wurde vorbereitet";
+  }
+  if (commandId === "adopt_image_spec") {
+    return "Entwurfsvorbereitung wurde übernommen";
+  }
+  if (commandId === "deposit_worksheet") {
+    return /arbeitsblätter ablegen/i.test(label) ? "Arbeitsblätter abgelegt" : "Arbeitsblatt abgelegt";
+  }
+  return `${label} wurde ausgeführt`;
+}
+
 function hasCandidateHistoryLabel(label = "") {
-  return /weitere\s+variante/i.test(String(label || ""));
+  return /weiter\w*\s+(entwurf|mehrseitig\w* entwurf|kandidatenreihe)/i.test(String(label || ""));
 }
 
 function comparablePayloadValue(value) {
@@ -4153,7 +7471,7 @@ function comparablePayloadValue(value) {
 function actionPayloadMatchesCommand(action = {}, command = {}) {
   const expected = commandPayload(command);
   const actual = action.payload || {};
-  const sensitiveKeys = ["proposalId", "runId", "candidateId", "imageSpecProposalId"];
+  const sensitiveKeys = ["proposalId", "runId", "candidateId", "imageSpecProposalId", "contentMirrorId", "conceptVersion"];
   if (command.id === "select_candidate" && expected.runId && !actual.runId) {
     return false;
   }
@@ -4176,6 +7494,12 @@ function actionState(action = {}, workspace = {}, isActionHost = false, visibleC
   if (!isActionHost) {
     return { current: false, reason: "replaced" };
   }
+  if (commandId === "generate_image_candidate" && command && shouldDisableGenerateCandidateAction(workspace, command)) {
+    if (!actionPayloadMatchesCommand(action, command)) {
+      return { current: false, reason: "outdated" };
+    }
+    return { current: true, reason: null };
+  }
   if (!command || !command.enabled || !visibleCommandIds.has(commandId)) {
     return { current: false, reason: "unavailable" };
   }
@@ -4185,12 +7509,43 @@ function actionState(action = {}, workspace = {}, isActionHost = false, visibleC
   return { current: true, reason: null };
 }
 
-function renderActionHistory(actions = []) {
+function nextMessageResolvesAction(messages = [], index = -1, action = {}) {
+  if (index < 0 || index >= messages.length - 1) {
+    return false;
+  }
+  const nextMessage = messages[index + 1] || null;
+  if (!nextMessage || nextMessage.role === "user" || nextMessage.pending || nextMessage.failed) {
+    return false;
+  }
+  const commandId = action.id || action.command || "";
+  const content = String(nextMessage.content || "");
+  if (commandId === "deposit_worksheet") {
+    return /arbeitsbl(?:att|ätter)\s+(wurde[n]?\s+)?abgelegt/i.test(content);
+  }
+  if (commandId === "generate_image_candidate") {
+    return nextMessage.productionCard?.kind === "candidate" || /\b(?:kandidat|entwurf)\b.*\bfertig\b/i.test(content);
+  }
+  if (/adopt_.*proposal|approve_current_content|activate_content_mirror_version/.test(commandId)) {
+    return /übernommen|freigegeben|aktuelle basis|aktuell/i.test(content);
+  }
+  if (/generate_.*proposal|create_.*draft|prepare_/.test(commandId)) {
+    return /erstellt|angelegt|vorbereitet|ausformuliert|vorschlag/i.test(content);
+  }
+  return false;
+}
+
+function renderActionHistory(actions = [], context = {}) {
   if (!actions.length) {
     return "";
   }
-  const labels = [...new Set(actions.map(({ action }) => actionHistoryLabel(action)))].join(", ");
-  const text = `Aktion ausgeführt: ${labels}.`;
+  const texts = [...new Set(actions.map(({ action }) => {
+    const resolved = nextMessageResolvesAction(context.messages || [], context.index ?? -1, action);
+    return resolved ? actionHistoryResultLabel(action) : actionHistoryLabel(action);
+  }))];
+  const resolved = actions.every(({ action }) => nextMessageResolvesAction(context.messages || [], context.index ?? -1, action));
+  const text = resolved
+    ? `${texts.join(" · ")}.`
+    : `Vorgeschlagener Schritt: ${texts.join(", ")}.`;
   return `<div class="message-action-history">${escapeHtml(text)}</div>`;
 }
 
@@ -4204,7 +7559,7 @@ function renderChatAttachments(attachments = []) {
       <img src="${escapeHtml(attachment.url || attachment.previewUrl || attachment.dataUrl || "")}" alt="${escapeHtml(attachment.label || "Screenshot-Ausschnitt")}">
       <figcaption>
         <span>${escapeHtml(attachment.label || "Ausschnitt")}</span>
-        <small>${escapeHtml(attachment.source?.runId || "Visuelle Rückmeldung")}</small>
+        <small>${escapeHtml(attachment.source?.candidateId ? `Visuelle Rückmeldung zu ${draftDisplayLabel({ id: attachment.source.candidateId })}` : "Visuelle Rückmeldung")}</small>
       </figcaption>
     </figure>
   `).join("")}</div>`;
@@ -4225,11 +7580,11 @@ function renderPendingProductionCard(card = {}) {
   const isCandidateGeneration = card.commandId === "generate_image_candidate";
   const pageCount = Number(card.pageCount || 0);
   const isSeries = isCandidateGeneration && pageCount > 1;
-  const title = isSeries ? "Kandidatenreihe wird gerendert" : isCandidateGeneration ? "Kandidat wird gerendert" : card.label || "Aktion läuft";
+  const title = isSeries ? "Mehrseitiger Entwurf wird gerendert" : isCandidateGeneration ? "Entwurf wird gerendert" : card.label || "Aktion läuft";
   const text = isCandidateGeneration
     ? isSeries
-      ? `Das Bildmodell erzeugt gerade ${pageCount} zusammengehörige Seiten. Sie erscheinen danach als eine Kandidatenreihe.`
-      : "Das Bildmodell erzeugt gerade einen neuen Kandidaten. Das kann einen Moment dauern."
+      ? `Das Bildmodell erstellt gerade ${pageCount} zusammengehörige Seiten. Sie erscheinen danach als ein mehrseitiger Entwurf.`
+      : "Das Bildmodell erstellt gerade einen neuen Entwurf. Das kann einen Moment dauern."
     : card.message || "Der Produktionsschritt wird ausgeführt.";
   return `
     <article class="chat-result-card pending${isCandidateGeneration ? " candidate-render-pending" : ""}">
@@ -4251,7 +7606,7 @@ function renderPendingProductionCard(card = {}) {
           <div class="render-progress-steps" aria-label="Rendering läuft">
             <span>Bildmodell gestartet</span>
             <span>${escapeHtml(isSeries ? "Layout, Text und Seitenstil werden gerendert" : "Layout und Text werden gerendert")}</span>
-            <span>${escapeHtml(isSeries ? "Die Kandidatenreihe erscheint automatisch im Chat" : "Der Kandidat erscheint automatisch im Chat")}</span>
+            <span>${escapeHtml(isSeries ? "Der mehrseitige Entwurf erscheint automatisch im Chat" : "Der Entwurf erscheint automatisch im Chat")}</span>
           </div>
         ` : ""}
       </div>
@@ -4268,48 +7623,49 @@ function renderCandidateChatCard(card = {}, workspace) {
       <article class="chat-result-card pending">
         <div class="chat-result-spinner">${renderMiniSpinner()}</div>
         <div>
-          <strong>${escapeHtml(card.candidateId || "Kandidat")}</strong>
-          <p>Der Kandidat wird vorbereitet.</p>
+          <strong>${escapeHtml(draftDisplayLabel({ id: card.candidateId }))}</strong>
+          <p>Der Entwurf wird vorbereitet.</p>
         </div>
       </article>
     `;
   }
+  const displayCandidate = candidateForDisplay(candidate, workspace);
+  const displayCandidateId = draftDisplayLabel(displayCandidate);
   const pageCount = pages.length || Number(candidate.generation?.generatedPageCount || candidate.generation?.pageCount || 0) || 1;
-  const isSeries = pageCount > 1;
-  const pdf = candidate.pdf?.url ? candidate.pdf : null;
-  const meta = [
-    candidate.runId,
-    isSeries ? `${pageCount} Seiten` : page.page ? `Seite ${page.page}` : null,
-    candidate.generation?.model || null,
-    conceptLabel(candidate.concept || candidate)
-  ].filter(Boolean).join(" · ");
+  const basisLabel = draftChatBasisLabel(displayCandidate);
+  const imageDownloads = candidateImageDownloads(pages, draftFilePrefix(displayCandidate));
   return `
     <figure
       class="chat-result-card candidate-chat-card"
-      data-open-url="${escapeHtml(page.url)}"
       data-capture-kind="candidate"
       data-run-id="${escapeHtml(candidate.runId || "")}"
       data-candidate-id="${escapeHtml(candidate.id)}"
+      data-display-label="${escapeHtml(displayCandidateId)}"
       data-page="${escapeHtml(page.page || 1)}"
       data-page-role="${escapeHtml(page.role || "worksheet")}"
       data-source-path="${escapeHtml(page.path || "")}"
       data-source-url="${escapeHtml(page.url)}"
     >
-      <img data-capture-image src="${escapeHtml(page.url)}" alt="${escapeHtml(candidate.id)}">
+      <img data-capture-image src="${escapeHtml(page.url)}" alt="${escapeHtml(displayCandidateId)}">
       <figcaption>
-        <span>
-          <strong>${escapeHtml(isSeries ? `${candidate.id} · Kandidatenreihe fertig` : `${candidate.id} ist fertig`)}</strong>
-          <button class="candidate-info-button" type="button" data-card-action="candidate-info" data-candidate-id="${escapeHtml(candidate.id)}" data-run-id="${escapeHtml(candidate.runId || "")}" aria-label="Generierungsinfo anzeigen" title="Generierungsinfo anzeigen">
-            ${icon("info", "icon icon-small")}
-          </button>
-        </span>
-        <small>${escapeHtml(meta || "Kandidat ansehen")}</small>
-        ${pdf ? `
-          <div class="candidate-chat-actions">
-            <button class="mini-button primary-button" type="button" data-card-action="download-candidate-pdf" data-download-url="${escapeHtml(pdf.url)}" data-download-name="${escapeHtml(fileName(pdf.path || pdf.url))}">
-              ${icon("download", "icon icon-small")}
-              <span>PDF herunterladen</span>
+        <div class="candidate-chat-header">
+          <span class="candidate-chat-title">
+            <strong>${escapeHtml(`${displayCandidateId} ist fertig`)}</strong>
+            ${basisLabel ? `<small>${escapeHtml(basisLabel)}</small>` : ""}
+          </span>
+          <span class="candidate-chat-header-actions">
+            <button class="icon-button icon-button-plain concept-chat-action-button" type="button" data-canvas-mode="candidates" data-artifact-kind="candidate" data-run-id="${escapeHtml(candidate.runId || "")}" data-candidate-id="${escapeHtml(candidate.id)}" aria-label="Entwurf in der Vorschau öffnen" title="Entwurf in der Vorschau öffnen">
+              ${icon("eye", "icon icon-small")}
             </button>
+            <button class="candidate-info-button" type="button" data-card-action="candidate-info" data-candidate-id="${escapeHtml(candidate.id)}" data-run-id="${escapeHtml(candidate.runId || "")}" aria-label="Generierungsinfo anzeigen" title="Generierungsinfo anzeigen">
+              ${icon("info", "icon icon-small")}
+            </button>
+            ${renderCandidateImageDownloadButton(imageDownloads)}
+          </span>
+        </div>
+        ${pageCount ? `
+          <div class="candidate-chat-actions">
+            ${renderCandidateWorksheetStoreAction(candidate, pageCount, workspace)}
           </div>
         ` : ""}
       </figcaption>
@@ -4317,50 +7673,93 @@ function renderCandidateChatCard(card = {}, workspace) {
   `;
 }
 
+function shouldSuppressCardAction(action = {}, message = {}) {
+  if (message.productionCard?.kind !== "candidate") {
+    return false;
+  }
+  const commandId = action.id || action.command || "";
+  const label = String(action.label || "").toLowerCase();
+  return commandId === "deposit_worksheet"
+    || label.includes("arbeitsblatt ablegen")
+    || label.includes("arbeitsblätter ablegen");
+}
+
+function suppressDuplicateCardActionEntries(actionEntries = [], message = {}) {
+  return actionEntries.filter(({ action }) => !shouldSuppressCardAction(action, message));
+}
+
+function suppressDuplicateCardActions(actions = [], message = {}) {
+  return actions.filter((action) => !shouldSuppressCardAction(action, message));
+}
+
 function conceptPreviewFromMessage(message = {}, workspace = {}) {
   const proposal = message.proposal || null;
   if (proposal?.kind === "lessonbrief") {
+    const brief = proposal.data || {};
     const sections = conceptSectionsFromContent({}, {
-      brief: proposal.data || {},
+      brief,
       project: workspace.project || {},
       teachingContext: workspace.teachingContext || {}
     });
     return {
-      title: proposal.data?.topic || proposal.title || "Konzept-Vorschlag",
+      title: brief.topic || proposal.title || "Konzept-Vorschlag",
       eyebrow: "Konzept-Vorschlag",
       canvasMode: "lessonbrief_proposal",
+      proposalRef: {
+        proposalId: proposal.proposalId || null,
+        kind: proposal.kind
+      },
       summary: "Rahmen steht. Prüfe, ob Ziel, Zielgruppe und Format passen.",
       rows: [
-        ["Fach", proposal.data?.subject],
-        ["Zielgruppe", proposal.data?.targetGroup],
-        ["Layout", proposal.data?.outputPreference?.layout]
+        ["Fach", brief.subject],
+        ["Zielgruppe", brief.targetGroup],
+        ["Layout", brief.outputPreference?.layout]
       ],
-      sections
+      sections,
+      copyContext: {
+        project: workspace.project || {},
+        brief,
+        content: {},
+        teachingContext: workspace.teachingContext || {},
+        statusLabel: statusWord(proposal.status),
+        eyebrow: "Konzept-Vorschlag"
+      }
     };
   }
   if (proposal?.kind === "content_mirror") {
-    const readingTexts = proposal.data?.readingTexts || [];
-    const tasks = proposal.data?.tasks || [];
-    const imageMaterials = proposal.data?.imageMaterials || [];
+    const content = proposal.data || {};
+    const readingTexts = content.readingTexts || [];
+    const tasks = content.tasks || [];
+    const imageMaterials = content.imageMaterials || [];
     const brief = workspace.documents?.brief?.data || workspace.proposals?.latestLessonBrief?.data || {};
-    const revisionOptions = conceptRevisionOptions(proposal.data || {}, workspace);
     return {
-      title: proposal.data?.title || proposal.title || "Arbeitsblatt-Konzept",
+      title: content.title || proposal.title || "Arbeitsblatt-Konzept",
       eyebrow: "Arbeitsblatt-Konzept",
       canvasMode: "content_proposal",
+      proposalRef: {
+        proposalId: proposal.proposalId || null,
+        kind: proposal.kind
+      },
       summary: "Prüfe Rahmen, Blattaufbau, Aufgabenlogik, sichtbaren Inhalt und Bild/Layout.",
       rows: [
         ["Texte", readingTexts.length],
         ["Aufgaben", tasks.length],
         ["Bildmaterial", imageMaterials.length],
-        ["Seiten", proposal.data?.pageCount || proposal.data?.outputPreference?.pages]
+        ["Seiten", content.pageCount || content.outputPreference?.pages]
       ],
-      sections: conceptSectionsFromContent(proposal.data || {}, {
+      sections: conceptSectionsFromContent(content, {
         brief,
         project: workspace.project || {},
         teachingContext: workspace.teachingContext || {}
       }),
-      revisionOptions
+      copyContext: {
+        project: workspace.project || {},
+        brief,
+        content,
+        teachingContext: workspace.teachingContext || {},
+        statusLabel: statusWord(proposal.status),
+        eyebrow: "Konzept-Vorschlag"
+      }
     };
   }
   if (proposal?.kind === "image_spec") {
@@ -4368,23 +7767,27 @@ function conceptPreviewFromMessage(message = {}, workspace = {}) {
     const policy = spec.referencePolicy || {};
     const references = spec.referenceImages || [];
     return {
-      title: spec.purpose || proposal.title || "Kandidatenvorbereitung",
-      eyebrow: "Kandidatenvorbereitung",
+      title: normalizeVisibleProductTerminology(spec.purpose || proposal.title || "Entwurfsvorbereitung"),
+      eyebrow: "Entwurfsvorbereitung",
       canvasMode: "image_spec_proposal",
-      summary: referencePolicySummary(policy),
+      proposalRef: {
+        proposalId: proposal.proposalId || null,
+        kind: proposal.kind
+      },
+      summary: normalizeVisibleProductTerminology(referencePolicySummary(policy)),
       rows: [
-        ["Visualisierung", spec.topic],
-        ["Referenz", referencePolicyLabel(policy)],
+        ["Visualisierung", normalizeVisibleProductTerminology(spec.topic)],
+        ["Referenz", normalizeVisibleProductTerminology(referencePolicyLabel(policy))],
         ["Vorhanden", references.length ? `${references.length} Referenz${references.length === 1 ? "" : "en"}` : "keine"]
       ],
       sections: [
         {
           title: "Warum",
-          items: [policy.reason || "Keine besondere Referenzentscheidung nötig."]
+          items: [normalizeVisibleProductTerminology(policy.reason || "Keine besondere Referenzentscheidung nötig.")]
         },
         {
           title: "Nächster Schritt",
-          items: [policy.suggestedAction || "Direkt Kandidat erzeugen oder bei Bedarf eine Referenz im Chat anhängen."]
+          items: [normalizeVisibleProductTerminology(policy.suggestedAction || "Direkt Entwurf erstellen oder bei Bedarf eine Referenz im Chat anhängen.")]
         }
       ]
     };
@@ -4396,7 +7799,7 @@ function conceptPreviewFromMessage(message = {}, workspace = {}) {
       title: content.title || workspace.project?.title || "Arbeitsblatt-Konzept",
       eyebrow: "Arbeitsblatt-Konzept",
       canvasMode: "content",
-      summary: workspace.approval?.canGenerate ? "Freigegeben für Kandidaten." : "Als Entwurf angelegt.",
+      summary: workspace.approval?.canGenerate ? "Freigegeben für Entwürfe." : "Als Entwurf angelegt.",
       rows: [
         ["Texte", content.readingTexts?.length],
         ["Aufgaben", content.tasks?.length],
@@ -4407,7 +7810,15 @@ function conceptPreviewFromMessage(message = {}, workspace = {}) {
         brief,
         project: workspace.project || {},
         teachingContext: workspace.teachingContext || {}
-      })
+      }),
+      copyContext: {
+        project: workspace.project || {},
+        brief,
+        content,
+        teachingContext: workspace.teachingContext || {},
+        statusLabel: statusWord(workspace.documents?.content?.status),
+        eyebrow: "Arbeitsblatt-Konzept"
+      }
     };
   }
   const brief = workspace.documents?.brief?.data || null;
@@ -4427,74 +7838,18 @@ function conceptPreviewFromMessage(message = {}, workspace = {}) {
         ["Zielgruppe", brief.targetGroup],
         ["Status", statusWord(workspace.documents?.brief?.status)]
       ],
-      sections
+      sections,
+      copyContext: {
+        project: workspace.project || {},
+        brief,
+        content: {},
+        teachingContext: workspace.teachingContext || {},
+        statusLabel: statusWord(workspace.documents?.brief?.status),
+        eyebrow: "Arbeitsblatt-Konzept"
+      }
     };
   }
   return null;
-}
-
-function wordCount(value) {
-  return String(value || "").split(/\s+/).map((word) => word.trim()).filter(Boolean).length;
-}
-
-function conceptRevisionOptions(content = {}, workspace = {}) {
-  const brief = workspace.documents?.brief?.data || {};
-  const targetText = normalizeGermanDisplayText([
-    brief.targetGroup,
-    workspace.teachingContext?.fields?.targetGroup?.value,
-    workspace.project?.title,
-    content.title
-  ].filter(Boolean).join(" ")).toLowerCase();
-  const readingTexts = Array.isArray(content.readingTexts) ? content.readingTexts : [];
-  const tasks = Array.isArray(content.tasks) ? content.tasks : [];
-  const imageMaterials = Array.isArray(content.imageMaterials) ? content.imageMaterials : [];
-  const totalWords = readingTexts.reduce((sum, text) => sum + wordCount(text.body), 0);
-  const isEarlyReader = /klasse\s*1|erstklass|leseanf|anfänger|grundschule/.test(targetText);
-  const isOlderGroup = /klasse\s*(7|8|9|10|11|12|13)|sek/.test(targetText);
-  const options = [];
-
-  if (isEarlyReader || totalWords > 90) {
-    options.push({
-      label: "Noch einfacher",
-      message: "Bitte überarbeite das Konzept: Text kürzer, Sprache noch einfacher, größere Abstände und Aufgaben noch leichter zugänglich. Thema und Unterrichtsziel bleiben gleich."
-    });
-  } else if (isOlderGroup) {
-    options.push({
-      label: "Anspruch schärfen",
-      message: "Bitte überarbeite das Konzept: fachlich etwas anspruchsvoller, Aufgaben klarer auf Verstehen und Begründen ausrichten, ohne das Blatt zu überladen."
-    });
-  } else {
-    options.push({
-      label: "Text fokussieren",
-      message: "Bitte überarbeite das Konzept: Text noch stärker auf das Unterrichtsziel fokussieren und alles streichen, was für die Aufgabe nicht nötig ist."
-    });
-  }
-
-  if (tasks.length >= 4) {
-    options.push({
-      label: "Weniger Aufgaben",
-      message: "Bitte überarbeite das Konzept: weniger Aufgaben, dafür klarere Bearbeitungsschritte und mehr Platz zum Arbeiten."
-    });
-  } else {
-    options.push({
-      label: "Mehr Übung",
-      message: "Bitte überarbeite das Konzept: eine zusätzliche kleine Übung einbauen, die zum Unterrichtsziel passt und nicht zu viel Platz braucht."
-    });
-  }
-
-  if (imageMaterials.length > 1) {
-    options.push({
-      label: "Bild ruhiger",
-      message: "Bitte überarbeite das Konzept: Bildidee ruhiger und klarer machen, weniger visuelle Ablenkung, aber die wichtigste Information weiterhin gut sichtbar."
-    });
-  } else {
-    options.push({
-      label: "Bild stärker nutzen",
-      message: "Bitte überarbeite das Konzept: Bildidee didaktisch stärker einbinden, sodass das Bild beim Bearbeiten der Aufgaben wirklich hilft."
-    });
-  }
-
-  return options.slice(0, 3);
 }
 
 function renderConceptChatCard(message = {}, workspace = {}) {
@@ -4506,7 +7861,10 @@ function renderConceptChatCard(message = {}, workspace = {}) {
     <article class="chat-result-card concept-chat-card">
       <div class="chat-result-card-header">
         <span>${escapeHtml(preview.eyebrow)}</span>
-        <button class="secondary-button mini-button" type="button" data-canvas-mode="${escapeHtml(preview.canvasMode || "content")}">Im Canvas öffnen</button>
+        <div class="chat-result-card-actions">
+          ${preview.copyContext ? renderConceptCopyButton(preview.copyContext) : ""}
+          ${renderConceptPreviewButton(preview)}
+        </div>
       </div>
       <h3>${escapeHtml(preview.title)}</h3>
       ${preview.summary ? `<p>${escapeHtml(preview.summary)}</p>` : ""}
@@ -4515,20 +7873,39 @@ function renderConceptChatCard(message = {}, workspace = {}) {
           <div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>
         `).join("")}
       </div>
-      ${(preview.sections || []).length ? `
-        ${renderConceptSections(preview.sections, { compact: true })}
-      ` : (preview.bullets || []).length ? `<ul>${preview.bullets.slice(0, 3).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
-      ${(preview.revisionOptions || []).length ? `
-        <div class="concept-revision-options" aria-label="Überarbeitungsideen">
-          <p>Wenn du noch unsicher bist:</p>
-          <div>
-            ${preview.revisionOptions.map((option) => `
-              <button class="secondary-button mini-button" type="button" data-chat-message="${escapeHtml(option.message)}">${escapeHtml(option.label)}</button>
-            `).join("")}
-          </div>
-        </div>
-      ` : ""}
+      ${(preview.bullets || []).length ? `<ul>${preview.bullets.slice(0, 3).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
     </article>
+  `;
+}
+
+function isConceptViewerOnlyMessage(message = {}) {
+  if (message.role === "user") {
+    return false;
+  }
+  const proposalKind = message.proposal?.kind || "";
+  if (proposalKind === "lessonbrief" || proposalKind === "content_mirror") {
+    return false;
+  }
+  return message.productionCard?.kind === "concept"
+    || proposalKind === "image_spec";
+}
+
+function isConceptNarrationMessage(message = {}) {
+  const proposalKind = message.proposal?.kind || "";
+  return Boolean(message.content && (proposalKind === "lessonbrief" || proposalKind === "content_mirror"));
+}
+
+function renderConceptNarrationCopy(message = {}) {
+  const feedbackLabel = message.proposal?.status === "adopted"
+    ? "Einschätzung zum Konzept"
+    : "Feedback zum Vorschlag";
+  return `
+    <section class="concept-feedback-panel">
+      <div class="concept-feedback-header">
+        <span>${escapeHtml(feedbackLabel)}</span>
+      </div>
+      <div class="message-copy concept-feedback-copy">${renderMessageCopy(message)}</div>
+    </section>
   `;
 }
 
@@ -4553,7 +7930,9 @@ function isVisibleSuggestedAction(action = {}) {
 }
 
 function renderMessageCopy(message) {
-  const content = message.content || "";
+  const content = message.role === "user"
+    ? message.content || ""
+    : normalizeVisibleProductTerminology(message.content || "");
   if (!message.streaming) {
     return markdownToHtml(content);
   }
@@ -4567,14 +7946,20 @@ function currentSuggestedActionButtons(actionEntries = [], workspace = {}) {
     .flatMap(({ action }) => {
       const commandId = action.command || action.id;
       const command = (workspace.commands || []).find((entry) => entry.id === commandId) || null;
-      if (commandId === "generate_image_candidate" && command?.enabled) {
+      if (commandId === "generate_image_candidate" && command) {
         return decisionButtons({
           ...command,
           defaultPayload: {
             ...(command.defaultPayload || {}),
             ...(action.payload || {})
           }
-        });
+        }, workspace);
+      }
+      if (command) {
+        return [buttonActionForCommand(command, workspace, {
+          label: action.label || decisionButtonLabel(command),
+          payload: action.payload || commandPayload(command)
+        })].filter(Boolean);
       }
       return [{
         id: commandId,
@@ -4584,19 +7969,22 @@ function currentSuggestedActionButtons(actionEntries = [], workspace = {}) {
     });
 }
 
-function renderChatMessage(message, visibleCommandIds = new Set(), extraCommands = [], workspace = {}, isActionHost = false) {
+function renderChatMessage(message, visibleCommandIds = new Set(), extraCommands = [], workspace = {}, isActionHost = false, messages = [], messageIndex = -1) {
   if (message.pending && message.role !== "user" && !message.productionCard) {
     return renderThinkingMessage();
   }
   const role = message.role === "user" ? "user" : "assistant";
-  const actionEntries = (message.suggestedActions || []).map((action) => ({
+  const actionEntries = suppressDuplicateCardActionEntries((message.suggestedActions || []).map((action) => ({
     action,
     ...actionState(action, workspace, isActionHost, visibleCommandIds)
-  })).filter(({ action }) => isVisibleSuggestedAction(action));
+  })).filter(({ action }) => isVisibleSuggestedAction(action)), message);
   const suggestedActions = currentSuggestedActionButtons(actionEntries, workspace);
   const staleActions = actionEntries.filter((entry) => !entry.current);
-  const extraActions = extraCommands.flatMap((command) => decisionButtons(command));
-  const actions = suggestedActions.length ? suggestedActions : (actionEntries.length ? [] : extraActions);
+  const extraActions = extraCommands.flatMap((command) => decisionButtons(command, workspace));
+  const actions = suppressDuplicateCardActions(
+    suggestedActions.length ? suggestedActions : (actionEntries.length ? [] : extraActions),
+    message
+  );
   const stateClass = message.pending ? " pending" : message.failed ? " failed" : message.streaming ? " streaming" : "";
   const commandClass = message.productionCard?.kind === "command_pending" ? " command-pending" : "";
   const metaSuffix = message.pending
@@ -4606,19 +7994,22 @@ function renderChatMessage(message, visibleCommandIds = new Set(), extraCommands
       : message.failed
         ? " · nicht gesendet"
         : message.createdAt ? ` · ${escapeHtml(timeOnly(message.createdAt))}` : "";
-  const copyHtml = message.content || message.streaming || message.failed
-    ? `<div class="message-copy">${renderMessageCopy(message)}</div>`
-    : "";
+  const hideConceptCopy = isConceptViewerOnlyMessage(message) && !message.streaming && !message.failed;
+  const hasCopy = !hideConceptCopy && (message.content || message.streaming || message.failed);
+  const copyHtml = hasCopy ? `<div class="message-copy">${renderMessageCopy(message)}</div>` : "";
+  const copyAfterCard = isConceptNarrationMessage(message) && hasCopy;
+  const conceptFeedbackHtml = copyAfterCard ? renderConceptNarrationCopy(message) : "";
   return `
     <div class="chat-message ${role}${stateClass}${commandClass}">
       ${role === "assistant" ? '<div class="assistant-avatar">AI</div>' : ""}
       <div class="message-bubble">
         <div class="message-meta">${role === "user" ? "Ich" : "SheetifyIMG AI"}${metaSuffix}</div>
-        ${copyHtml}
+        ${copyAfterCard ? "" : copyHtml}
         ${renderChatAttachments(message.attachments || [])}
         ${renderProductionCard(message, workspace)}
+        ${copyAfterCard ? conceptFeedbackHtml : ""}
         ${message.streaming ? "" : renderActionButtons(actions)}
-        ${message.streaming ? "" : renderActionHistory(staleActions)}
+        ${message.streaming ? "" : renderActionHistory(staleActions, { messages, index: messageIndex, workspace })}
       </div>
     </div>
   `;
@@ -4656,12 +8047,27 @@ function nextStreamSlice(text, index) {
   return Math.min(text.length, index + base);
 }
 
+function autoOpenConfirmedSuggestedAction(response = {}) {
+  const action = (response.suggestedActions || []).find((entry) => entry.autoOpenConfirmation);
+  if (!action) {
+    return;
+  }
+  const commandId = action.command || action.id;
+  if (!commandId) {
+    return;
+  }
+  window.setTimeout(() => {
+    executeCommand(commandId, action.payload || {});
+  }, 80);
+}
+
 function streamAssistantResponse({ pendingChat, response, responseWorkspace }) {
   const fullText = response?.content || "";
   if (!fullText) {
     state.pendingChat = null;
     state.workspace = responseWorkspace;
     renderWorkspace();
+    autoOpenConfirmedSuggestedAction(response);
     return;
   }
 
@@ -4692,6 +8098,7 @@ function streamAssistantResponse({ pendingChat, response, responseWorkspace }) {
         state.pendingChat = null;
         state.workspace = responseWorkspace;
         renderWorkspace();
+        autoOpenConfirmedSuggestedAction(response);
       }, 140);
       return;
     }
@@ -4704,13 +8111,12 @@ function streamAssistantResponse({ pendingChat, response, responseWorkspace }) {
   state.chatStreamTimer = window.setTimeout(tick, 160);
 }
 
-function latestAssistantAlreadyOffers(workspace, commands) {
+function latestAssistantOfferedCommandIds(workspace) {
   const latestAssistant = [...(workspace.chat?.messages || [])].reverse()
     .find((message) => message.role !== "user");
-  const offered = new Set((latestAssistant?.suggestedActions || [])
+  return new Set((latestAssistant?.suggestedActions || [])
     .filter(isVisibleSuggestedAction)
     .map((action) => action.command));
-  return commands.some((command) => offered.has(command.id));
 }
 
 function latestAssistantIsWaiting(workspace) {
@@ -4723,47 +8129,28 @@ function latestAssistantIsWaiting(workspace) {
   return waitsForCorrection || requestsConceptWork;
 }
 
-function decisionButtons(command) {
-  if (command.id === "prepare_export") {
-    return [
-      {
-        id: command.id,
-        label: "PDF ohne Lösungsblatt",
-        payload: commandPayload(command)
-      },
-      {
-        id: command.id,
-        label: "PDF mit Lösungsblatt",
-        payload: { ...commandPayload(command), includeSolutionSheet: true }
-      }
-    ];
-  }
+function decisionButtons(command, workspace = state.workspace) {
   if (command.id === "generate_image_candidate") {
-    return [{
-      id: command.id,
-      label: decisionButtonLabel(command),
-      payload: withConfiguredImageProvider(command, commandPayload(command))
-    }];
+    return [buttonActionForCommand(command, workspace)].filter(Boolean);
   }
-  return [{
-    id: command.id,
-    label: decisionButtonLabel(command),
-    payload: commandPayload(command)
-  }];
+  return [buttonActionForCommand(command, workspace)].filter(Boolean);
 }
 
 function decisionPrompt(command) {
-  if (command.id === "generate_image_candidate" && /kandidatenreihe/i.test(command.label || "")) {
-    return "Soll ich eine weitere Kandidatenreihe mit allen geplanten Seiten erzeugen?";
+  if (command.decisionPrompt) {
+    return command.decisionPrompt;
+  }
+  if (command.id === "generate_image_candidate" && /(mehrseitig\w* entwurf|entwurfsreihe|kandidatenreihe)/i.test(command.label || "")) {
+    return "Soll ich einen weiteren mehrseitigen Entwurf mit allen geplanten Seiten erstellen?";
   }
   if (command.id === "generate_image_candidate" && /variante/i.test(command.label || "")) {
-    return "Soll ich eine weitere Bildvariante mit demselben freigegebenen Konzept erzeugen?";
+    return "Soll ich einen weiteren Entwurf mit demselben freigegebenen Konzept erzeugen?";
   }
   if (command.id === "generate_content_mirror_proposal" && /überarbeiten|ueberarbeiten|aktualisieren/i.test(command.label || "")) {
     return "Soll ich das Arbeitsblatt-Konzept mit deiner Änderung überarbeiten?";
   }
   if (command.id === "adopt_content_mirror_proposal" && /aktualisieren/i.test(command.label || "")) {
-    return "Die Konzept-Aktualisierung liegt vor. Soll ich sie übernehmen? Danach erzeugst du den nächsten Kandidaten auf dieser neuen Grundlage.";
+    return "Die Konzept-Aktualisierung liegt vor. Soll ich sie übernehmen? Danach erstellst du den nächsten Entwurf auf dieser neuen Grundlage.";
   }
   const prompts = {
     generate_lessonbrief_proposal: "Ich kann daraus ein vollständiges Arbeitsblatt-Konzept mit Text, Aufgaben und Bildidee schreiben. Soll ich das machen?",
@@ -4771,28 +8158,31 @@ function decisionPrompt(command) {
     adopt_lessonbrief_proposal: "Der Konzept-Vorschlag liegt vor. Soll ich ihn übernehmen?",
     generate_content_mirror_proposal: "Soll ich daraus das vollständige Arbeitsblatt-Konzept ausformulieren?",
     create_content_draft: "Soll ich daraus direkt die Aufgabenstruktur und Materialseite anlegen?",
-    adopt_content_mirror_proposal: "Das Arbeitsblatt-Konzept liegt vor. Wenn es passt, übernehme ich es als Grundlage für Kandidaten.",
-    generate_candidate_from_content_proposal: "Wenn das Konzept passt, kann ich direkt einen Kandidaten erzeugen. Dafür kommt vorher die Kostenbestätigung.",
+    adopt_content_mirror_proposal: "Das Arbeitsblatt-Konzept liegt vor. Wenn es passt, übernehme ich es als Grundlage für Entwürfe.",
+    generate_candidate_from_content_proposal: "Wenn das Konzept passt, kann ich direkt einen Entwurf erstellen. Dafür kommt vorher die Kostenbestätigung.",
     adopt_content_warnings_proposal: "Die Prüfhinweise sind vorbereitet. Soll ich sie übernehmen?",
-    approve_current_content: "Das Arbeitsblatt-Konzept wirkt bereit. Soll ich es als Grundlage für Kandidaten freigeben?",
+    approve_current_content: "Das Arbeitsblatt-Konzept wirkt bereit. Soll ich es als Grundlage für Entwürfe freigeben?",
     prepare_image_spec: "Ich kann kurz prüfen, ob die geplante Visualisierung eine Referenz oder Vorlage braucht. Soll ich das vorbereiten?",
     prepare_reference_asset: "Für diese Visualisierung kann ich jetzt die passende Referenz oder Vorlage vorbereiten. Soll ich das machen?",
     prepare_web_reference_asset: "Hier ist eine Webreferenz sinnvoll. Soll ich eine passende offene Bildreferenz suchen und für die Generierung anhängen?",
-    adopt_image_spec: "Die Kandidatenvorbereitung liegt vor. Soll ich sie für die Bildgenerierung übernehmen?",
-    generate_image_candidate: "Soll ich jetzt einen Kandidaten erzeugen?",
-    select_candidate: "Ein Kandidat liegt vor. Soll ich ihn als Auswahl übernehmen?",
-    prepare_export: "Soll ich daraus jetzt das PDF erstellen?",
-    prepare_series_export: "Soll ich daraus jetzt das Reihen-PDF erstellen?"
+    adopt_image_spec: "Die Vorbereitung für den nächsten Entwurf liegt vor. Soll ich sie für die Bildgenerierung nutzen?",
+    generate_image_candidate: "Soll ich jetzt einen Entwurf erstellen?"
   };
   return prompts[command.id] || "Soll ich mit dem nächsten Schritt weitermachen?";
 }
 
 function decisionButtonLabel(command) {
-  if (command.id === "generate_image_candidate" && /kandidatenreihe/i.test(command.label || "")) {
-    return /weitere/i.test(command.label || "") ? "Weitere Kandidatenreihe" : "Kandidatenreihe erzeugen";
+  if (command.decisionLabel) {
+    return command.decisionLabel;
+  }
+  if (command.id === "generate_image_candidate" && /\baus konzept v\d+\b/i.test(command.label || "")) {
+    return command.label;
+  }
+  if (command.id === "generate_image_candidate" && /(mehrseitig\w* entwurf|entwurfsreihe|kandidatenreihe)/i.test(command.label || "")) {
+    return /weitere/i.test(command.label || "") ? "Weiteren mehrseitigen Entwurf erstellen" : "Mehrseitigen Entwurf erstellen";
   }
   if (command.id === "generate_image_candidate" && /variante/i.test(command.label || "")) {
-    return "Weitere Variante erzeugen";
+    return "Weiteren Entwurf erzeugen";
   }
   if (command.id === "generate_content_mirror_proposal" && /überarbeiten|ueberarbeiten|aktualisieren/i.test(command.label || "")) {
     return "Konzept überarbeiten";
@@ -4807,17 +8197,14 @@ function decisionButtonLabel(command) {
     generate_content_mirror_proposal: "Ja, Konzept ausformulieren",
     create_content_draft: "Ja, direkt anlegen",
     adopt_content_mirror_proposal: "Ja, Konzept passt",
-    generate_candidate_from_content_proposal: "Kandidat erzeugen",
+    generate_candidate_from_content_proposal: "Entwurf erstellen",
     adopt_content_warnings_proposal: "Ja, übernehmen",
     approve_current_content: "Ja, freigeben",
     prepare_image_spec: "Visualisierung prüfen",
     prepare_reference_asset: "Referenz/Vorlage vorbereiten",
     prepare_web_reference_asset: "Webreferenz suchen",
     adopt_image_spec: "Vorbereitung passt",
-    generate_image_candidate: "Ja, Kandidat erzeugen",
-    select_candidate: "Ja, als Auswahl übernehmen",
-    prepare_export: "Ja, PDF erstellen",
-    prepare_series_export: "Ja, Reihen-PDF erstellen"
+    generate_image_candidate: "Ja, Entwurf erstellen"
   };
   return labels[command.id] || command.label;
 }
@@ -4829,15 +8216,6 @@ function timeOnly(value) {
 
 function workspaceCards(workspace) {
   const proposalCards = proposalWorkspaceCards(workspace);
-  if (workspace.project.projectType === "series") {
-    return [...proposalCards, {
-      title: "Reihe",
-      subtitle: `${workspace.series?.worksheets?.length || 0} Arbeitsblaetter`,
-      tag: "SERIE",
-      mode: "series",
-      actions: visibleCommands(workspace)
-    }];
-  }
   const docs = workspace.documents || {};
   const cards = [...proposalCards];
   if (cards.length) {
@@ -4864,12 +8242,13 @@ function workspaceCards(workspace) {
   }
   if (workspace.latestRun?.candidateCount || workspace.latestRun?.selectedPageCount || workspace.preview?.pages?.length) {
     const foundation = workspaceConceptLabel(workspace);
-    const pdfCount = countPreviewCandidatePdfs(workspace.preview);
+    const candidatePages = countPreviewCandidatePages(workspace.preview);
+    const candidateCount = workspace.latestRun.candidateCount || 0;
     return [{
-      title: "Kandidaten",
+      title: "Entwürfe",
       subtitle: [
-        `${workspace.latestRun.candidateCount || 0} Kandidaten`,
-        pdfCount ? `${pdfCount} PDF${pdfCount === 1 ? "" : "s"}` : null,
+        candidateCountLabel(candidateCount),
+        candidatePages > candidateCount ? `${candidatePages} Seiten` : null,
         foundation
       ].filter(Boolean).join(" · "),
       tag: "KAN",
@@ -4943,41 +8322,61 @@ function renderTimelineCard(card) {
 }
 
 function mobileSheetCommand(workspace = {}, ids = []) {
-  return ids.map((id) => (workspace.commands || []).find((command) => command.id === id && command.enabled)).find(Boolean) || null;
+  return mobilePreviewRenderer.mobileSheetCommand(workspace, ids);
 }
 
-function mobileCommandButton(command, label = null, primary = false) {
-  if (!command) {
-    return "";
-  }
-  return `
-    <button class="${primary ? "primary-button" : "secondary-button"} mobile-footer-button" type="button" data-command="${escapeHtml(command.id)}" data-payload="${escapeHtml(JSON.stringify(commandPayload(command)))}">
-      ${escapeHtml(label || decisionButtonLabel(command) || command.label)}
-    </button>
-  `;
+function mobileCommandButton(command, label = null, primary = false, workspace = state.workspace) {
+  return mobilePreviewRenderer.mobileCommandButton(command, label, primary, workspace);
 }
 
 function mobileFocusChatButton(label = "Konzept ändern") {
-  return `<button class="secondary-button mobile-footer-button" type="button" data-mobile-focus-chat>${escapeHtml(label)}</button>`;
+  return mobilePreviewRenderer.mobileFocusChatButton(label);
 }
 
 function mobileMinimizeButton(label = "Kleinmachen") {
-  return `<button class="secondary-button mobile-footer-button" type="button" data-mobile-minimize>${escapeHtml(label)}</button>`;
+  return mobilePreviewRenderer.mobileMinimizeButton(label);
 }
 
 function mobileCloseButton(label = "Schließen") {
-  return `<button class="secondary-button mobile-footer-button" type="button" data-mobile-close>${escapeHtml(label)}</button>`;
-}
-
-function mobileFullscreenButton(mode, label = "Vollbild") {
-  return `
-    <button class="secondary-button mobile-footer-button" type="button" data-mobile-open-preview="${escapeHtml(mode)}" data-mobile-presentation="fullscreen">
-      ${escapeHtml(label)}
-    </button>
-  `;
+  return mobilePreviewRenderer.mobileCloseButton(label);
 }
 
 function libraryWorkspaceFromItem(item = {}) {
+  if (item.worksheet) {
+    const worksheet = item.worksheet;
+    return {
+      project: {
+        projectId: worksheet.source?.projectId || "",
+        title: worksheet.source?.projectTitle || worksheet.source?.projectId || ""
+      },
+      worksheet,
+      preview: {
+        previewType: "pdf",
+        pdfs: worksheet.pdf ? [{
+          ...worksheet.pdf,
+          pageCount: worksheet.pageCount,
+          concept: worksheet.source?.concept || null
+        }] : [],
+        pages: worksheet.pages || [],
+        candidates: []
+      },
+      documents: {},
+      proposals: {},
+      teachingContext: {},
+      approval: { canGenerate: false },
+      latestRun: {
+        candidateCount: 0,
+        renderedCandidateCount: 0,
+        selectedPageCount: 0
+      },
+      workspaceEntry: {
+        availability: {
+          hasExport: Boolean(worksheet.pdf?.url)
+        }
+      },
+      commands: []
+    };
+  }
   const derived = item.project?.derivedStatus || {};
   const latestRun = Array.isArray(derived.runs) ? derived.runs[derived.runs.length - 1] : null;
   const preview = item.preview || {};
@@ -5011,400 +8410,93 @@ function currentMobilePreviewContext() {
   return state.workspace || null;
 }
 
-function isMobilePreviewFullscreen() {
-  return state.mobilePreview.presentation === "fullscreen";
+function mobilePreviewUiState() {
+  return {
+    selectedId: state.selectedId,
+    selectedItem: state.selectedItem
+  };
 }
 
-function openMobilePreviewMode(mode, presentation = "sheet") {
+function openMobilePreviewMode(mode) {
   openMobilePreview(mode, {
-    source: state.mobilePreview.source || (state.workspace ? "workspace" : "library"),
-    presentation
+    source: state.mobilePreview.source || (state.workspace ? "workspace" : "library")
   });
 }
 
 function mobilePreviewStatusLabel(workspace = {}, mode = "") {
-  if (mode === "candidates") {
-    const count = workspace.preview?.candidates?.length || workspace.latestRun?.candidateCount || 0;
-    return count ? `${count} Kandidaten` : "Noch keine Kandidaten";
-  }
-  if (mode === "selection") {
-    return mobilePreviewStatusLabel(workspace, "candidates");
-  }
-  if (mode === "export") {
-    return mobilePreviewStatusLabel(workspace, "candidates");
-  }
-  return workspace.approval?.canGenerate ? "Bereit für Kandidaten" : "In Arbeit";
+  return mobilePreviewRenderer.mobilePreviewStatusLabel(workspace, mode);
 }
 
 function mobileConceptData(workspace = {}, mode = "") {
-  if (mode === "lessonbrief_proposal") {
-    return {
-      brief: workspace.proposals?.latestLessonBrief?.data || {},
-      content: {},
-      status: "Rahmen prüfen"
-    };
-  }
-  if (mode === "content_proposal") {
-    return {
-      brief: workspace.documents?.brief?.data || workspace.proposals?.latestLessonBrief?.data || {},
-      content: workspace.proposals?.latestContentMirror?.data || {},
-      status: "Konzept prüfen"
-    };
-  }
-  if (mode === "brief") {
-    return {
-      brief: workspace.documents?.brief?.data || {},
-      content: {},
-      status: "Rahmen steht"
-    };
-  }
-  return {
-    brief: workspace.documents?.brief?.data || {},
-    content: workspace.documents?.content?.data || {},
-    status: mobilePreviewStatusLabel(workspace, mode)
-  };
+  return mobilePreviewRenderer.mobileConceptData(workspace, mode);
 }
 
 function renderMobileConceptBody(workspace = {}, mode = "") {
-  const concept = mobileConceptData(workspace, mode);
-  const sections = conceptSectionsFromContent(concept.content, {
-    brief: concept.brief,
-    project: workspace.project || {},
-    teachingContext: workspace.teachingContext || {}
-  });
-  return `
-    <div class="mobile-ready-strip ${workspace.approval?.canGenerate ? "done" : ""}">
-      <span>${renderIcon(workspace.approval?.canGenerate ? "check" : "circle", "mobile-ready-icon")}</span>
-      <strong>${escapeHtml(concept.status)}</strong>
-    </div>
-    ${renderConceptSections(sections, { compact: false })}
-  `;
+  return mobilePreviewRenderer.renderMobileConceptBody(workspace, mode);
 }
 
 function renderMobileConceptFooter(workspace = {}, mode = "") {
-  const primary = mobileSheetCommand(workspace, [
-    "adopt_content_mirror_proposal",
-    "adopt_lessonbrief_proposal",
-    "approve_current_content",
-    "generate_image_candidate",
-    "generate_content_mirror_proposal"
-  ]);
-  const primaryLabel = primary?.id === "generate_image_candidate"
-    ? "Kandidaten erstellen"
-    : primary?.id === "approve_current_content"
-      ? "Freigeben"
-      : primary ? null : "";
-  return `
-    ${mobileCommandButton(primary, primaryLabel, true)}
-    ${mobileFocusChatButton(mode === "brief" || mode === "lessonbrief_proposal" ? "Rahmen ändern" : "Konzept ändern")}
-    ${mobileMinimizeButton()}
-  `;
+  return mobilePreviewRenderer.renderMobileConceptFooter(workspace, mode);
 }
 
 function firstCandidatePage(candidate = {}) {
-  return (candidate.pages || []).find((page) => page.url) || null;
+  return mobilePreviewRenderer.firstCandidatePage(candidate);
 }
 
 function renderMobileCandidateRow(candidate = {}, index = 0, options = {}) {
-  const page = firstCandidatePage(candidate);
-  const pages = (candidate.pages || []).filter((entry) => entry.url);
-  const pageCount = pages.length || Number(candidate.generation?.pageCount || 0) || 1;
-  const foundation = conceptLabel(candidate.concept || candidate);
-  const pdf = candidate.pdf?.url ? candidate.pdf : null;
-  if (!page) {
-    return `
-      <article class="mobile-preview-row">
-        <div class="mobile-preview-thumb missing-preview">?</div>
-        <div class="mobile-preview-row-copy">
-          <strong>${escapeHtml(candidate.id || `Kandidat ${index + 1}`)}</strong>
-          <small>Keine Vorschau vorhanden</small>
-        </div>
-      </article>
-    `;
-  }
-  return `
-    <article
-      class="mobile-preview-row mobile-candidate-row"
-      data-open-url="${escapeHtml(page.url)}"
-      data-capture-kind="candidate"
-      data-run-id="${escapeHtml(candidate.runId || "")}"
-      data-candidate-id="${escapeHtml(candidate.id || "")}"
-      data-page="${escapeHtml(page.page || 1)}"
-      data-page-role="${escapeHtml(page.role || "worksheet")}"
-      data-source-path="${escapeHtml(page.path || "")}"
-      data-source-url="${escapeHtml(page.url)}"
-    >
-      <img class="mobile-preview-thumb" data-capture-image src="${escapeHtml(page.url)}" alt="${escapeHtml(candidate.id || `Kandidat ${index + 1}`)}" loading="lazy">
-      <div class="mobile-preview-row-copy">
-        <strong>${escapeHtml(candidate.id || `Kandidat ${index + 1}`)}</strong>
-        <small>${escapeHtml([`${pageCount} Seite${pageCount === 1 ? "" : "n"}`, foundation].filter(Boolean).join(" · "))}</small>
-        <div class="mobile-preview-row-actions">
-          ${pdf ? `<button class="primary-button mini-button" type="button" data-card-action="download-candidate-pdf" data-download-url="${escapeHtml(pdf.url)}" data-download-name="${escapeHtml(fileName(pdf.path || pdf.url))}">PDF</button>` : ""}
-          <button class="secondary-button mini-button" type="button" data-mobile-open-candidate>Vorschau</button>
-          <button class="secondary-button mini-button icon-mini-button" type="button" data-card-action="candidate-info" data-candidate-id="${escapeHtml(candidate.id || "")}" data-run-id="${escapeHtml(candidate.runId || "")}" aria-label="Info">i</button>
-        </div>
-      </div>
-    </article>
-  `;
+  return mobilePreviewRenderer.renderMobileCandidateRow(candidate, index, options);
 }
 
 function renderMobileCandidatesBody(workspace = {}, options = {}) {
-  const candidates = workspace.preview?.candidates || [];
-  if (!candidates.length) {
-    return '<div class="mobile-empty-state">Noch keine Kandidaten vorhanden.</div>';
-  }
-  return `<div class="mobile-preview-list">${candidates.map((candidate, index) => renderMobileCandidateRow(candidate, index, options)).join("")}</div>`;
-}
-
-function renderMobileImageRow(page = {}, index = 0, label = "Seite") {
-  if (!page.url) {
-    return "";
-  }
-  const meta = [page.role || "Arbeitsblatt", page.sourceCandidateId ? `aus ${page.sourceCandidateId}` : null].filter(Boolean).join(" · ");
-  return `
-    <article class="mobile-preview-row" data-open-url="${escapeHtml(page.url)}">
-      <img class="mobile-preview-thumb" src="${escapeHtml(page.url)}" alt="${escapeHtml(`${label} ${page.page || index + 1}`)}" loading="lazy">
-      <div class="mobile-preview-row-copy">
-        <strong>${escapeHtml(`${label} ${page.page || index + 1}`)}</strong>
-        <small>${escapeHtml(meta || "Vorschau")}</small>
-        <div class="mobile-preview-row-actions">
-          <button class="secondary-button mini-button" type="button" data-mobile-open-url="${escapeHtml(page.url)}">Öffnen</button>
-        </div>
-      </div>
-    </article>
-  `;
-}
-
-function renderMobileSelectionBody(workspace = {}) {
-  const pages = workspace.preview?.pages || [];
-  if (!pages.length) {
-    return renderMobileCandidatesBody(workspace);
-  }
-  return `<div class="mobile-preview-list">${pages.map((page, index) => renderMobileImageRow(page, index, "Kandidat")).join("")}</div>`;
-}
-
-function renderMobileExportBody(workspace = {}) {
-  const pdfs = workspace.preview?.pdfs || [];
-  if (!pdfs.length) {
-    return renderMobileSelectionBody(workspace);
-  }
-  return `<div class="mobile-preview-list">${pdfs.map((pdf) => `
-    <article class="mobile-preview-row mobile-pdf-row" data-open-url="${escapeHtml(pdf.url)}">
-      <div class="mobile-preview-thumb mobile-pdf-thumb">PDF</div>
-      <div class="mobile-preview-row-copy">
-        <strong>${escapeHtml(pdf.solutionSheet?.included ? "PDF mit Lösungsblatt" : "PDF")}</strong>
-        <small>${escapeHtml([pdf.pageCount ? `${pdf.pageCount} Seite${pdf.pageCount === 1 ? "" : "n"}` : null, conceptLabel(pdf.concept)].filter(Boolean).join(" · ") || fileName(pdf.path))}</small>
-        <div class="mobile-preview-row-actions">
-          <button class="primary-button mini-button" type="button" data-mobile-open-url="${escapeHtml(pdf.url)}">Öffnen</button>
-          <button class="secondary-button mini-button" type="button" data-mobile-download-url="${escapeHtml(pdf.url)}" data-mobile-download-name="${escapeHtml(fileName(pdf.path || pdf.url))}">Download</button>
-        </div>
-      </div>
-    </article>
-  `).join("")}</div>`;
+  return mobilePreviewRenderer.renderMobileCandidatesBody(workspace, options);
 }
 
 function renderMobileInputBody(workspace = {}) {
-  const source = workspace.documents?.source || {};
-  const userMessages = (workspace.chat?.messages || []).filter((message) => message.role === "user" && String(message.content || "").trim());
-  const files = sourceFilesFrom(source);
-  const projectId = workspace.project?.projectId || projectIdFromItemId(state.selectedId);
-  const fileRows = files.map((file, index) => {
-    const displayName = fileName(file.path || file.url || `Datei ${index + 1}`);
-    const openUrl = file.url || sourceFileUrl(projectId, file);
-    return `
-      <article class="mobile-preview-row">
-        <div class="mobile-preview-thumb mobile-file-thumb">${escapeHtml(displayName.split(".").pop()?.toUpperCase() || "FILE")}</div>
-        <div class="mobile-preview-row-copy">
-          <strong>${escapeHtml(displayName)}</strong>
-          <small>${escapeHtml(file.kind || "Input")}</small>
-          ${openUrl ? `<div class="mobile-preview-row-actions"><button class="secondary-button mini-button" type="button" data-mobile-open-url="${escapeHtml(openUrl)}">Öffnen</button></div>` : ""}
-        </div>
-      </article>
-    `;
-  }).join("");
-  const transferCard = String(source.transferCard || "").trim();
-  const transferCardRow = transferCard
-    ? `
-      <article class="mobile-input-message">
-        <span>Importierter Input</span>
-        <p>${escapeHtml(transferCard)}</p>
-      </article>
-    `
-    : "";
-  const messageRows = userMessages.slice(-6).map((message, index) => `
-    <article class="mobile-input-message">
-      <span>Nachricht ${index + 1}</span>
-      <p>${escapeHtml(message.content)}</p>
-    </article>
-  `).join("");
-  return fileRows || transferCardRow || messageRows
-    ? `<div class="mobile-preview-list">${fileRows}${transferCardRow}${messageRows}</div>`
-    : '<div class="mobile-empty-state">Noch kein Input vorhanden.</div>';
+  return mobilePreviewRenderer.renderMobileInputBody(workspace, mobilePreviewUiState());
 }
 
 function renderMobileContextBody(workspace = {}) {
-  const context = workspace.teachingContext || {};
-  return `
-    <div class="mobile-ready-strip ${context.readiness?.conceptAllowed ? "done" : ""}">
-      <span>${renderIcon(context.readiness?.conceptAllowed ? "check" : "circle", "mobile-ready-icon")}</span>
-      <strong>${escapeHtml(teachingContextNote(context))}</strong>
-    </div>
-    <ul class="mobile-context-list">${teachingContextFieldRows(context)}</ul>
-  `;
-}
-
-function mobileProjectStatusLabel(item = {}) {
-  const rows = buildStatusRows(item);
-  const active = rows.find((row) => row.tone === "active") || rows.find((row) => row.tone !== "done") || rows[rows.length - 1];
-  if (!active) {
-    return "Arbeitsblatt";
-  }
-  if (active.id === "candidates" && active.tone === "done") {
-    return "Kandidaten bereit";
-  }
-  if (active.id === "export" && active.tone === "done") {
-    return "Kandidaten bereit";
-  }
-  return `${active.title} · ${active.state}`;
+  return mobilePreviewRenderer.renderMobileContextBody(workspace);
 }
 
 function renderMobileProjectStepPills(item = {}) {
-  return buildStatusRows(item).map((row) => {
-    const mode = mobileProjectStepMode(row.id);
-    return `
-      <button class="mobile-project-step ${escapeHtml(row.tone)}" type="button" data-mobile-open-preview="${escapeHtml(mode)}" data-mobile-presentation="fullscreen">
-        <span class="mobile-project-step-marker">${row.tone === "done" ? renderIcon("check", "mobile-step-icon") : row.number}</span>
-        <span class="mobile-project-step-copy">
-          <strong>${escapeHtml(row.title)}</strong>
-          <small>${escapeHtml(mobileProjectStepMeta(item, row))}</small>
-        </span>
-        ${renderIcon("chevron-right", "mobile-project-step-arrow")}
-      </button>
-    `;
-  }).join("");
+  return mobilePreviewRenderer.renderMobileProjectStepPills(item);
 }
 
 function mobileProjectStepMode(stepId) {
-  const modes = {
-    input: "input",
-    concept: "concept",
-    candidates: "candidates"
-  };
-  return modes[stepId] || "project";
+  return mobilePreviewRenderer.mobileProjectStepMode(stepId);
 }
 
 function mobileProjectStepMeta(item = {}, row = {}) {
-  if (row.id === "concept") {
-    return item.documents?.brief?.data || item.documents?.content?.data || item.proposals?.latestLessonBrief || item.proposals?.latestContentMirror
-      ? "Rahmen · Aufbau · Logik"
-      : row.state;
-  }
-  if (row.id === "candidates") {
-    const count = countPreviewCandidates(item.preview) || item.project?.derivedStatus?.runs?.at?.(-1)?.candidateCount || 0;
-    return count ? `${count} Kandidat${count === 1 ? "" : "en"}` : row.state;
-  }
-  return row.state;
+  return mobilePreviewRenderer.mobileProjectStepMeta(item, row);
 }
 
 function renderMobileProjectBody(workspace = {}) {
-  const item = state.selectedItem;
-  if (!item) {
-    return '<div class="mobile-empty-state">Kein Arbeitsblatt ausgewählt.</div>';
-  }
-  return `
-    <div class="mobile-project-summary">
-      <div class="mobile-project-status-chip">${escapeHtml(mobileProjectStatusLabel(item))}</div>
-      <div class="mobile-project-steps">${renderMobileProjectStepPills(item)}</div>
-    </div>
-  `;
+  return mobilePreviewRenderer.renderMobileProjectBody(workspace, mobilePreviewUiState());
 }
 
 function renderMobileProjectFooter(workspace = {}) {
-  const projectId = workspace.project?.projectId || projectIdFromItemId(state.selectedId);
-  return `
-    <button class="primary-button mobile-footer-button" type="button" data-mobile-open-workspace="${escapeHtml(projectId || "")}">Bearbeiten</button>
-  `;
+  return mobilePreviewRenderer.renderMobileProjectFooter(workspace, mobilePreviewUiState());
+}
+
+function renderMobileWorksheetBody(workspace = {}) {
+  return mobilePreviewRenderer.renderMobileWorksheetBody(workspace);
+}
+
+function renderMobileWorksheetFooter(workspace = {}) {
+  return mobilePreviewRenderer.renderMobileWorksheetFooter(workspace);
 }
 
 function mobileSheetTitleForMode(workspace = {}, mode = "") {
-  if (mode === "project") {
-    return {
-      eyebrow: "Arbeitsblatt",
-      title: workspace.project?.title || state.selectedItem?.project?.title || "Arbeitsblatt",
-      subtitle: state.selectedItem ? mobileProjectStatusLabel(state.selectedItem) : ""
-    };
-  }
-  if (mode === "candidates") {
-    return { eyebrow: "Vorschau", title: "Kandidaten", subtitle: mobilePreviewStatusLabel(workspace, mode) };
-  }
-  if (mode === "selection") {
-    return { eyebrow: "Vorschau", title: "Kandidaten", subtitle: mobilePreviewStatusLabel(workspace, "candidates") };
-  }
-  if (mode === "export") {
-    return { eyebrow: "Vorschau", title: "Kandidaten", subtitle: mobilePreviewStatusLabel(workspace, "candidates") };
-  }
-  if (mode === "input") {
-    return { eyebrow: "Input", title: "Input", subtitle: inputArtifactMeta(workspace) };
-  }
-  if (mode === "context") {
-    return { eyebrow: "Rahmen", title: "Unterrichtsrahmen", subtitle: workspace.teachingContext?.readiness?.conceptAllowed ? "bereit" : "wird geklärt" };
-  }
-  const concept = mobileConceptData(workspace, mode);
-  return {
-    eyebrow: mode.includes("proposal") ? "Konzept-Vorschlag" : "Arbeitsblatt-Konzept",
-    title: "Arbeitsblatt-Konzept",
-    subtitle: compactConceptText(worksheetConceptSubtitle(concept.brief, concept.content, workspace.teachingContext || {}), 72)
-      || mobilePreviewStatusLabel(workspace, mode)
-  };
+  return mobilePreviewRenderer.mobileSheetTitleForMode(workspace, mode, mobilePreviewUiState());
 }
 
 function renderMobilePreviewFooter(workspace = {}, mode = "") {
-  if (isMobilePreviewFullscreen()) {
-    return state.mobilePreview.source === "library" && mode !== "project"
-      ? `<button class="primary-button mobile-footer-button" type="button" data-mobile-open-workspace="${escapeHtml(workspace.project?.projectId || projectIdFromItemId(state.selectedId) || "")}">Bearbeiten</button>`
-      : "";
-  }
-  if (mode === "project") {
-    return renderMobileProjectFooter(workspace);
-  }
-  if (mode === "candidates") {
-    const next = mobileSheetCommand(workspace, ["generate_image_candidate"]);
-    const hasCandidates = Boolean(workspace.preview?.candidates?.length || workspace.latestRun?.candidateCount);
-    return `${mobileCommandButton(next, hasCandidates ? "Weitere Variante" : "Kandidaten erstellen", true)}${mobileFullscreenButton("candidates", "Vollbild")}${mobileMinimizeButton()}${mobileCloseButton()}`;
-  }
-  if (mode === "selection") {
-    return `${mobileFullscreenButton("candidates", "Vollbild")}${mobileMinimizeButton()}${mobileCloseButton()}`;
-  }
-  if (mode === "export") {
-    const pdf = workspace.preview?.pdfs?.[0] || null;
-    return `${pdf?.url ? `<button class="primary-button mobile-footer-button" type="button" data-mobile-open-url="${escapeHtml(pdf.url)}">PDF öffnen</button>` : ""}${mobileMinimizeButton()}${mobileCloseButton()}`;
-  }
-  if (mode === "input" || mode === "context") {
-    return `${mobileMinimizeButton()}${mobileCloseButton()}`;
-  }
-  return `${renderMobileConceptFooter(workspace, mode)}${mobileFullscreenButton(mode, "Vollbild")}`;
+  return mobilePreviewRenderer.renderMobilePreviewFooter(workspace, mode, mobilePreviewUiState());
 }
 
 function renderMobilePreviewBodyForMode(workspace = {}, mode = "") {
-  if (mode === "project") {
-    return renderMobileProjectBody(workspace);
-  }
-  if (mode === "candidates") {
-    return renderMobileCandidatesBody(workspace);
-  }
-  if (mode === "selection") {
-    return renderMobileSelectionBody(workspace);
-  }
-  if (mode === "export") {
-    return renderMobileExportBody(workspace);
-  }
-  if (mode === "input") {
-    return renderMobileInputBody(workspace);
-  }
-  if (mode === "context") {
-    return renderMobileContextBody(workspace);
-  }
-  return renderMobileConceptBody(workspace, mode);
+  return mobilePreviewRenderer.renderMobilePreviewBodyForMode(workspace, mode, mobilePreviewUiState());
 }
 
 function openMobilePreview(mode, options = {}) {
@@ -5422,11 +8514,10 @@ function openMobilePreview(mode, options = {}) {
   state.mobilePreview = {
     mode: nextMode,
     source,
-    presentation: options.presentation || "sheet",
     minimized: false,
     lastFocusedElement: options.lastFocusedElement || document.activeElement
   };
-  elements.mobilePreviewLayer.classList.remove("hidden", "is-minimized", "is-fullscreen");
+  elements.mobilePreviewLayer.classList.remove("hidden", "is-minimized");
   elements.mobilePreviewLayer.setAttribute("aria-hidden", "false");
   renderMobilePreview();
   window.setTimeout(() => elements.mobilePreviewCloseButton?.focus(), 0);
@@ -5449,15 +8540,17 @@ function renderMobilePreview() {
   elements.mobilePreviewBody.innerHTML = renderMobilePreviewBodyForMode(context, mode);
   elements.mobilePreviewFooter.innerHTML = renderMobilePreviewFooter(context, mode);
   elements.mobilePreviewLayer.classList.toggle("is-minimized", Boolean(state.mobilePreview.minimized));
-  elements.mobilePreviewLayer.classList.toggle("is-fullscreen", isMobilePreviewFullscreen());
   elements.mobilePreviewMini.classList.toggle("hidden", !state.mobilePreview.minimized);
-  elements.mobilePreviewMinimizeButton?.classList.toggle("hidden", isMobilePreviewFullscreen());
-  elements.mobilePreviewFooter?.classList.toggle("hidden", isMobilePreviewFullscreen() && !elements.mobilePreviewFooter.innerHTML.trim());
+  const hasFooterCloseAction = Boolean(elements.mobilePreviewFooter?.querySelector("[data-mobile-close]"));
+  const showHeaderClose = !hasFooterCloseAction;
+  elements.mobilePreviewCloseButton?.classList.toggle("hidden", !showHeaderClose);
+  elements.mobilePreviewMinimizeButton?.classList.toggle("hidden", false);
+  elements.mobilePreviewFooter?.classList.toggle("hidden", !elements.mobilePreviewFooter.innerHTML.trim());
   bindMobilePreviewActions();
 }
 
 function minimizeMobilePreview() {
-  if (!state.mobilePreview.mode || !elements.mobilePreviewLayer || isMobilePreviewFullscreen()) {
+  if (!state.mobilePreview.mode || !elements.mobilePreviewLayer) {
     return;
   }
   state.mobilePreview.minimized = true;
@@ -5489,7 +8582,6 @@ function closeMobilePreview() {
   state.mobilePreview = {
     mode: null,
     source: "workspace",
-    presentation: "sheet",
     minimized: false,
     lastFocusedElement: null
   };
@@ -5500,9 +8592,7 @@ function bindMobilePreviewActions() {
   if (!elements.mobilePreviewLayer) {
     return;
   }
-  elements.mobilePreviewLayer.querySelectorAll("[data-command]").forEach((button) => {
-    button.addEventListener("click", () => executeCommand(button.dataset.command, parsePayload(button.dataset.payload)));
-  });
+  bindCommandButtons(elements.mobilePreviewLayer);
   elements.mobilePreviewLayer.querySelectorAll("[data-mobile-focus-chat]").forEach((button) => {
     button.addEventListener("click", () => {
       minimizeMobilePreview();
@@ -5517,7 +8607,7 @@ function bindMobilePreviewActions() {
   });
   elements.mobilePreviewLayer.querySelectorAll("[data-mobile-open-preview]").forEach((button) => {
     button.addEventListener("click", () => {
-      openMobilePreviewMode(button.dataset.mobileOpenPreview, button.dataset.mobilePresentation || "sheet");
+      openMobilePreviewMode(button.dataset.mobileOpenPreview);
     });
   });
   elements.mobilePreviewLayer.querySelectorAll("[data-mobile-open-workspace]").forEach((button) => {
@@ -5552,11 +8642,14 @@ function bindMobilePreviewActions() {
       }
     });
   });
+  bindConceptCopyActions(elements.mobilePreviewBody);
   bindPreviewCardActions(elements.mobilePreviewBody);
 }
 
-function setCanvasMode(mode) {
+function setCanvasMode(mode, artifactSelection = null) {
+  triggerArtifactRelationPulse(artifactSelection);
   state.activeCanvasMode = mode || "content";
+  state.activeArtifactSelection = artifactSelection;
   renderWorkspace();
 }
 
@@ -5578,19 +8671,14 @@ function canvasModeAfterCommand(commandId) {
     adopt_image_spec: "image_spec_proposal",
     create_run: "candidates",
     generate_image_candidate: "candidates",
-    select_candidate: "selection",
-    prepare_export: "export",
-    prepare_series_export: "export"
+    deposit_worksheet: "candidates"
   };
   return modes[commandId] || null;
 }
 
 function shouldRevealCanvasAfterCommand(commandId) {
   return new Set([
-    "generate_image_candidate",
-    "select_candidate",
-    "prepare_export",
-    "prepare_series_export"
+    "generate_image_candidate"
   ]).has(commandId);
 }
 
@@ -5598,6 +8686,7 @@ function applyCommandNavigation(commandId, response = {}) {
   const mode = canvasModeAfterCommand(commandId);
   if (mode) {
     state.activeCanvasMode = mode;
+    state.activeArtifactSelection = null;
   }
   if (commandId === "generate_image_candidate") {
     state.focusCandidateId = response.result?.candidate?.id || null;
@@ -5607,25 +8696,24 @@ function applyCommandNavigation(commandId, response = {}) {
   }
 }
 
+function canvasUiState() {
+  return {
+    activeArtifactSelection: state.activeArtifactSelection
+  };
+}
+
 function renderCanvas(workspace, mode) {
   const title = canvasLabels[mode] || "Canvas";
   elements.canvasTitle.textContent = title;
-  const asset = firstCanvasAsset(workspace, mode);
-  const canCapture = mode === "candidates" && Boolean((workspace.preview?.candidates || []).some((candidate) => {
-    return (candidate.pages || []).some((page) => page.url);
-  }));
+  const canCapture = canvasRenderer.canCapture(workspace, mode, canvasUiState());
   if (!canCapture && state.canvasCapture.active) {
     setCanvasCaptureActive(false);
   }
   if (elements.canvasCaptureButton) {
+    elements.canvasCaptureButton.classList.toggle("hidden", !canCapture);
     elements.canvasCaptureButton.disabled = !canCapture;
-    elements.canvasCaptureButton.title = canCapture ? "Ausschnitt markieren" : "Ausschnitt ist nur bei Kandidaten verfügbar";
+    elements.canvasCaptureButton.title = canCapture ? "Ausschnitt markieren" : "Ausschnitt ist nur bei Entwürfen verfügbar";
   }
-  elements.canvasDownloadButton.disabled = !asset?.url;
-  elements.canvasDownloadButton.onclick = () => asset?.url && downloadUrl(asset.url, fileName(asset.path || asset.url));
-  elements.canvasOpenButton.disabled = !asset?.url && !previewUrlForCanvas(workspace, mode);
-  elements.canvasOpenButton.onclick = () => openUrl(asset?.url || previewUrlForCanvas(workspace, mode));
-
   if (mode === "assignment") {
     renderCanvasAssignment(workspace);
   } else if (mode === "brief") {
@@ -5636,12 +8724,6 @@ function renderCanvas(workspace, mode) {
     renderCanvasWarnings(workspace);
   } else if (mode === "candidates") {
     renderCanvasCandidates(workspace);
-  } else if (mode === "selection") {
-    renderCanvasCandidates(workspace);
-  } else if (mode === "export") {
-    renderCanvasExport(workspace);
-  } else if (mode === "series") {
-    renderCanvasSeries(workspace);
   } else if (mode === "lessonbrief_proposal" || mode === "content_proposal" || mode === "warnings_proposal" || mode === "image_spec_proposal") {
     renderCanvasProposal(workspace, mode);
   } else {
@@ -5650,124 +8732,41 @@ function renderCanvas(workspace, mode) {
 }
 
 function firstCanvasAsset(workspace, mode) {
-  if (mode === "export") {
-    return workspace.preview?.pdfs?.[0] || null;
-  }
-  if (mode === "selection") {
-    return workspace.preview?.pages?.[0] || null;
-  }
-  if (mode === "candidates") {
-    for (const candidate of workspace.preview?.candidates || []) {
-      const page = (candidate.pages || []).find((entry) => entry.url);
-      if (page) {
-        return page;
-      }
-    }
-  }
-  return null;
-}
-
-function previewUrlForCanvas(workspace, mode) {
-  if (!["candidates", "selection", "export"].includes(mode)) {
-    return null;
-  }
-  const step = mode === "selection" ? "selection" : mode === "export" ? "export" : "candidates";
-  return `/preview.html?${new URLSearchParams({ project: workspace.project.projectId, step })}`;
+  return canvasRenderer.firstCanvasAsset(workspace, mode, canvasUiState());
 }
 
 function renderCanvasAssignment(workspace) {
-  const source = workspace.documents?.source || {};
-  const userMessages = (workspace.chat?.messages || []).filter((message) => message.role === "user" && String(message.content || "").trim());
-  const hasSourceInput = Boolean(sourceFilesFrom(source).length || source.transferCard);
-  if (!hasSourceInput && !userMessages.length) {
-    elements.canvasBody.innerHTML = `
-      <article class="canvas-document">
-        <p class="detail-label">Start</p>
-        <h3>${escapeHtml(workspace.project.title)}</h3>
-        <p class="detail-muted">Noch kein Input vorhanden. Schreibe im Chat, was entstehen soll, oder lade Material dazu.</p>
-      </article>
-    `;
-    return;
-  }
-  elements.canvasBody.innerHTML = `
-    <article class="canvas-document">
-      <p class="detail-label">Input</p>
-      <h3>${escapeHtml(workspace.project.title)}</h3>
-      ${renderSourceInputs({ source, projectId: workspace.project.projectId })}
-      ${renderRawInputMessages(userMessages)}
-    </article>
-  `;
+  elements.canvasBody.innerHTML = canvasRenderer.renderCanvasAssignment(workspace);
   bindPreviewCardActions(elements.canvasBody);
 }
 
 function renderCanvasBrief(workspace) {
-  const brief = workspace.documents?.brief?.data || {};
-  const sections = conceptSectionsFromContent({}, {
-    brief,
-    project: workspace.project || {},
-    teachingContext: workspace.teachingContext || {}
-  });
-  elements.canvasBody.innerHTML = `
-    <article class="canvas-document">
-      <p class="detail-label">Arbeitsblatt-Konzept</p>
-      <h3>${escapeHtml(worksheetConceptTitle(workspace.project || {}, brief, {}, workspace.teachingContext || {}))}</h3>
-      <div class="detail-grid">
-        <div><span>Fach</span><strong>${escapeHtml(brief.subject || "offen")}</strong></div>
-        <div><span>Zielgruppe</span><strong>${escapeHtml(brief.targetGroup || "offen")}</strong></div>
-        <div><span>Status</span><strong>${escapeHtml(statusWord(workspace.documents?.brief?.status))}</strong></div>
-        <div><span>Layout</span><strong>${escapeHtml(brief.outputPreference?.layout || "auto")}</strong></div>
-      </div>
-      ${renderConceptSections(sections, { compact: false })}
-    </article>
-  `;
+  elements.canvasBody.innerHTML = canvasRenderer.renderCanvasBrief(workspace);
+  bindConceptCopyActions(elements.canvasBody);
 }
 
 function renderCanvasContent(workspace) {
-  const content = workspace.documents?.content?.data || {};
-  const brief = workspace.documents?.brief?.data || {};
-  const sections = conceptSectionsFromContent(content, {
-    brief,
-    project: workspace.project || {},
-    teachingContext: workspace.teachingContext || {}
-  });
-  elements.canvasBody.innerHTML = `
-    <article class="canvas-document">
-      <p class="detail-label">Arbeitsblatt-Konzept</p>
-      <h3>${escapeHtml(worksheetConceptTitle(workspace.project || {}, brief, content, workspace.teachingContext || {}))}</h3>
-      <div class="detail-grid">
-        <div><span>Status</span><strong>${escapeHtml(statusWord(workspace.documents?.content?.status))}</strong></div>
-        <div><span>Generation</span><strong>${workspace.approval?.canGenerate ? "freigegeben" : "gesperrt"}</strong></div>
-        <div><span>Texte</span><strong>${escapeHtml(content.readingTexts?.length || 0)}</strong></div>
-        <div><span>Aufgaben</span><strong>${escapeHtml(content.tasks?.length || 0)}</strong></div>
-        <div><span>Bildmaterial</span><strong>${escapeHtml(content.imageMaterials?.length || 0)}</strong></div>
-      </div>
-      ${renderConceptSections(sections, { compact: false })}
-    </article>
-  `;
+  elements.canvasBody.innerHTML = canvasRenderer.renderCanvasContent(workspace, canvasUiState());
+  bindConceptCopyActions(elements.canvasBody);
+}
+
+function selectedConceptArtifact(workspace = {}) {
+  return canvasRenderer.selectedConceptArtifact(workspace, canvasUiState());
 }
 
 function renderCanvasWarnings(workspace) {
-  const warnings = workspace.documents?.warnings?.warnings || [];
-  elements.canvasBody.innerHTML = `
-    <article class="canvas-document">
-      <p class="detail-label">Arbeitsblatt-Konzept</p>
-      <h3>${warnings.length ? `${warnings.length} Hinweise` : "Keine aktiven Warnungen"}</h3>
-      ${warnings.length ? `<ul>${warnings.map((warning) => `<li>${escapeHtml(warning.message || warning.category || "Warnung")}</li>`).join("")}</ul>` : '<p class="detail-muted">Die technischen und inhaltlichen Hinweise sind leer.</p>'}
-    </article>
-  `;
+  elements.canvasBody.innerHTML = canvasRenderer.renderCanvasWarnings(workspace);
 }
 
 function renderCanvasCandidates(workspace) {
-  const candidates = workspace.preview?.candidates || [];
-  if (!candidates.length) {
-    elements.canvasBody.innerHTML = '<div class="no-preview">Noch keine Kandidaten vorhanden.</div>';
-    return;
-  }
-  elements.canvasBody.innerHTML = `
-    <div class="canvas-candidate-grid">${candidates.map(renderCandidateCard).join("")}</div>
-  `;
+  elements.canvasBody.innerHTML = canvasRenderer.renderCanvasCandidates(workspace, canvasUiState());
   bindPreviewCardActions(elements.canvasBody);
   focusNewCandidateCard();
+  requestCanvasCandidateSheetWidthSync();
+}
+
+function selectedCanvasCandidates(workspace = {}) {
+  return canvasRenderer.selectedCanvasCandidates(workspace, canvasUiState());
 }
 
 function focusNewCandidateCard() {
@@ -5790,71 +8789,92 @@ function focusNewCandidateCard() {
 }
 
 function renderCanvasPages(pages, emptyText) {
-  elements.canvasBody.innerHTML = pages.length
-    ? `<div class="canvas-page-stack">${pages.map(renderPageCard).join("")}</div>`
-    : `<div class="no-preview">${escapeHtml(emptyText)}</div>`;
+  elements.canvasBody.innerHTML = canvasRenderer.renderCanvasPages(pages, emptyText);
   bindPreviewCardActions(elements.canvasBody);
 }
 
-function renderCanvasExport(workspace) {
-  const pdfs = workspace.preview?.pdfs || [];
-  if (pdfs.length) {
-    elements.canvasBody.innerHTML = `<div class="canvas-page-stack">${pdfs.map(renderPdfCard).join("")}</div>`;
-    bindPreviewCardActions(elements.canvasBody);
-    return;
-  }
-  if (workspace.project.projectType === "series") {
-    renderCanvasSeries(workspace);
-    return;
-  }
-  renderCanvasPages(workspace.preview?.pages || [], "Noch kein PDF erstellt.");
-}
-
 function renderInternalImageSpecDetails(workspace) {
-  const imageSpec = workspace.proposals?.activeImageSpec || workspace.proposals?.latestImageSpec || null;
-  if (!imageSpec?.data) {
-    return "";
-  }
-  const spec = imageSpec.data;
-  return `
-    <details class="internal-spec-details">
-      <summary>Interne ImageSpec ansehen</summary>
-      <article class="canvas-document compact">
-        <div class="detail-grid">
-          <div><span>ID</span><strong>${escapeHtml(imageSpec.proposalId)}</strong></div>
-          <div><span>Status</span><strong>${escapeHtml(statusWord(imageSpec.status))}</strong></div>
-          <div><span>Format</span><strong>${escapeHtml(spec.aspectRatio || "portrait_a4_asset")}</strong></div>
-          <div><span>Textregel</span><strong>${escapeHtml(spec.textPolicy || "no_text")}</strong></div>
-        </div>
-        <section class="detail-section">
-          <p class="detail-label">Finaler Bildprompt</p>
-          <p>${escapeHtml(spec.finalPrompt || "")}</p>
-        </section>
-      </article>
-    </details>
-  `;
+  return canvasRenderer.renderInternalImageSpecDetails(workspace);
 }
 
-function renderCanvasSeries(workspace) {
-  const worksheets = workspace.series?.worksheets || [];
-  elements.canvasBody.innerHTML = `
-    <article class="canvas-document">
-      <p class="detail-label">Reihe</p>
-      <h3>${escapeHtml(workspace.series?.title || workspace.project.title)}</h3>
-      <div class="series-list">
-        ${worksheets.length ? worksheets.map((worksheet) => `
-          <div class="series-row">
-            <span>${escapeHtml(worksheet.position || "")}</span>
-            <strong>${escapeHtml(worksheet.title || worksheet.projectId)}</strong>
-            <em>${worksheet.includedInSeriesExport === false ? "nicht im Export" : "im Export"}</em>
-          </div>
-        `).join("") : '<p class="detail-muted">Noch keine Arbeitsblaetter in der Reihe.</p>'}
-      </div>
-    </article>
-  `;
+function proposalKindForMode(mode) {
+  const kinds = {
+    lessonbrief_proposal: "lessonbrief",
+    content_proposal: "content_mirror",
+    warnings_proposal: "content_warnings",
+    image_spec_proposal: "image_spec"
+  };
+  return kinds[mode] || null;
+}
+
+function proposalMatchesMode(proposal = {}, mode = "") {
+  const expectedKind = proposalKindForMode(mode);
+  return Boolean(expectedKind && proposal.kind === expectedKind);
+}
+
+function proposalCreatedArtifact(workspace = {}, proposal = {}) {
+  const proposalId = proposal.proposalId || null;
+  if (!proposalId) {
+    return null;
+  }
+  if (proposal.kind === "content_mirror") {
+    return workspaceConceptArtifacts(workspace)
+      .find((concept) => (concept.createdFrom || []).includes(proposalId)) || null;
+  }
+  if (proposal.kind === "lessonbrief") {
+    const brief = workspace.artifacts?.currentBrief || null;
+    return (brief?.createdFrom || []).includes(proposalId) ? brief : null;
+  }
+  if (proposal.kind === "image_spec") {
+    const active = workspace.proposals?.activeImageSpec || null;
+    return active?.proposalId === proposalId ? active : null;
+  }
+  return null;
+}
+
+function proposalWithWorkspaceStatus(workspace = {}, proposal = {}) {
+  const artifact = proposalCreatedArtifact(workspace, proposal);
+  if (!artifact) {
+    return proposal;
+  }
+  return {
+    ...proposal,
+    status: "adopted",
+    adoptedArtifact: {
+      id: artifact.id || artifact.artifactId || artifact.proposalId || null,
+      version: artifact.version || null,
+      current: artifact.current === true
+    }
+  };
+}
+
+function chatProposalById(workspace = {}, proposalId = "", mode = "") {
+  if (!proposalId) {
+    return null;
+  }
+  const messages = workspace.chat?.messages || [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const proposal = messages[index]?.proposal || null;
+    if (proposal?.proposalId === proposalId && proposalMatchesMode(proposal, mode)) {
+      return proposalWithWorkspaceStatus(workspace, proposal);
+    }
+  }
+  return null;
+}
+
+function selectedChatProposal(workspace = {}, mode = "") {
+  const selection = state.activeArtifactSelection || null;
+  if (selection?.kind !== "proposal") {
+    return null;
+  }
+  return chatProposalById(workspace, selection.id, mode);
 }
 
 function proposalForMode(workspace, mode) {
+  const selectedProposal = selectedChatProposal(workspace, mode);
+  if (selectedProposal) {
+    return selectedProposal;
+  }
   if (mode === "lessonbrief_proposal") {
     return workspace.proposals?.latestLessonBrief || null;
   }
@@ -5875,6 +8895,9 @@ function renderCanvasProposal(workspace, mode) {
   if (!proposal?.data) {
     elements.canvasBody.innerHTML = '<div class="no-preview">Kein offener Vorschlag vorhanden.</div>';
     return;
+  }
+  if (proposal.status === "adopted" && (mode === "lessonbrief_proposal" || mode === "content_proposal")) {
+    elements.canvasTitle.textContent = "Arbeitsblatt-Konzept";
   }
   if (mode === "lessonbrief_proposal") {
     renderLessonBriefProposal(proposal, workspace);
@@ -5905,6 +8928,7 @@ function proposalMeta(proposal) {
 
 function renderLessonBriefProposal(proposal, workspace = {}) {
   const brief = proposal.data || {};
+  const adopted = proposal.status === "adopted";
   const sections = conceptSectionsFromContent({}, {
     brief,
     project: workspace.project || {},
@@ -5912,16 +8936,26 @@ function renderLessonBriefProposal(proposal, workspace = {}) {
   });
   elements.canvasBody.innerHTML = `
     <article class="canvas-document">
-      <p class="detail-label">AI-Vorschlag</p>
-      <h3>${escapeHtml(worksheetConceptTitle(workspace.project || {}, brief, {}, workspace.teachingContext || {}))}</h3>
+      ${renderConceptDocumentHeader({
+        project: workspace.project || {},
+        brief,
+        content: {},
+        teachingContext: workspace.teachingContext || {},
+        label: adopted ? "Arbeitsblatt-Konzept" : "AI-Vorschlag",
+        titleTag: "h3",
+        statusLabel: statusWord(proposal.status),
+        eyebrow: adopted ? "Arbeitsblatt-Konzept" : "Konzept-Vorschlag"
+      })}
       ${proposalMeta(proposal)}
       ${renderConceptSections(sections, { compact: false })}
     </article>
   `;
+  bindConceptCopyActions(elements.canvasBody);
 }
 
 function renderContentProposal(proposal, workspace = {}) {
   const content = proposal.data || {};
+  const adopted = proposal.status === "adopted";
   const brief = workspace.documents?.brief?.data || workspace.proposals?.latestLessonBrief?.data || {};
   const sections = conceptSectionsFromContent(content, {
     brief,
@@ -5930,12 +8964,21 @@ function renderContentProposal(proposal, workspace = {}) {
   });
   elements.canvasBody.innerHTML = `
     <article class="canvas-document">
-      <p class="detail-label">AI-Vorschlag</p>
-      <h3>${escapeHtml(worksheetConceptTitle(workspace.project || {}, brief, content, workspace.teachingContext || {}))}</h3>
+      ${renderConceptDocumentHeader({
+        project: workspace.project || {},
+        brief,
+        content,
+        teachingContext: workspace.teachingContext || {},
+        label: adopted ? "Arbeitsblatt-Konzept" : "AI-Vorschlag",
+        titleTag: "h3",
+        statusLabel: statusWord(proposal.status),
+        eyebrow: adopted ? "Arbeitsblatt-Konzept" : "Konzept-Vorschlag"
+      })}
       ${proposalMeta(proposal)}
       ${renderConceptSections(sections, { compact: false })}
     </article>
   `;
+  bindConceptCopyActions(elements.canvasBody);
 }
 
 function renderWarningsProposal(proposal) {
@@ -5961,15 +9004,16 @@ function renderImageSpecProposal(proposal) {
   const referencePolicy = spec.referencePolicy || null;
   const referenceImages = spec.referenceImages || [];
   const pagePlan = Array.isArray(spec.pagePlan) ? spec.pagePlan : [];
+  const promptPreview = spec.promptPreview || spec.finalPrompt || "";
   elements.canvasBody.innerHTML = `
     <article class="canvas-document">
-      <p class="detail-label">${proposal.status === "adopted" ? "Interne ImageSpec" : "Interne ImageSpec"}</p>
-      <h3>${escapeHtml(spec.purpose || proposal.title || "Interne ImageSpec")}</h3>
+      <p class="detail-label">Entwurfsvorbereitung</p>
+      <h3>${escapeHtml(spec.purpose || proposal.title || "Entwurfsvorbereitung")}</h3>
       ${proposalMeta(proposal)}
       ${pagePlan.length ? `
         <section class="detail-section">
           <p class="detail-label">Geplante Seiten</p>
-          <p>${escapeHtml(`${spec.pageCount || pagePlan.length} Seite${(spec.pageCount || pagePlan.length) === 1 ? "" : "n"} pro Kandidat`)}</p>
+          <p>${escapeHtml(`${spec.pageCount || pagePlan.length} Seite${(spec.pageCount || pagePlan.length) === 1 ? "" : "n"} pro Entwurf`)}</p>
           <ul>
             ${pagePlan.map((page) => `
               <li>
@@ -5985,8 +9029,17 @@ function renderImageSpecProposal(proposal) {
         <p>${escapeHtml(spec.learningFunction || "Keine Lernfunktion formuliert.")}</p>
       </section>
       <section class="detail-section">
+        <p class="detail-label">Bildabsicht</p>
+        <p>${escapeHtml(spec.visualBrief || spec.purpose || "Keine Bildabsicht formuliert.")}</p>
+      </section>
+      <section class="detail-section">
+        <p class="detail-label">Layoutabsicht</p>
+        <p>${escapeHtml(spec.layoutIntent || spec.placement || "Keine Layoutabsicht formuliert.")}</p>
+      </section>
+      <section class="detail-section">
         <p class="detail-label">Stil und Platzierung</p>
         <p>${escapeHtml(spec.style || "clean_scientific")} · ${escapeHtml(spec.placement || "auto")}</p>
+        ${spec.styleNotes ? `<p class="detail-muted">${escapeHtml(spec.styleNotes)}</p>` : ""}
       </section>
       ${referencePolicy ? `
         <section class="detail-section">
@@ -6005,8 +9058,8 @@ function renderImageSpecProposal(proposal) {
         ${listItems(spec.avoid)}
       </section>
       <section class="detail-section">
-        <p class="detail-label">Finaler Bildprompt</p>
-        <p>${escapeHtml(spec.finalPrompt || "")}</p>
+        <p class="detail-label">Prompt-Vorschau</p>
+        <p>${escapeHtml(promptPreview)}</p>
       </section>
     </article>
   `;
@@ -6016,13 +9069,13 @@ async function executeCommand(commandId, payload = {}) {
   if (!commandId) {
     return;
   }
-  if (commandId === "copy_context") {
-    await copyWorkspaceContext();
-    return;
-  }
   const projectId = currentProjectId();
   const command = workspaceCommandById(commandId);
   if (!command || !command.enabled) {
+    if (commandId === "generate_image_candidate" && isCandidateGenerationPendingForWorkspace(state.workspace)) {
+      showToast(`${candidateGenerationBusyLabel(state.workspace, command || { id: commandId })}.`, "info");
+      return;
+    }
     showToast("Dieser Schritt ist nicht mehr aktuell. Ich habe den aktuellen Arbeitsstand geladen.", "warning");
     if (projectId) {
       const payload = await fetchJson(`/api/workspace/${encodeURIComponent(projectId)}`);
@@ -6031,7 +9084,10 @@ async function executeCommand(commandId, payload = {}) {
     }
     return;
   }
-  let nextPayload = withConfiguredImageProvider(command, { ...payload });
+  let nextPayload = withConfiguredImageProvider(command, {
+    ...commandPayload(command),
+    ...payload
+  });
   if (commandUsesImageProvider(command)) {
     const unavailableReason = imageProviderUnavailableReason(command, nextPayload.imageProvider);
     if (unavailableReason) {
@@ -6067,11 +9123,29 @@ async function executeCommand(commandId, payload = {}) {
       body: JSON.stringify({ command: commandId, payload: nextPayload })
     });
     state.pendingCommand = null;
-    state.workspace = response.workspace;
+    if (state.mode === "workspace" && state.selectedId === `project:${projectId}`) {
+      state.workspace = response.workspace;
+    }
+    if (commandUsesImageProvider(command)) {
+      state.settingsModal.billingStatus = null;
+      state.settingsModal.billingProjectId = null;
+    }
     applyCommandNavigation(commandId, response);
-    showToast("Aktion ausgeführt", "success");
-    renderWorkspace();
-    await loadTree({ keepSelection: true, selectAfterLoad: false });
+    if (commandId === "deposit_worksheet") {
+      const worksheet = response.result?.item || response.result?.existing || response.result?.items?.[0] || null;
+      if (worksheet?.worksheetId) {
+        await openWorksheetInLibrary(worksheet.worksheetId);
+      }
+      showToast(worksheetDepositToastMessage(response.result), "success");
+      return;
+    }
+    showToast(successToastMessageForCommand(commandId, response), "success");
+    if (state.mode === "workspace" && state.workspace?.project?.projectId === projectId) {
+      renderWorkspace();
+    } else {
+      syncBackgroundRefresh();
+    }
+    await loadTree({ keepSelection: true, selectAfterLoad: state.mode === "library" });
   } catch (error) {
     const failedCommand = state.pendingCommand;
     state.pendingCommand = null;
@@ -6083,7 +9157,7 @@ async function executeCommand(commandId, payload = {}) {
       createdAt: new Date().toISOString()
     };
     showToast(error.message, "error");
-    if (projectId) {
+    if (projectId && state.mode === "workspace" && state.selectedId === `project:${projectId}`) {
       try {
         const payload = await fetchJson(`/api/workspace/${encodeURIComponent(projectId)}`);
         state.workspace = payload.workspace;
@@ -6091,6 +9165,8 @@ async function executeCommand(commandId, payload = {}) {
       } catch {
         // Keep the original command error visible in the toast.
       }
+    } else {
+      syncBackgroundRefresh();
     }
   }
 }
@@ -6315,33 +9391,10 @@ async function uploadInputFiles(fileList) {
   }
 }
 
-async function copyWorkspaceContext() {
-  const projectId = currentProjectId();
-  try {
-    const response = await fetchJson(`/api/workspace/${encodeURIComponent(projectId)}/copy-context`);
-    await writeClipboardText(response.text || JSON.stringify(response.payload, null, 2));
-    showToast(response.payload?.kind === "series_content_export" ? "Reiheninhalt kopiert" : "Inhalt kopiert", "success");
-  } catch (error) {
-    showToast(error.message, "error");
-  }
-}
-
-async function copyProjectContext(item) {
-  const projectId = item?.project?.projectId;
-  if (!projectId) {
-    showToast("Kein Arbeitsblatt ausgewählt.", "error");
+function setNewWorksheetFormVisible(visible) {
+  if (visible && !isProjectsLibraryView()) {
     return;
   }
-  try {
-    const response = await fetchJson(`/api/workspace/${encodeURIComponent(projectId)}/copy-context`);
-    await writeClipboardText(response.text || JSON.stringify(response.payload, null, 2));
-    showToast(response.payload?.kind === "series_content_export" ? "Reiheninhalt kopiert" : "Inhalt kopiert", "success");
-  } catch (error) {
-    showToast(error.message || "Kopieren nicht moeglich.", "error");
-  }
-}
-
-function setNewWorksheetFormVisible(visible) {
   elements.newWorksheetForm.classList.toggle("hidden", !visible);
   elements.newWorksheetButton.setAttribute("aria-expanded", visible ? "true" : "false");
   if (visible) {
@@ -6356,6 +9409,9 @@ function resetNewWorksheetForm() {
 }
 
 async function createNewWorksheetFromLibrary() {
+  if (!isProjectsLibraryView()) {
+    return;
+  }
   const title = elements.newWorksheetTitle.value.trim();
   if (!title) {
     elements.newWorksheetTitle.focus();
@@ -6363,7 +9419,7 @@ async function createNewWorksheetFromLibrary() {
   }
 
   elements.createNewWorksheetButton.disabled = true;
-  elements.createNewWorksheetButton.textContent = "Lege an...";
+  elements.createNewWorksheetButton.textContent = "Lege Projekt an...";
 
   try {
     const payload = await fetchJson("/api/projects/single", {
@@ -6378,12 +9434,17 @@ async function createNewWorksheetFromLibrary() {
     const projectId = payload.project?.projectId;
     state.query = "";
     elements.searchInput.value = "";
-    state.selectedId = projectId ? `project:${projectId}` : state.selectedId;
-    state.collapsedFolders.delete("folder:work-in-progress");
+    if (projectId) {
+      setTreeSelection([`project:${projectId}`], {
+        primaryId: `project:${projectId}`,
+        anchorId: `project:${projectId}`
+      });
+    }
+    state.collapsedFolders.delete("folder:projects");
     resetNewWorksheetForm();
     setNewWorksheetFormVisible(false);
     await loadTree({ keepSelection: true, selectAfterLoad: true });
-    showToast("Arbeitsblatt angelegt", "success");
+    showToast("Projekt angelegt", "success");
   } catch (error) {
     elements.createNewWorksheetButton.disabled = false;
     elements.createNewWorksheetButton.textContent = "Anlegen";
@@ -6400,12 +9461,23 @@ function scheduleSearch(value) {
 }
 
 elements.searchInput.addEventListener("input", (event) => scheduleSearch(event.target.value || ""));
-elements.refreshButton.addEventListener("click", () => loadTree({ keepSelection: true, selectAfterLoad: state.mode === "library" }));
+elements.projectsViewButton?.addEventListener("click", () => setLibraryView("projects"));
+elements.worksheetsViewButton?.addEventListener("click", () => setLibraryView("worksheets"));
+elements.refreshButton.addEventListener("click", () => {
+  loadTree({ keepSelection: true, selectAfterLoad: state.mode === "library" });
+});
 elements.settingsButton?.addEventListener("click", openSettings);
+elements.workspaceMobileSettingsButton?.addEventListener("click", openSettings);
 elements.settingsCloseButton?.addEventListener("click", closeSettings);
 elements.settingsModal?.addEventListener("click", (event) => {
   if (event.target === elements.settingsModal) {
     closeSettings();
+  }
+});
+elements.manualCopyCloseButton?.addEventListener("click", closeManualCopy);
+elements.manualCopyModal?.addEventListener("click", (event) => {
+  if (event.target === elements.manualCopyModal) {
+    closeManualCopy();
   }
 });
 elements.newWorksheetButton.addEventListener("click", () => {
@@ -6419,17 +9491,39 @@ elements.newWorksheetForm.addEventListener("submit", (event) => {
   event.preventDefault();
   createNewWorksheetFromLibrary();
 });
-elements.loadProjectButton.addEventListener("click", () => openWorkspace(currentProjectId()));
-elements.copyContentButton.addEventListener("click", () => state.selectedItem && copyProjectContext(state.selectedItem));
+elements.loadProjectButton.addEventListener("click", () => {
+  const projectId = currentProjectId();
+  if (projectId) {
+    openWorkspace(projectId);
+  }
+});
 elements.downloadButton.addEventListener("click", () => {
-  const firstPdf = state.selectedItem?.preview?.pdfs?.[0] || null;
+  const firstPdf = state.selectedItem?.worksheet?.pdf || null;
   if (firstPdf?.url) {
     downloadUrl(firstPdf.url, fileName(firstPdf.path));
   }
 });
 elements.backToLibraryButton.addEventListener("click", closeWorkspace);
 elements.workspaceLibraryButton.addEventListener("click", closeWorkspace);
-elements.workspaceCopyButton.addEventListener("click", copyWorkspaceContext);
+elements.workspaceMobileLibraryButton?.addEventListener("click", closeWorkspace);
+for (const button of shareButtons()) {
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    togglePinnedSharePanel();
+  });
+  button.addEventListener("mouseenter", () => openSharePanel({ pinned: false }));
+  button.addEventListener("focus", () => {
+    if (state.sharePanel.suppressFocusOpen) {
+      return;
+    }
+    openSharePanel({ pinned: false });
+  });
+  button.addEventListener("mouseleave", scheduleSharePanelClose);
+}
+elements.sharePopover?.addEventListener("mouseenter", clearShareCloseTimer);
+elements.sharePopover?.addEventListener("mouseleave", scheduleSharePanelClose);
+elements.shareCloseButton?.addEventListener("click", () => closeSharePanel({ restoreFocus: true }));
+elements.shareCopyLinkButton?.addEventListener("click", copySelectedShareUrl);
 elements.refreshChatButton.addEventListener("click", () => openWorkspace(currentProjectId()));
 elements.chatComposer.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -6493,7 +9587,6 @@ elements.candidateViewerPreviousButton?.addEventListener("click", () => {
 elements.candidateViewerNextButton?.addEventListener("click", () => {
   showCandidateViewerAt(state.candidateViewer.index + 1);
 });
-elements.candidateViewerCopyButton?.addEventListener("click", copyCurrentCandidateViewerImage);
 elements.candidateInfoModal?.addEventListener("click", (event) => {
   if (event.target === elements.candidateInfoModal) {
     closeCandidateInfo();
@@ -6524,10 +9617,28 @@ elements.canvasResizeHandle.addEventListener("click", () => {
   }
   collapseCanvas();
 });
+elements.projectSplitHandle?.addEventListener("pointerdown", startProjectSplitResize);
+elements.projectSplitHandle?.addEventListener("click", () => {
+  if (state.projectSplitLayout.suppressClick) {
+    state.projectSplitLayout.suppressClick = false;
+    return;
+  }
+  if (state.projectSplitLayout.collapsed) {
+    expandProjectSplit();
+    return;
+  }
+  collapseProjectSplit();
+});
+window.addEventListener("pointermove", moveProjectSplitResize);
+window.addEventListener("pointerup", endProjectSplitResize);
+window.addEventListener("pointercancel", endProjectSplitResize);
 window.addEventListener("pointermove", moveCanvasResize);
 window.addEventListener("pointerup", endCanvasResize);
 window.addEventListener("pointercancel", endCanvasResize);
 window.addEventListener("resize", () => {
+  if (!elements.projectView.classList.contains("hidden")) {
+    applyProjectSplitLayout();
+  }
   if (state.mode === "workspace") {
     applyCanvasLayout();
     renderMobileStatusStrip(state.workspace || {});
@@ -6540,12 +9651,29 @@ document.addEventListener("click", (event) => {
   if (!event.target.closest(".tree-context-menu")) {
     closeTreeContextMenu();
   }
+  if (isSharePanelOpen()
+    && !event.target.closest(".share-popover")
+    && !event.target.closest("[data-share-button]")) {
+    closeSharePanel();
+  }
 });
 document.addEventListener("keydown", (event) => {
+  if (isSharePanelOpen() && event.key === "Escape") {
+    event.preventDefault();
+    closeSharePanel({ restoreFocus: true });
+    return;
+  }
   if (isSettingsOpen()) {
     if (event.key === "Escape") {
       event.preventDefault();
       closeSettings();
+      return;
+    }
+  }
+  if (isManualCopyOpen()) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeManualCopy();
       return;
     }
   }

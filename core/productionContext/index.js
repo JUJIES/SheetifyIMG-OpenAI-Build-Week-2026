@@ -1,15 +1,22 @@
 "use strict";
 
+const CHAT_CONTEXT_COMMAND_BLOCKLIST = new Set([
+  "select_candidate",
+  "prepare_export"
+]);
+
 function commandSnapshot(workspace = {}) {
-  return (workspace.commands || []).map((command) => ({
-    id: command.id,
-    label: command.label,
-    enabled: command.enabled,
-    reason: command.reason || null,
-    defaultCandidateId: command.defaultCandidateId || null,
-    defaultPayload: command.defaultPayload || null,
-    requiresConfirmation: command.requiresConfirmation || false
-  }));
+  return (workspace.commands || [])
+    .filter((command) => !CHAT_CONTEXT_COMMAND_BLOCKLIST.has(command.id))
+    .map((command) => ({
+      id: command.id,
+      label: command.label,
+      enabled: command.enabled,
+      reason: command.reason || null,
+      defaultCandidateId: command.defaultCandidateId || null,
+      defaultPayload: command.defaultPayload || null,
+      requiresConfirmation: command.requiresConfirmation || false
+    }));
 }
 
 function documentSnapshot(workspace = {}) {
@@ -28,6 +35,20 @@ function documentSnapshot(workspace = {}) {
       data: documents.warnings || null
     }
   };
+}
+
+function conceptHistorySnapshot(workspace = {}) {
+  return (workspace.artifacts?.concepts || []).map((concept) => ({
+    id: concept.id || null,
+    version: concept.version || null,
+    label: concept.label || null,
+    status: concept.status || null,
+    current: concept.current === true,
+    title: concept.title || null,
+    taskCount: concept.taskCount || 0,
+    readingTextCount: concept.readingTextCount || 0,
+    imageMaterialCount: concept.imageMaterialCount || 0
+  }));
 }
 
 function messageSnapshot(messages = []) {
@@ -78,7 +99,7 @@ function activeArtifactFromCanvas(workspace = {}, canvasFocus = {}) {
   if (mode === "warnings") {
     return workspace.documents?.warnings || null;
   }
-  if (mode === "candidates" || mode === "selection") {
+  if (mode === "candidates") {
     return workspace.latestRun || null;
   }
   if (mode === "lessonbrief_proposal") {
@@ -119,20 +140,9 @@ function buildProductionContext({ workspace = {}, messages = [], input = {}, rou
     inputReadiness: workspace.inputReadiness || null,
     approval: workspace.approval || null,
     documents: documentSnapshot(workspace),
+    concepts: conceptHistorySnapshot(workspace),
     latestRun: workspace.latestRun || null,
     proposals: workspace.proposals || null,
-    series: workspace.series
-      ? {
-        title: workspace.series.title,
-        worksheetCount: workspace.series.worksheets?.length || 0,
-        worksheets: (workspace.series.worksheets || []).map((entry) => ({
-          projectId: entry.projectId,
-          title: entry.title,
-          position: entry.position,
-          includedInSeriesExport: entry.includedInSeriesExport !== false
-        }))
-      }
-      : null,
     steps: workspace.steps || [],
     allowedActions: commandSnapshot(workspace),
     recentMessages: messageSnapshot(messages)

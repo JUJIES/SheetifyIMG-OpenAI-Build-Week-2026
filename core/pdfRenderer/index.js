@@ -8,6 +8,8 @@ const A4 = Object.freeze({
   width: 595.28,
   height: 841.89
 });
+const MM_TO_POINTS = 72 / 25.4;
+const DEFAULT_PRINT_SAFE_MARGIN_MM = 6;
 
 function toBuffer(value) {
   return Buffer.isBuffer(value) ? value : Buffer.from(String(value));
@@ -195,13 +197,40 @@ function imageForFile(filePath, buffer) {
   throw new Error(`PDF-Export unterstuetzt aktuell PNG und JPEG: ${path.basename(filePath)}`);
 }
 
-function fitOnPage(image, page = A4) {
-  const scale = Math.min(page.width / image.width, page.height / image.height);
+function normalizePrintSafeMarginMm(value) {
+  if (value === undefined || value === null || value === "") {
+    return 0;
+  }
+  const margin = Number(value);
+  if (!Number.isFinite(margin) || margin < 0) {
+    throw new Error("PDF printSafeMarginMm muss eine Zahl groesser oder gleich 0 sein.");
+  }
+  return margin;
+}
+
+function contentBoxForPage(page = A4, options = {}) {
+  const margin = normalizePrintSafeMarginMm(options.printSafeMarginMm) * MM_TO_POINTS;
+  const width = page.width - (margin * 2);
+  const height = page.height - (margin * 2);
+  if (width <= 0 || height <= 0) {
+    throw new Error("PDF printSafeMarginMm ist groesser als die A4-Seite.");
+  }
+  return {
+    x: margin,
+    y: margin,
+    width,
+    height
+  };
+}
+
+function fitOnPage(image, page = A4, options = {}) {
+  const box = contentBoxForPage(page, options);
+  const scale = Math.min(box.width / image.width, box.height / image.height);
   const width = image.width * scale;
   const height = image.height * scale;
   return {
-    x: (page.width - width) / 2,
-    y: (page.height - height) / 2,
+    x: box.x + ((box.width - width) / 2),
+    y: box.y + ((box.height - height) / 2),
     width,
     height
   };
@@ -337,7 +366,9 @@ function buildPdf(pages, options = {}) {
     ].filter(Boolean).join(" ");
     const imageObjectId = addObject(streamObject(imageDictionary, image.data));
 
-    const placement = fitOnPage(image);
+    const placement = fitOnPage(image, A4, {
+      printSafeMarginMm: options.printSafeMarginMm
+    });
     const content = [
       "q",
       `${number(placement.width)} 0 0 ${number(placement.height)} ${number(placement.x)} ${number(placement.y)} cm`,
@@ -391,7 +422,7 @@ function buildPdf(pages, options = {}) {
   return Buffer.concat(fixedChunks);
 }
 
-async function renderImagesToPdf({ pages, outputPath, title }) {
+async function renderImagesToPdf({ pages, outputPath, title, printSafeMarginMm = 0 }) {
   if (!Array.isArray(pages) || pages.length === 0) {
     throw new Error("PDF braucht mindestens eine Seite.");
   }
@@ -408,16 +439,24 @@ async function renderImagesToPdf({ pages, outputPath, title }) {
     });
   }
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
-  const pdf = buildPdf(pdfPages, { title });
+  const normalizedPrintSafeMarginMm = normalizePrintSafeMarginMm(printSafeMarginMm);
+  const pdf = buildPdf(pdfPages, {
+    title,
+    printSafeMarginMm: normalizedPrintSafeMarginMm
+  });
   await fs.writeFile(outputPath, pdf);
   return {
     path: outputPath,
     pageCount: pdfPages.length,
-    size: pdf.length
+    size: pdf.length,
+    printSafeMarginMm: normalizedPrintSafeMarginMm
   };
 }
 
 module.exports = {
   A4,
+  DEFAULT_PRINT_SAFE_MARGIN_MM,
+  fitOnPage,
+  normalizePrintSafeMarginMm,
   renderImagesToPdf
 };

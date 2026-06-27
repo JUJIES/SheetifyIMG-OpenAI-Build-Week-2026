@@ -4,11 +4,11 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const {
   PRODUCTION_SCHEMA_VERSION,
-  EVENT_TYPES,
-  PROJECT_TYPES
+  EVENT_TYPES
 } = require("../contracts");
 const { readEvents } = require("../eventLog");
-const { getProjectStatus, projectTypeOf } = require("../projectStatus");
+const { getProjectStatus } = require("../projectStatus");
+const { writeJsonFile } = require("../jsonFile");
 
 const STATUS_SNAPSHOT_FILE = "status-snapshot.json";
 
@@ -19,9 +19,10 @@ const STEP_LABELS = Object.freeze({
   content: "Arbeitsblatt-Konzept",
   pruefung: "Arbeitsblatt-Konzept",
   freigabe: "Arbeitsblatt-Konzept",
-  kandidaten: "Kandidaten",
-  auswahl: "Kandidaten",
-  export: "Kandidaten"
+  entwuerfe: "Entwürfe",
+  kandidaten: "Entwürfe",
+  auswahl: "Entwürfe",
+  export: "Entwürfe"
 });
 
 const VISIBLE_STEPS = Object.freeze([
@@ -33,7 +34,7 @@ const VISIBLE_STEPS = Object.freeze([
 const VISIBLE_STEP_LABELS = Object.freeze({
   input: "Input",
   concept: "Arbeitsblatt-Konzept",
-  candidates: "Kandidaten"
+  candidates: "Entwürfe"
 });
 
 async function pathExists(filePath) {
@@ -50,23 +51,21 @@ async function readJson(filePath) {
 }
 
 async function writeJson(filePath, value) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await writeJsonFile(filePath, value);
 }
 
-function initialStatusSnapshot({ now, projectType }) {
-  const isSeries = projectType === PROJECT_TYPES.SERIES;
+function initialStatusSnapshot({ now }) {
   return {
     schemaVersion: PRODUCTION_SCHEMA_VERSION,
     generatedAt: now || new Date().toISOString(),
     source: "initial_project_creation",
-    libraryStatus: isSeries ? "Leere Reihe" : "Entwurf",
+    libraryStatus: "Entwurf",
     currentStep: "input",
     isComplete: false,
     hasOutdatedExport: false,
     nextAction: {
-      label: isSeries ? "Arbeitsblatt hinzufügen" : "Input ergänzen",
-      action: isSeries ? "add_worksheet_to_series" : "add_input",
+      label: "Input ergänzen",
+      action: "add_input",
       targetStep: "input"
     },
     steps: VISIBLE_STEPS.map((id) => ({
@@ -96,26 +95,23 @@ function libraryStatusLabel(status = {}) {
   if (status.errors > 0) {
     return "Fehler";
   }
+  if (status.candidateGeneration?.isRunning) {
+    return "Entwurf wird erstellt";
+  }
   if (status.status === "exported") {
-    return "Kandidaten vorhanden";
+    return "Entwürfe vorhanden";
   }
   if (status.status === "selected") {
-    return "Kandidaten vorhanden";
+    return "Entwürfe vorhanden";
   }
   if (status.status === "has_candidates") {
-    return "Kandidaten vorhanden";
+    return "Entwürfe vorhanden";
   }
   if (status.status === "ready_for_generation") {
-    return "Bereit fuer Kandidaten";
+    return "Bereit fuer Entwürfe";
   }
   if (status.status === "needs_approval") {
     return "Konzept pruefen";
-  }
-  if (status.status === "empty_series") {
-    return "Leere Reihe";
-  }
-  if (status.status === "in_progress") {
-    return "In Arbeit";
   }
   return "Entwurf";
 }
@@ -129,19 +125,19 @@ function step(id, state, complete) {
   };
 }
 
-function nextActionForSteps(steps, status, isSeries) {
-  if (status.candidateState === "rendered" || status.candidateState === "planned") {
+function nextActionForSteps(steps, status) {
+  if (status.candidateGeneration?.isRunning) {
     return {
-      label: "Kandidaten pruefen",
-      action: "open_candidates",
+      label: "Entwurf wird erstellt",
+      action: "wait_for_candidate_generation",
       targetStep: "candidates"
     };
   }
-  if (isSeries) {
+  if (status.candidateState === "rendered" || status.candidateState === "planned") {
     return {
-      label: "Arbeitsblatt hinzufügen",
-      action: "add_worksheet_to_series",
-      targetStep: "input"
+      label: "Entwürfe pruefen",
+      action: "open_candidates",
+      targetStep: "candidates"
     };
   }
   const firstOpen = steps.find((entry) => !entry.complete);
@@ -161,19 +157,22 @@ function nextActionForSteps(steps, status, isSeries) {
   }
   if (firstOpen.id === "candidates") {
     return {
-      label: "Kandidat erzeugen",
+      label: "Entwurf erstellen",
       action: "generate_image_candidate",
       targetStep: "candidates"
     };
   }
   return {
-    label: "Kandidat erzeugen",
+    label: "Entwurf erstellen",
     action: "generate_image_candidate",
     targetStep: "candidates"
   };
 }
 
 function currentStepFor(steps, status) {
+  if (status.candidateGeneration?.isRunning) {
+    return "candidates";
+  }
   if (status.candidateState === "rendered" || status.candidateState === "planned") {
     return "candidates";
   }
@@ -182,23 +181,15 @@ function currentStepFor(steps, status) {
 }
 
 async function derivedStatusSnapshot(projectDir, options = {}) {
-  const manifest = await readJson(path.join(projectDir, "project-manifest.json"));
   const status = await getProjectStatus(projectDir);
-  const projectType = projectTypeOf(manifest);
-  const isSeries = projectType === PROJECT_TYPES.SERIES;
-  const inputComplete = isSeries
-    ? Number(status.worksheetCount || 0) > 0
-    : await hasSourceInput(projectDir);
-  const conceptComplete = isSeries
-    ? Number(status.worksheetCount || 0) > 0
-    : Boolean(status.hasEffectiveApprovedContent || status.hasEffectiveApprovedBrief);
-  const candidateComplete = isSeries
-    ? Number(status.worksheetCount || 0) > 0
-    : status.candidateState === "rendered" || status.candidateState === "planned";
+  const inputComplete = await hasSourceInput(projectDir);
+  const conceptComplete = Boolean(status.hasEffectiveApprovedContent || status.hasEffectiveApprovedBrief);
+  const candidateRunning = Boolean(status.candidateGeneration?.isRunning);
+  const candidateComplete = status.candidateState === "rendered" || status.candidateState === "planned";
   const steps = [
     step("input", inputComplete ? "available" : "missing", inputComplete),
     step("concept", conceptComplete ? status.approvalState || "available" : "missing", conceptComplete),
-    step("candidates", candidateComplete ? status.candidateState || "available" : "missing", candidateComplete)
+    step("candidates", candidateRunning ? "generating" : candidateComplete ? status.candidateState || "available" : "missing", candidateComplete)
   ];
 
   return {
@@ -209,7 +200,7 @@ async function derivedStatusSnapshot(projectDir, options = {}) {
     currentStep: currentStepFor(steps, status),
     isComplete: candidateComplete,
     hasOutdatedExport: false,
-    nextAction: nextActionForSteps(steps, status, isSeries),
+    nextAction: nextActionForSteps(steps, status),
     steps
   };
 }

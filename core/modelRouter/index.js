@@ -178,7 +178,7 @@ function routeChatRequest({ input = {}, workspace = {}, requestConfig = {} } = {
   if (uiEvent === "continue" && pipelineState === "pruefung") {
     return chatRouteForPurpose(ROUTE_PURPOSES.CONTENT_WARNINGS, requestConfig);
   }
-  if (uiEvent === "continue" && (pipelineState === "drafts" || pipelineState === "kandidaten")) {
+  if (uiEvent === "continue" && (pipelineState === "drafts" || pipelineState === "entwuerfe" || pipelineState === "kandidaten")) {
     return chatRouteForPurpose(ROUTE_PURPOSES.IMAGE_SPEC, requestConfig);
   }
 

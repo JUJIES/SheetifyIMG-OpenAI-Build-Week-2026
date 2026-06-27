@@ -15,6 +15,8 @@ const {
   projectIdentityFromManifest,
   projectTypeFromManifest
 } = require("../legacy");
+const { readCandidateGenerationState } = require("../candidateGenerationJobManager");
+const { readJsonFileIfExists } = require("../jsonFile");
 
 async function pathExists(filePath) {
   try {
@@ -26,10 +28,7 @@ async function pathExists(filePath) {
 }
 
 async function readJsonIfExists(filePath) {
-  if (!(await pathExists(filePath))) {
-    return null;
-  }
-  return JSON.parse(await fs.readFile(filePath, "utf8"));
+  return readJsonFileIfExists(filePath);
 }
 
 async function listDirs(dirPath) {
@@ -80,11 +79,8 @@ async function readRunStates(projectDir) {
 
   for (const runDir of runDirs) {
     const manifest = await readJsonIfExists(path.join(runDir, "run-manifest.json"));
-    const selection = await readJsonIfExists(path.join(runDir, "selected", "selection.json"));
     const candidates = Array.isArray(manifest?.candidates) ? manifest.candidates : [];
-    const selectedPages = Array.isArray(selection?.pages) ? selection.pages : [];
     const candidateArtifacts = await summarizeCandidateArtifacts(runDir, candidates);
-    const selectionArtifacts = await summarizeSelectionArtifacts(runDir, selectedPages);
     const promptFiles = await listFiles(path.join(runDir, "prompts"));
     const plannedCandidatePageCount = candidateArtifacts.reduce((sum, candidate) => sum + candidate.pageCount, 0);
     const renderedCandidatePageCount = candidateArtifacts.reduce((sum, candidate) => sum + candidate.renderedPageCount, 0);
@@ -100,15 +96,15 @@ async function readRunStates(projectDir) {
       renderedCandidatePageCount,
       missingCandidatePageCount: Math.max(0, plannedCandidatePageCount - renderedCandidatePageCount),
       promptCount: promptFiles.length,
-      selectedCandidate: selection?.selectedCandidate || manifest?.selectedCandidate || null,
-      selectedPageCount: selectionArtifacts.selectedPageCount,
-      selectedPagePlanCount: selectionArtifacts.selectedPagePlanCount,
-      missingSelectedPageCount: selectionArtifacts.missingSelectedPageCount,
-      selectionStatus: selection?.status || null,
-      hasErrors: Array.isArray(selection?.errors) && selection.errors.length > 0,
+      selectedCandidate: null,
+      selectedPageCount: 0,
+      selectedPagePlanCount: 0,
+      missingSelectedPageCount: 0,
+      selectionStatus: null,
+      hasErrors: false,
       hasPlannedCandidates: candidates.length > 0,
       hasRenderedCandidates: candidateArtifacts.some((candidate) => candidate.hasRenderedPages),
-      hasSelectionArtifacts: selectionArtifacts.hasSelectionArtifacts
+      hasSelectionArtifacts: false
     });
   }
 
@@ -148,21 +144,6 @@ async function hasDraftBrief(projectDir) {
   return pathExists(path.join(projectDir, "brief", "draft.lessonbrief.json"));
 }
 
-async function hasExports(projectDir) {
-  const exportFiles = await listFiles(path.join(projectDir, "export"));
-  if (exportFiles.some((filePath) => /\.pdf$/i.test(filePath))) {
-    return true;
-  }
-  const exportDirs = await listDirs(path.join(projectDir, "export"));
-  for (const exportDir of exportDirs) {
-    const files = await listFiles(exportDir);
-    if (files.some((filePath) => /\.pdf$/i.test(filePath))) {
-      return true;
-    }
-  }
-  return false;
-}
-
 async function summarizeCandidateArtifacts(runDir, candidates) {
   const candidateStates = [];
 
@@ -191,27 +172,6 @@ async function summarizeCandidateArtifacts(runDir, candidates) {
   return candidateStates;
 }
 
-async function summarizeSelectionArtifacts(runDir, selectedPages) {
-  let existingPageCount = 0;
-
-  for (const page of selectedPages) {
-    if (!page.selectedPath) {
-      continue;
-    }
-    const filePath = path.join(runDir, page.selectedPath);
-    if (await pathExists(filePath)) {
-      existingPageCount += 1;
-    }
-  }
-
-  return {
-    selectedPagePlanCount: selectedPages.length,
-    selectedPageCount: existingPageCount,
-    missingSelectedPageCount: Math.max(0, selectedPages.length - existingPageCount),
-    hasSelectionArtifacts: existingPageCount > 0
-  };
-}
-
 async function statusForSingleWorksheet(projectDir, manifest) {
   const identity = projectIdentityFromManifest(manifest);
   const manifestCounts = countManifestWarnings(manifest);
@@ -220,16 +180,16 @@ async function statusForSingleWorksheet(projectDir, manifest) {
   const warnings = manifestCounts.warnings + contentCounts.warnings;
   const runs = await readRunStates(projectDir);
   const latestRun = runs[runs.length - 1] || null;
+  const candidateGeneration = await readCandidateGenerationState(projectDir);
   const approvalGate = await getApprovalState(projectDir);
   const approvedContent = await hasApprovedContent(projectDir);
   const draftContent = await hasDraftContent(projectDir);
   const approvedBrief = await hasApprovedBrief(projectDir);
   const draftBrief = await hasDraftBrief(projectDir);
-  const exported = await hasExports(projectDir);
   const hasRenderedCandidates = runs.some((run) => run.hasRenderedCandidates);
   const hasPlannedCandidates = runs.some((run) => run.hasPlannedCandidates);
-  const hasSelectionArtifacts = runs.some((run) => run.hasSelectionArtifacts && !run.hasErrors);
-  const hasDownstreamArtifacts = exported || hasSelectionArtifacts || hasRenderedCandidates;
+  const hasCandidateGenerationRunning = Boolean(candidateGeneration.isRunning);
+  const hasDownstreamArtifacts = hasRenderedCandidates || hasCandidateGenerationRunning;
   const currentContentApproved = identity.isLegacy ? approvedContent : approvalGate.canGenerate;
   const effectiveBriefApproved = approvedBrief || (identity.isLegacy && draftBrief && hasDownstreamArtifacts);
   const effectiveContentApproved = currentContentApproved || (identity.isLegacy && draftContent && hasDownstreamArtifacts);
@@ -239,11 +199,7 @@ async function statusForSingleWorksheet(projectDir, manifest) {
   let status = "draft";
   if (errors > 0) {
     status = "error";
-  } else if (exported) {
-    status = "exported";
-  } else if (hasSelectionArtifacts) {
-    status = "selected";
-  } else if (hasRenderedCandidates || hasPlannedCandidates) {
+  } else if (hasRenderedCandidates || hasPlannedCandidates || hasCandidateGenerationRunning) {
     status = "has_candidates";
   } else if (currentContentApproved) {
     status = "ready_for_generation";
@@ -251,18 +207,12 @@ async function statusForSingleWorksheet(projectDir, manifest) {
     status = "needs_approval";
   }
 
-  const previewState = exported
-    ? "export_available"
-    : hasSelectionArtifacts
-      ? "selection_available"
-      : hasRenderedCandidates
-        ? "candidate_preview_available"
-        : hasPlannedCandidates
-          ? "candidate_generation_pending"
-          : "no_preview";
-  const productStage = exported
-    ? "export"
-    : hasSelectionArtifacts || hasRenderedCandidates || hasPlannedCandidates
+  const previewState = hasRenderedCandidates
+    ? "candidate_preview_available"
+    : hasCandidateGenerationRunning || hasPlannedCandidates
+      ? "candidate_generation_pending"
+      : "no_preview";
+  const productStage = hasRenderedCandidates || hasPlannedCandidates || hasCandidateGenerationRunning
       ? "drafts"
       : draftContent || approvedContent || draftBrief || approvedBrief
         ? "concept"
@@ -292,49 +242,20 @@ async function statusForSingleWorksheet(projectDir, manifest) {
     hasEffectiveApprovedContent: effectiveContentApproved,
     briefApprovalSource,
     contentApprovalSource,
-    hasExport: exported,
-    candidateState: hasRenderedCandidates ? "rendered" : hasPlannedCandidates ? "planned" : "none",
-    selectionState: hasSelectionArtifacts ? "rendered" : latestRun?.selectedCandidate ? "planned" : "none",
+    hasExport: false,
+    candidateState: hasRenderedCandidates ? "rendered" : hasCandidateGenerationRunning ? "generating" : hasPlannedCandidates ? "planned" : "none",
+    selectionState: "none",
     previewState,
     approvalState: effectiveContentApproved ? "approved" : draftContent ? "draft" : "missing",
+    candidateGeneration,
+    hasUnreadCandidateCompletion: Boolean(candidateGeneration.hasUnreadCompletion),
     workflow: {
       brief: effectiveBriefApproved ? "approved" : draftBrief ? "draft" : "missing",
       content: effectiveContentApproved ? "approved" : draftContent ? "draft" : "missing",
-      candidates: hasRenderedCandidates ? "rendered" : hasPlannedCandidates ? "planned" : "missing",
-      selection: hasSelectionArtifacts ? "rendered" : latestRun?.selectedCandidate ? "planned" : "missing",
-      export: exported ? "rendered" : "missing"
+      candidates: hasRenderedCandidates ? "rendered" : hasCandidateGenerationRunning ? "generating" : hasPlannedCandidates ? "planned" : "missing",
+      selection: "missing",
+      export: "missing"
     }
-  };
-}
-
-async function statusForSeries(projectDir, manifest = {}) {
-  const identity = projectIdentityFromManifest(manifest);
-  const seriesManifest = await readJsonIfExists(path.join(projectDir, "series-manifest.json"));
-  const worksheetDirs = await listDirs(path.join(projectDir, "worksheets"));
-  const worksheetCount = Array.isArray(seriesManifest?.worksheets) ? seriesManifest.worksheets.length : worksheetDirs.length;
-  const exported = await hasExports(projectDir);
-
-  let status = "empty_series";
-  if (exported) {
-    status = "exported";
-  } else if (worksheetCount > 0) {
-    status = "in_progress";
-  }
-  const productStage = exported
-    ? "export"
-    : worksheetCount > 0
-      ? "drafts"
-      : "input";
-
-  return {
-    status,
-    productStage,
-    errors: 0,
-    warnings: 0,
-    sourceType: identity.sourceType,
-    isLegacy: identity.isLegacy,
-    worksheetCount,
-    hasExport: exported
   };
 }
 
@@ -353,20 +274,16 @@ async function getProjectStatus(projectDir) {
   if (projectType === "single_worksheet") {
     return statusForSingleWorksheet(projectDir, manifest);
   }
-  if (projectType === "series") {
-    return statusForSeries(projectDir, manifest);
-  }
   if (projectType === "bundle") {
     const identity = projectIdentityFromManifest(manifest);
-    const exported = await hasExports(projectDir);
     return {
-      status: exported ? "exported" : "draft",
-      productStage: exported ? "export" : "input",
+      status: "draft",
+      productStage: "input",
       errors: 0,
       warnings: 0,
       sourceType: identity.sourceType,
       isLegacy: identity.isLegacy,
-      hasExport: exported
+      hasExport: false
     };
   }
 

@@ -1,5 +1,8 @@
 "use strict";
 
+// Legacy/internal cache helper. Normal candidate generation stores image files
+// only; worksheet PDFs are created through worksheetLibraryManager when the
+// user explicitly uses "Arbeitsblatt ablegen".
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const {
@@ -17,7 +20,12 @@ const {
   createdFromWithConcept,
   normalizeConceptReference
 } = require("../conceptReference");
-const { renderImagesToPdf } = require("../pdfRenderer");
+const {
+  DEFAULT_PRINT_SAFE_MARGIN_MM,
+  normalizePrintSafeMarginMm,
+  renderImagesToPdf
+} = require("../pdfRenderer");
+const { writeJsonFile } = require("../jsonFile");
 
 async function pathExists(filePath) {
   try {
@@ -33,8 +41,7 @@ async function readJson(filePath) {
 }
 
 async function writeJson(filePath, value) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await writeJsonFile(filePath, value);
 }
 
 function safeFileName(value) {
@@ -95,6 +102,9 @@ async function upsertPdfArtifact(projectDir, artifact, options = {}) {
 
 async function createCandidatePdf(projectDir, runId, candidateId, options = {}) {
   const now = options.now || new Date().toISOString();
+  const printSafeMarginMm = normalizePrintSafeMarginMm(
+    options.printSafeMarginMm ?? DEFAULT_PRINT_SAFE_MARGIN_MM
+  );
   const runDir = path.join(projectDir, "runs", runId);
   const project = await readJson(path.join(projectDir, "project-manifest.json"));
   const manifest = await readJson(path.join(runDir, "run-manifest.json"));
@@ -126,7 +136,8 @@ async function createCandidatePdf(projectDir, runId, candidateId, options = {}) 
       role: page.role
     })),
     outputPath: path.join(runDir, pdfRelativePath),
-    title: `${project.title || "SheetifyIMG"} - ${candidateId}`
+    title: `${project.title || "SheetifyIMG"} - ${candidateId}`,
+    printSafeMarginMm
   });
   const concept = normalizeConceptReference(candidate.concept || manifest.concept || {}, manifest.sourceArtifacts || {});
   const pdf = {
@@ -135,6 +146,7 @@ async function createCandidatePdf(projectDir, runId, candidateId, options = {}) 
     createdAt: now,
     pageCount: pdfResult.pageCount,
     size: pdfResult.size,
+    printSafeMarginMm,
     sourcePages: sourcePages.map(({ path: _absolutePath, ...page }) => page)
   };
 
@@ -144,7 +156,7 @@ async function createCandidatePdf(projectDir, runId, candidateId, options = {}) 
     type: ARTIFACT_TYPES.PDF,
     path: `runs/${runId}/${pdfRelativePath}`,
     status: ARTIFACT_STATUSES.CURRENT,
-    step: "kandidaten",
+    step: "entwuerfe",
     createdAt: now,
     createdFrom: createdFromWithConcept([`${runId}_${candidateId}`], concept)
   }, { now });

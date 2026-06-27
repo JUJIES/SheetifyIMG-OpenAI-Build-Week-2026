@@ -3,6 +3,7 @@
 const { getAiRuntimeStatus, getOpenAiRequestConfig } = require("../aiConfig");
 const { createResponse, extractOutputText } = require("../openaiClient");
 const { logModelRun, sanitizeErrorMessage } = require("../modelRunLogger");
+const { estimateOpenAiTextCost } = require("../imageCostManager");
 const { ROUTE_PURPOSES, routeForPurpose } = require("../modelRouter");
 const { composePrompts } = require("../promptRegistry");
 
@@ -163,6 +164,12 @@ async function interpretTeachingContext(projectDir, input = {}, options = {}) {
         ? { effort: route.reasoningEffort }
         : undefined
     }, requestConfig);
+    const responseModel = response.model || route.model || requestConfig.textModel;
+    const usage = response.usage || null;
+    const costEstimate = estimateOpenAiTextCost({
+      usage,
+      model: responseModel
+    });
     const interpretation = parseSemanticInterpretation(extractOutputText(response));
     await logModelRun(projectDir, {
       status: "success",
@@ -170,9 +177,11 @@ async function interpretTeachingContext(projectDir, input = {}, options = {}) {
       purpose: route.purpose,
       route: route.route,
       promptNames: route.promptNames,
-      model: response.model || route.model || requestConfig.textModel,
+      model: responseModel,
       responseId: response.id || null,
       durationMs: Date.now() - startedAt,
+      usage,
+      costEstimate,
       uiEvent: options.uiEvent || "chat_message"
     }, { now: options.now });
     return interpretation;

@@ -146,7 +146,7 @@ function normalizeReferencePolicy(input = {}, options = {}) {
     suggestedSearchQuery: clean(input.suggestedSearchQuery),
     suggestedAction: clean(input.suggestedAction) || (preferredSource.includes("reference_search")
       ? "Passende Referenz suchen."
-      : level === "none" ? "Direkt Kandidaten erzeugen." : "Referenz vorbereiten."),
+      : level === "none" ? "Direkt Entwurf erstellen." : "Referenz vorbereiten."),
     allowImageModelToRedraw: input.allowImageModelToRedraw !== false,
     canProceedWithoutReference: input.canProceedWithoutReference !== false,
     instructions: clean(input.instructions) || "Nutze Referenzen nur fuer den beschriebenen Zweck und halte den freigegebenen Arbeitsblatttext ein.",
@@ -381,7 +381,7 @@ function inferReferencePolicy(input = {}) {
     reason: "Die Visualisierung ist für das Bildmodell voraussichtlich klar genug und braucht keine präzise externe Vorlage.",
     triggers: [],
     preferredSource: "none",
-    suggestedAction: "Direkt Kandidaten erzeugen.",
+    suggestedAction: "Direkt Entwurf erstellen.",
     allowImageModelToRedraw: true,
     canProceedWithoutReference: true,
     instructions: "Freie, didaktisch klare Illustration ist ausreichend.",

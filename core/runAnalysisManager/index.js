@@ -4,6 +4,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { PRODUCTION_SCHEMA_VERSION } = require("../contracts");
 const { readEvents } = require("../eventLog");
+const { readJsonFileIfExists, writeJsonFile } = require("../jsonFile");
 
 async function pathExists(filePath) {
   try {
@@ -19,16 +20,11 @@ async function readJson(filePath) {
 }
 
 async function readJsonIfExists(filePath) {
-  try {
-    return await readJson(filePath);
-  } catch {
-    return null;
-  }
+  return readJsonFileIfExists(filePath);
 }
 
 async function writeJson(filePath, value) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await writeJsonFile(filePath, value);
 }
 
 async function writeText(filePath, value) {
@@ -189,11 +185,11 @@ function collectDiagnostics(report) {
     }
   }
 
-  if (report.candidates.length && !report.selection?.selectedCandidate) {
-    notes.push({ code: "no_selection_yet", message: "Candidates exist, but no selection has been made yet." });
-  }
-  if (report.selection?.selectedCandidate && !report.exports.length) {
-    notes.push({ code: "no_export_yet", message: "Selection exists, but no export has been created yet." });
+  if (report.candidates.length) {
+    notes.push({
+      code: "worksheet_deposit_pending",
+      message: "Candidates are Entwuerfe. A worksheet PDF is created only after an explicit worksheet deposit."
+    });
   }
 
   return {
@@ -202,35 +198,6 @@ function collectDiagnostics(report) {
     warnings,
     notes
   };
-}
-
-async function exportSummaries(projectDir, runId) {
-  const exportRoot = path.join(projectDir, "export");
-  if (!(await pathExists(exportRoot))) {
-    return [];
-  }
-  const entries = await fs.readdir(exportRoot, { withFileTypes: true });
-  const manifests = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory()) {
-      continue;
-    }
-    const manifestPath = path.join(exportRoot, entry.name, "export-manifest.json");
-    const manifest = await readJsonIfExists(manifestPath);
-    if (manifest?.runId !== runId) {
-      continue;
-    }
-    manifests.push({
-      exportId: manifest.exportId || entry.name,
-      status: manifest.status || null,
-      createdAt: manifest.createdAt || null,
-      path: rel(projectDir, manifestPath),
-      pdf: manifest.pdf || null,
-      pageCount: Array.isArray(manifest.pages) ? manifest.pages.length : null,
-      solutionSheet: manifest.solutionSheet || null
-    });
-  }
-  return manifests.sort((left, right) => String(left.createdAt || "").localeCompare(String(right.createdAt || "")));
 }
 
 function recentMessages(events = []) {
@@ -309,9 +276,8 @@ function renderSummaryMarkdown(report) {
     `- tasks: ${report.sourceContent.taskCount}, texts: ${report.sourceContent.readingTextCount}, image materials: ${report.sourceContent.imageMaterialCount}`,
     "",
     "## Workflow State",
-    `- candidates: ${report.candidates.length}`,
-    `- selection: ${report.selection?.selectedCandidate || "none"}`,
-    `- exports: ${report.exports.length}`,
+    `- Entwuerfe: ${report.candidates.length}`,
+    "- Arbeitsblatt-Ablage: separate worksheet snapshot after explicit deposit",
     "",
     "## Diagnostics",
     markdownList([
@@ -335,10 +301,8 @@ async function updateRunAnalysisReport(projectDir, runId, options = {}) {
   const manifestPath = path.join(runDir, "run-manifest.json");
   const manifest = await readJson(manifestPath);
   const imageSheetBrief = await readJsonIfExists(path.join(runDir, "brief.imagesheet.json"));
-  const selection = await readJsonIfExists(path.join(runDir, "selected", "selection.json"));
   const events = await readEvents(projectDir);
   const candidates = await Promise.all((manifest.candidates || []).map((candidate) => candidateSummary(runDir, candidate)));
-  const exports = await exportSummaries(projectDir, runId);
 
   const report = {
     schemaVersion: PRODUCTION_SCHEMA_VERSION,
@@ -376,27 +340,17 @@ async function updateRunAnalysisReport(projectDir, runId, options = {}) {
       "run-manifest.json",
       "qc/*.technical-qc.json",
       "codex-jobs/*/prompt.md",
-      "candidates/*.asset.json",
-      "selected/selection.json",
-      "export/*/export-manifest.json"
+      "candidates/*.asset.json"
     ],
     sourceContent: sourceContentSummary(imageSheetBrief || {}),
     candidates,
-    selection: selection ? {
-      path: "selected/selection.json",
-      selectedCandidate: selection.selectedCandidate || null,
-      sourceCandidateIds: selection.sourceCandidateIds || [],
-      pageCount: Array.isArray(selection.pages) ? selection.pages.length : 0,
-      pages: selection.pages || []
-    } : null,
-    exports,
     recentConversation: recentMessages(events),
     llmInspectionChecklist: [
       "Does each candidate follow the approved visible worksheet text from brief.imagesheet.json?",
       "Are referenceImages present when referencePolicy is required or recommended?",
       "Do prompts contain unintended visible text, solutions, helper arguments, or environment labels?",
       "Do candidate images have the planned page count and usable visual quality?",
-      "If selected/exported, does selected/selection.json point to the intended candidate pages?"
+      "If the teacher wants to keep this result, should this Entwurf be deposited as an Arbeitsblatt snapshot?"
     ]
   };
   report.diagnostics = collectDiagnostics(report);

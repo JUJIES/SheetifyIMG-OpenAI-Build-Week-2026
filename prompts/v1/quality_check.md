@@ -2,7 +2,7 @@
 
 Rolle: Qualitaetspruefer.
 
-Pruefe den aktuellen Arbeitsblattstand vor Ueberarbeitung oder Export.
+Pruefe den aktuellen Arbeitsblattstand vor Ueberarbeitung oder Arbeitsblatt-Ablage.
 
 Pruefe:
 
@@ -14,7 +14,7 @@ Pruefe:
 6. Ueberforderung oder Unterforderung
 7. Loesungserwartung
 8. Bild- und Materialfunktion
-9. Exportbereitschaft
+9. Ablagebereitschaft
 
 Gib keine komplette Neufassung aus.
 

@@ -4,7 +4,6 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const assert = require("node:assert/strict");
 const {
-  createSeriesProject,
   createSingleWorksheetProject,
   listProjects,
   openProject
@@ -30,16 +29,8 @@ async function main() {
   assert.equal(single.projectType, "single_worksheet");
   assert.equal(single.status, "draft");
 
-  const series = await createSeriesProject({
-    title: "Evolution: Indizien",
-    subject: "Biologie",
-    topic: "Evolution"
-  }, options);
-  assert.equal(series.projectType, "series");
-  assert.equal(series.status, "empty_series");
-
   const projects = await listProjects({ projectsDir: smokeRoot });
-  assert.equal(projects.length, 2);
+  assert.equal(projects.length, 1);
 
   const reopened = await openProject(single.projectId, { projectsDir: smokeRoot });
   assert.equal(reopened.title, "Fossilien als Belege der Evolution");

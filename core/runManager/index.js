@@ -18,6 +18,7 @@ const {
   contentReadinessForGeneration,
   contentReadinessMessage
 } = require("../contentReadiness");
+const { writeJsonFile } = require("../jsonFile");
 const { updateRunAnalysisReport } = require("../runAnalysisManager");
 
 async function pathExists(filePath) {
@@ -34,8 +35,7 @@ async function readJson(filePath) {
 }
 
 async function writeJson(filePath, value) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await writeJsonFile(filePath, value);
 }
 
 async function listDirs(dirPath) {
@@ -119,7 +119,6 @@ async function createRun(projectDir, options = {}) {
   }
 
   await fs.mkdir(path.join(runDir, "candidates"), { recursive: true });
-  await fs.mkdir(path.join(runDir, "selected"), { recursive: true });
   await fs.mkdir(path.join(runDir, "review"), { recursive: true });
   await fs.mkdir(path.join(runDir, "qc"), { recursive: true });
 
@@ -141,12 +140,8 @@ async function createRun(projectDir, options = {}) {
     concept,
     brief: "brief.imagesheet.json",
     candidates: [],
-    selectedCandidate: null,
-    selectedPages: {},
     outputs: {
-      reviewGallery: null,
-      pdf: null,
-      exportManifest: null
+      reviewGallery: null
     }
   };
 
@@ -156,7 +151,7 @@ async function createRun(projectDir, options = {}) {
     type: ARTIFACT_TYPES.RUN,
     path: `runs/${runId}/run-manifest.json`,
     status: ARTIFACT_STATUSES.CURRENT,
-    step: "kandidaten",
+    step: "entwuerfe",
     createdAt: now,
     createdFrom: Object.values(manifest.sourceArtifacts).filter(Boolean)
   }, { now });
@@ -171,7 +166,7 @@ async function createRun(projectDir, options = {}) {
   await appendEvent(projectDir, {
     type: EVENT_TYPES.RUN_STARTED,
     createdAt: now,
-    step: "kandidaten",
+    step: "entwuerfe",
     runId,
     artifactId: runId,
     payload: {

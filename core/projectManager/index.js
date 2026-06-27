@@ -13,6 +13,7 @@ const {
 const { appendEvent, projectCreatedEvent } = require("../eventLog");
 const { getProjectStatus, projectTypeOf } = require("../projectStatus");
 const { initialStatusSnapshot } = require("../statusSnapshot");
+const { readJsonFile, writeJsonFile } = require("../jsonFile");
 
 const DEFAULT_PROJECTS_DIR = path.resolve(__dirname, "..", "..", "projects");
 
@@ -26,12 +27,11 @@ async function pathExists(filePath) {
 }
 
 async function readJson(filePath) {
-  return JSON.parse(await fs.readFile(filePath, "utf8"));
+  return readJsonFile(filePath);
 }
 
 async function writeJson(filePath, value) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await writeJsonFile(filePath, value);
 }
 
 async function appendJsonl(filePath, value) {
@@ -87,12 +87,20 @@ function publicProject(manifest, projectDir, status) {
     warnings: status.warnings || 0,
     previewState: status.previewState || "no_preview",
     candidateState: status.candidateState || "none",
-    selectionState: status.selectionState || "none",
+    selectionState: "none",
     runCount: status.runCount || 0,
     hasApprovedContent: Boolean(status.hasApprovedContent),
     hasEffectiveApprovedContent: Boolean(status.hasEffectiveApprovedContent),
     hasDraftContent: Boolean(status.hasDraftContent),
-    hasExport: Boolean(status.hasExport),
+    hasExport: false,
+    candidateGeneration: status.candidateGeneration || {
+      isRunning: false,
+      activeJob: null,
+      latestCompletion: null,
+      latestFailure: null,
+      hasUnreadCompletion: false
+    },
+    hasUnreadCandidateCompletion: Boolean(status.hasUnreadCandidateCompletion),
     updatedAt: manifest.updatedAt || null,
     createdAt: manifest.createdAt || null,
     path: projectDir
@@ -129,9 +137,17 @@ function buildWorkspaceEntry(project, manifest, status) {
       hasDraftContent: Boolean(status.hasDraftContent),
       hasApprovedContent: Boolean(status.hasApprovedContent),
       hasEffectiveApprovedContent: Boolean(status.hasEffectiveApprovedContent),
-      hasExport: Boolean(status.hasExport),
+      hasExport: false,
       candidateState: status.candidateState || "none",
-      selectionState: status.selectionState || "none"
+      candidateGeneration: status.candidateGeneration || {
+        isRunning: false,
+        activeJob: null,
+        latestCompletion: null,
+        latestFailure: null,
+        hasUnreadCompletion: false
+      },
+      hasUnreadCandidateCompletion: Boolean(status.hasUnreadCandidateCompletion),
+      selectionState: "none"
     },
     counts: {
       runCount: status.runCount || 0,
@@ -139,8 +155,8 @@ function buildWorkspaceEntry(project, manifest, status) {
       errorCount: status.errors || 0,
       plannedCandidateCount: latestRun?.plannedCandidateCount || 0,
       renderedCandidateCount: latestRun?.renderedCandidateCount || 0,
-      selectedPageCount: latestRun?.selectedPageCount || 0,
-      exportFileCount: status.hasExport ? 1 : 0
+      selectedPageCount: 0,
+      exportFileCount: 0
     },
     latestRun: latestRun ? {
       runId: latestRun.runId,
@@ -150,14 +166,12 @@ function buildWorkspaceEntry(project, manifest, status) {
       fullyRenderedCandidateCount: latestRun.fullyRenderedCandidateCount || 0,
       plannedCandidatePageCount: latestRun.plannedCandidatePageCount || 0,
       renderedCandidatePageCount: latestRun.renderedCandidatePageCount || 0,
-      selectedCandidate: latestRun.selectedCandidate || null,
-      selectedPageCount: latestRun.selectedPageCount || 0,
-      selectedPagePlanCount: latestRun.selectedPagePlanCount || 0,
-      selectionStatus: latestRun.selectionStatus || null
+      selectedCandidate: null,
+      selectedPageCount: 0,
+      selectedPagePlanCount: 0,
+      selectionStatus: null
     } : null,
-    loadIntent: project.projectType === "single_worksheet"
-      ? "open_worksheet_workspace"
-      : "open_series_workspace",
+    loadIntent: "open_worksheet_workspace",
     manifestPointers: {
       projectManifest: "project-manifest.json",
       draftBrief: "brief/draft.lessonbrief.json",
@@ -239,8 +253,6 @@ async function createSingleWorksheetProject(input = {}, options = {}) {
     path.join(projectDir, "content"),
     path.join(projectDir, "runs"),
     path.join(projectDir, "proposals"),
-    path.join(projectDir, "selected"),
-    path.join(projectDir, "export"),
     path.join(projectDir, "history"),
     path.join(projectDir, "qc")
   ]);
@@ -293,79 +305,6 @@ async function createSingleWorksheetProject(input = {}, options = {}) {
   return openProject(projectId, { projectsDir });
 }
 
-async function createSeriesProject(input = {}, options = {}) {
-  const projectsDir = options.projectsDir || DEFAULT_PROJECTS_DIR;
-  const now = options.now || new Date().toISOString();
-  const title = String(input.title || "").trim();
-  if (!title) {
-    throw new Error("title is required");
-  }
-
-  const projectId = input.projectId ? slugify(input.projectId) : await uniqueProjectId(projectsDir, title);
-  const projectDir = path.join(projectsDir, projectId);
-  if (await pathExists(projectDir)) {
-    throw new Error(`Project already exists: ${projectId}`);
-  }
-
-  await ensureDirs([
-    path.join(projectDir, "source", "shared"),
-    path.join(projectDir, "source", "references"),
-    path.join(projectDir, "worksheets"),
-    path.join(projectDir, "proposals"),
-    path.join(projectDir, "export"),
-    path.join(projectDir, "history"),
-    path.join(projectDir, "qc")
-  ]);
-
-  const manifest = {
-    schemaVersion: PRODUCTION_SCHEMA_VERSION,
-    projectId,
-    projectType: PROJECT_TYPES.SERIES,
-    sourceType: SOURCE_TYPES.PRODUCTION,
-    title,
-    subject: input.subject || null,
-    topic: input.topic || null,
-    status: "empty_series",
-    createdAt: now,
-    updatedAt: now
-  };
-  const seriesManifest = {
-    schemaVersion: PRODUCTION_SCHEMA_VERSION,
-    seriesId: projectId,
-    title,
-    subject: input.subject || null,
-    topic: input.topic || null,
-    worksheets: []
-  };
-
-  await writeJson(path.join(projectDir, "project-manifest.json"), manifest);
-  await writeJson(path.join(projectDir, "series-manifest.json"), seriesManifest);
-  await writeJson(path.join(projectDir, "artifact-index.json"), createEmptyArtifactIndex(now));
-  await writeJson(path.join(projectDir, "status-snapshot.json"), initialStatusSnapshot({
-    now,
-    projectType: PROJECT_TYPES.SERIES
-  }));
-  await writeJson(path.join(projectDir, "qc", "content-warnings.json"), {
-    schemaVersion: PRODUCTION_SCHEMA_VERSION,
-    warnings: []
-  });
-  await appendEvent(projectDir, projectCreatedEvent({
-    now,
-    projectId,
-    projectType: PROJECT_TYPES.SERIES,
-    title
-  }));
-  await appendJsonl(path.join(projectDir, "history", "series-history.jsonl"), {
-    type: "project_created",
-    projectType: PROJECT_TYPES.SERIES,
-    createdAt: now,
-    projectId,
-    title
-  });
-
-  return openProject(projectId, { projectsDir });
-}
-
 async function updateProjectManifest(projectId, patch = {}, options = {}) {
   const projectsDir = options.projectsDir || DEFAULT_PROJECTS_DIR;
   const projectDir = path.join(projectsDir, projectId);
@@ -406,7 +345,6 @@ async function deleteProject(projectId, options = {}) {
 
 module.exports = {
   DEFAULT_PROJECTS_DIR,
-  createSeriesProject,
   createSingleWorksheetProject,
   deleteProject,
   listProjects,

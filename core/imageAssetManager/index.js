@@ -3,6 +3,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { PRODUCTION_SCHEMA_VERSION } = require("../contracts");
+const { writeJsonFile } = require("../jsonFile");
 
 const FORMAT_EXTENSIONS = Object.freeze({
   jpeg: "jpg",
@@ -13,8 +14,7 @@ const FORMAT_EXTENSIONS = Object.freeze({
 });
 
 async function writeJson(filePath, value) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await writeJsonFile(filePath, value);
 }
 
 function safeFormat(value) {

@@ -7,6 +7,7 @@ const {
   ARTIFACT_TYPES,
   PRODUCTION_SCHEMA_VERSION
 } = require("../contracts");
+const { writeJsonFile } = require("../jsonFile");
 
 const ARTIFACT_INDEX_FILE = "artifact-index.json";
 
@@ -24,8 +25,7 @@ async function readJson(filePath) {
 }
 
 async function writeJson(filePath, value) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await writeJsonFile(filePath, value);
 }
 
 function createArtifactIndex({ now, artifacts = [] } = {}) {

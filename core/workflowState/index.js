@@ -1,6 +1,43 @@
 "use strict";
 
-const WORKFLOW_STATE_VERSION = "v2-shadow";
+const WORKFLOW_STATE_VERSION = "v0.1-kernel";
+const SAFE_WORKFLOW_COMMANDS = new Set([
+  "approve_current_brief",
+  "approve_current_content",
+  "create_brief_draft",
+  "create_content_draft",
+  "create_run",
+  "activate_content_mirror_version",
+  "generate_lessonbrief_proposal",
+  "adopt_lessonbrief_proposal",
+  "generate_content_mirror_proposal",
+  "generate_candidate_from_content_proposal",
+  "adopt_content_mirror_proposal",
+  "generate_content_warnings_proposal",
+  "adopt_content_warnings_proposal",
+  "prepare_image_spec",
+  "adopt_image_spec",
+  "prepare_reference_asset",
+  "prepare_web_reference_asset",
+  "generate_image_candidate",
+  "deposit_worksheet"
+]);
+
+const GUARDED_WORKFLOW_COMMANDS = new Set([
+  "adopt_content_mirror_proposal",
+  "activate_content_mirror_version",
+  "adopt_image_spec",
+  "prepare_reference_asset",
+  "prepare_web_reference_asset",
+  "generate_candidate_from_content_proposal",
+  "generate_image_candidate",
+  "deposit_worksheet"
+]);
+
+const RETIRED_LEGACY_WORKFLOW_COMMANDS = new Set([
+  "select_candidate",
+  "prepare_export"
+]);
 
 function commandById(workspace = {}, commandId) {
   return (workspace.commands || []).find((command) => command.id === commandId) || null;
@@ -11,7 +48,14 @@ function enabledCommand(workspace = {}, commandId) {
   return command?.enabled ? command : null;
 }
 
-function commandPayload(command = {}) {
+function isEnabledWorkflowCommand(command) {
+  return Boolean(command?.enabled && SAFE_WORKFLOW_COMMANDS.has(command.id));
+}
+
+function workflowCommandPayload(command = {}) {
+  if (command.payload) {
+    return command.payload;
+  }
   if (command.defaultPayload) {
     return command.defaultPayload;
   }
@@ -21,46 +65,28 @@ function commandPayload(command = {}) {
   return {};
 }
 
-function contentMirrorIdFromConcept(concept = {}) {
-  return concept.contentMirrorId || concept.conceptId || null;
-}
-
 function imageSpecContentMirrorId(imageSpec = null) {
   return imageSpec?.source?.currentContentMirrorId
     || imageSpec?.data?.source?.currentContentMirrorId
     || null;
 }
 
-function exportCount(workspace = {}) {
-  return Number(workspace.preview?.pdfs?.length || 0)
-    + (workspace.workspaceEntry?.availability?.hasExport ? 1 : 0);
-}
-
-function hasExport(workspace = {}) {
-  return exportCount(workspace) > 0;
-}
-
 function deriveWorkflowFacts(workspace = {}) {
   const currentConceptId = workspace.artifacts?.currentContent?.id
     || workspace.documents?.content?.artifactId
     || null;
-  const selectedConceptId = workspace.latestRun?.selectionContentMirrorId
-    || contentMirrorIdFromConcept(workspace.latestRun?.selectedCandidateConcept || workspace.latestRun?.concept || {});
   const activeImageSpec = workspace.proposals?.activeImageSpec || null;
   const latestImageSpec = workspace.proposals?.latestImageSpec || null;
   const hasBrief = Boolean(workspace.documents?.brief?.data || workspace.artifacts?.currentBrief || workspace.documents?.brief?.artifactId);
   const hasContent = Boolean(workspace.documents?.content?.data || workspace.artifacts?.currentContent || workspace.documents?.content?.artifactId);
-  const hasCurrentSelection = Boolean(workspace.latestRun?.selectedPageCount);
-  const hasAnySelection = Boolean(workspace.latestRun?.rawSelectedPageCount || workspace.latestRun?.selection?.pages?.length);
   const hasCurrentCandidate = Boolean(workspace.latestRun?.candidateCount);
   const hasAnyCandidate = Boolean(workspace.latestRun?.rawCandidateCount || workspace.latestRun?.manifest?.candidates?.length);
-  const hasCurrentExport = hasExport(workspace) && hasCurrentSelection && !workspace.latestRun?.hasOutdatedSelection;
+  const hasUnselectedCurrentCandidate = workspace.latestRun?.hasUnselectedCurrentCandidate === true;
 
   return {
     version: WORKFLOW_STATE_VERSION,
     projectId: workspace.project?.projectId || null,
     projectType: workspace.project?.projectType || null,
-    isSeries: workspace.project?.projectType === "series" || workspace.project?.projectType === "bundle",
     hasBrief,
     hasContent,
     hasConcept: hasBrief
@@ -87,14 +113,17 @@ function deriveWorkflowFacts(workspace = {}) {
     hasAnyCandidate,
     currentCandidateCount: Number(workspace.latestRun?.candidateCount || 0),
     rawCandidateCount: Number(workspace.latestRun?.rawCandidateCount || workspace.latestRun?.manifest?.candidates?.length || 0),
-    hasCurrentSelection,
-    hasAnySelection,
-    selectedConceptId: selectedConceptId || null,
-    selectionIsCurrent: workspace.latestRun?.selectionIsCurrent !== false,
-    hasOutdatedSelection: workspace.latestRun?.hasOutdatedSelection === true,
-    hasCurrentExport,
-    hasAnyExport: hasExport(workspace),
-    exportCount: exportCount(workspace),
+    latestCurrentCandidateId: workspace.latestRun?.latestCurrentCandidateId || null,
+    hasUnselectedCurrentCandidate,
+    hasCurrentSelection: false,
+    hasAnySelection: false,
+    selectedConceptId: null,
+    selectionIsCurrent: true,
+    hasOutdatedSelection: false,
+    hasCurrentExport: false,
+    hasAnyExport: false,
+    exportCount: 0,
+    rawExportCount: 0,
     latestRunId: workspace.latestRun?.runId || null
   };
 }
@@ -107,9 +136,17 @@ function actionFromCommand(command, shownBecause, meta = {}) {
     id: command.id,
     command: command.id,
     label: command.label,
-    payload: commandPayload(command),
+    payload: workflowCommandPayload(command),
     requiresConfirmation: command.requiresConfirmation === true,
     confirmationKind: command.confirmationKind || null,
+    confirmationTitle: command.confirmationTitle || null,
+    confirmationMessage: command.confirmationMessage || null,
+    confirmationAcceptLabel: command.confirmationAcceptLabel || null,
+    decisionPrompt: command.decisionPrompt || null,
+    decisionLabel: command.decisionLabel || null,
+    imageProviders: command.imageProviders || null,
+    referencePolicy: command.referencePolicy || null,
+    referencePreflight: command.referencePreflight === true,
     reason: command.reason || null,
     shownBecause,
     source: WORKFLOW_STATE_VERSION,
@@ -138,30 +175,25 @@ function deriveWorkflowActions(workspace = {}) {
   const prepareImageSpecCommand = enabledCommand(workspace, "prepare_image_spec");
   const contentNeedsRepair = facts.hasContent
     && facts.currentContentStatus === "draft"
-    && !approveContentCommand
-    && !facts.hasAnySelection
-    && !facts.hasAnyExport;
+    && !approveContentCommand;
   const primaryCandidates = [
-    ...(facts.isSeries
-      ? [{ id: "prepare_series_export", shownBecause: "series_ready_for_export" }]
-      : []),
     ...(facts.hasOpenContentProposal
       ? [{ id: "adopt_content_mirror_proposal", shownBecause: "open_concept_revision" }]
       : []),
-    ...(facts.hasOpenLessonBriefProposal && !facts.hasBrief && !facts.hasContent && !facts.hasAnySelection && !facts.hasAnyExport
+    ...(facts.hasOpenLessonBriefProposal && !facts.hasBrief && !facts.hasContent
       ? [{ id: "adopt_lessonbrief_proposal", shownBecause: "open_lessonbrief_proposal" }]
       : []),
     ...(facts.hasOpenWarningsProposal
       ? [{ id: "adopt_content_warnings_proposal", shownBecause: "open_content_warnings_proposal" }]
       : []),
-    ...(facts.hasOpenImageSpecProposal
-      ? [{ id: "adopt_image_spec", shownBecause: "open_image_spec_proposal" }]
-      : []),
-    ...(facts.hasOpenImageSpecProposal || facts.hasActiveImageSpec
+    ...((facts.hasOpenImageSpecProposal || facts.hasActiveImageSpec) && !facts.hasCurrentCandidate
       ? [
         { id: "prepare_reference_asset", shownBecause: "reference_asset_required_or_recommended" },
         { id: "prepare_web_reference_asset", shownBecause: "web_reference_required_or_recommended" }
       ]
+      : []),
+    ...(facts.hasOpenImageSpecProposal
+      ? [{ id: "adopt_image_spec", shownBecause: "open_image_spec_proposal" }]
       : []),
     ...(!facts.hasConcept
       ? [{ id: "generate_lessonbrief_proposal", shownBecause: "missing_concept" }]
@@ -175,22 +207,20 @@ function deriveWorkflowActions(workspace = {}) {
     ...(prepareImageSpecCommand?.referencePreflight
       ? [{ id: "prepare_image_spec", shownBecause: "image_spec_preflight_needed" }]
       : []),
-    ...(facts.hasCurrentCandidate && !facts.hasCurrentSelection
-      ? [{ id: "select_candidate", shownBecause: "candidate_without_selection" }]
-      : []),
-    ...(facts.hasCurrentSelection && !facts.hasCurrentExport
-      ? [{ id: "prepare_export", shownBecause: "selection_without_export" }]
+    ...(facts.hasCurrentCandidate
+      ? [{
+        id: "deposit_worksheet",
+        shownBecause: facts.hasUnselectedCurrentCandidate
+          ? "new_candidate_variant_ready_for_worksheet_deposit"
+          : "candidate_ready_for_worksheet_deposit"
+      }]
       : []),
     ...(facts.currentConceptApproved
       ? [{
         id: "generate_image_candidate",
-        shownBecause: facts.hasCurrentExport
-          ? "export_exists_variant_allowed"
-          : facts.hasOutdatedSelection
-            ? "selection_outdated_for_current_concept"
-            : facts.hasCurrentCandidate
-              ? "candidate_exists_variant_allowed"
-              : "approved_concept_without_candidate"
+        shownBecause: facts.hasCurrentCandidate
+          ? "candidate_exists_variant_allowed"
+          : "approved_concept_without_candidate"
       }]
       : [])
   ];
@@ -201,11 +231,28 @@ function deriveWorkflowActions(workspace = {}) {
   }
 
   const actions = [primary];
-  if (primary.command === "select_candidate") {
-    const variantCommand = enabledCommand(workspace, "generate_image_candidate");
-    if (variantCommand) {
-      actions.push(actionFromCommand(variantCommand, "alternative_candidate_variant"));
+  if (primary.command === "deposit_worksheet") {
+    const candidateCommand = enabledCommand(workspace, "generate_image_candidate");
+    if (candidateCommand) {
+      actions.push(actionFromCommand(candidateCommand, "alternative_candidate_variant"));
     }
+  }
+  if (
+    primary.command === "prepare_image_spec"
+    && referenceCanBeSkipped(commandById(workspace, primary.command))
+  ) {
+    const candidateCommand = enabledCommand(workspace, "generate_image_candidate");
+    if (candidateCommand) {
+      actions.push(actionFromCommand(candidateCommand, "image_spec_preflight_can_be_completed_inline"));
+    }
+  }
+  const referenceCommand = enabledCommand(workspace, "prepare_reference_asset")
+    || enabledCommand(workspace, "prepare_web_reference_asset");
+  if (
+    referenceCommand
+    && !actions.some((action) => (action.command || action.id) === referenceCommand.id)
+  ) {
+    actions.push(actionFromCommand(referenceCommand, "reference_available_for_next_variant"));
   }
   if (["prepare_reference_asset", "prepare_web_reference_asset"].includes(primary.command)) {
     const adoptCommand = enabledCommand(workspace, "adopt_image_spec");
@@ -227,16 +274,159 @@ function deriveWorkflowActions(workspace = {}) {
 
 function summarizeActions(actions = []) {
   return actions.map((action) => ({
+    id: action.id,
     command: action.command,
     label: action.label,
     shownBecause: action.shownBecause,
-    payload: action.payload || {}
+    payload: action.payload || {},
+    requiresConfirmation: action.requiresConfirmation === true,
+    confirmationKind: action.confirmationKind || null,
+    reason: action.reason || null
   }));
+}
+
+function visibleCommandsFromActions(actions = []) {
+  return actions.map((action) => ({
+    id: action.command || action.id,
+    command: action.command || action.id,
+    label: action.label,
+    enabled: true,
+    defaultPayload: action.payload || {},
+    payload: action.payload || {},
+    requiresConfirmation: action.requiresConfirmation === true,
+    confirmationKind: action.confirmationKind || null,
+    confirmationTitle: action.confirmationTitle || null,
+    confirmationMessage: action.confirmationMessage || null,
+    confirmationAcceptLabel: action.confirmationAcceptLabel || null,
+    decisionPrompt: action.decisionPrompt || null,
+    decisionLabel: action.decisionLabel || null,
+    imageProviders: action.imageProviders || null,
+    referencePolicy: action.referencePolicy || null,
+    referencePreflight: action.referencePreflight === true,
+    reason: action.reason || null,
+    shownBecause: action.shownBecause || null,
+    source: action.source || WORKFLOW_STATE_VERSION
+  }));
+}
+
+function materializedVisibleCommands(workspace = {}) {
+  if (!Array.isArray(workspace.visibleCommands)) {
+    return null;
+  }
+  const commands = workspace.visibleCommands.filter((command) => command && command.source === WORKFLOW_STATE_VERSION);
+  return commands.length === workspace.visibleCommands.length ? commands : null;
+}
+
+function visibleWorkflowCommands(workspace = {}) {
+  const visibleCommands = materializedVisibleCommands(workspace);
+  if (visibleCommands) {
+    return visibleCommands;
+  }
+  const actions = Array.isArray(workspace.workflowActions)
+    ? workspace.workflowActions
+    : deriveWorkflowActions(workspace);
+  return visibleCommandsFromActions(actions);
+}
+
+function workflowActionSummaries(workspace = {}) {
+  return summarizeActions(deriveWorkflowActions(workspace));
+}
+
+function validateWorkflowCommand(workspace = {}, commandId, payload = {}) {
+  const facts = deriveWorkflowFacts(workspace);
+  const command = commandById(workspace, commandId);
+  const enabled = enabledCommand(workspace, commandId);
+
+  if (RETIRED_LEGACY_WORKFLOW_COMMANDS.has(commandId)) {
+    return {
+      ok: false,
+      reason: "Legacy-Auswahl und Legacy-Export sind im MVP kein Produktionspfad mehr. Entwürfe werden direkt als Arbeitsblatt abgelegt."
+    };
+  }
+  if (!command || !SAFE_WORKFLOW_COMMANDS.has(commandId)) {
+    return {
+      ok: false,
+      reason: `Unsupported workflow command: ${commandId}`
+    };
+  }
+  if (!enabled) {
+    if (commandId === "deposit_worksheet" && !facts.hasCurrentCandidate) {
+      return {
+        ok: false,
+        reason: facts.hasAnyCandidate
+          ? "Die vorhandenen Entwurf gehören zu einem älteren Konzeptstand."
+          : "Es gibt noch keinen aktuellen Entwurf mit Seiten."
+      };
+    }
+    return {
+      ok: false,
+      reason: command.reason || `Workflow command is not enabled: ${commandId}`
+    };
+  }
+  if (!GUARDED_WORKFLOW_COMMANDS.has(commandId)) {
+    return { ok: true };
+  }
+  if (commandId === "deposit_worksheet" && !facts.hasCurrentCandidate) {
+    return {
+      ok: false,
+      reason: facts.hasAnyCandidate
+        ? "Die vorhandenen Entwurf gehören zu einem älteren Konzeptstand."
+        : "Es gibt noch keinen aktuellen Entwurf mit Seiten."
+    };
+  }
+  if (commandId === "activate_content_mirror_version") {
+    const requestedConceptId = payload.contentMirrorId || payload.conceptId || null;
+    const requestedVersion = Number(payload.conceptVersion || payload.version || 0) || null;
+    const concepts = Array.isArray(workspace.artifacts?.concepts) ? workspace.artifacts.concepts : [];
+    const target = concepts.find((concept) => {
+      return (requestedConceptId && concept.id === requestedConceptId)
+        || (requestedVersion && Number(concept.version || 0) === requestedVersion);
+    });
+    if (!target) {
+      return {
+        ok: false,
+        reason: "Bitte die gewünschte Konzeptversion explizit auswählen."
+      };
+    }
+    if (!["approved", "draft"].includes(target.status)) {
+      return {
+        ok: false,
+        reason: "Diese Konzeptversion kann nicht als Arbeitsstand übernommen werden."
+      };
+    }
+  }
+  if (
+    ["generate_candidate_from_content_proposal", "adopt_content_mirror_proposal"].includes(commandId)
+    && !payload.proposalId
+  ) {
+    return {
+      ok: false,
+      reason: "Bitte den aktuellen Konzeptvorschlag explizit auswaehlen."
+    };
+  }
+  if (commandId === "adopt_image_spec" && !payload.proposalId) {
+    return {
+      ok: false,
+      reason: "Bitte die aktuelle Entwurfsvorbereitung explizit auswaehlen."
+    };
+  }
+  if (commandId === "generate_image_candidate" && !facts.currentConceptApproved) {
+    return {
+      ok: false,
+      reason: "Arbeitsblatt-Konzept ist noch nicht freigegeben."
+    };
+  }
+  return { ok: true };
 }
 
 module.exports = {
   WORKFLOW_STATE_VERSION,
   deriveWorkflowActions,
   deriveWorkflowFacts,
-  summarizeActions
+  isEnabledWorkflowCommand,
+  summarizeActions,
+  validateWorkflowCommand,
+  visibleWorkflowCommands,
+  workflowActionSummaries,
+  workflowCommandPayload
 };

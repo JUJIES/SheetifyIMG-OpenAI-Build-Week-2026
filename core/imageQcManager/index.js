@@ -6,6 +6,10 @@ const { EVENT_TYPES, PRODUCTION_SCHEMA_VERSION } = require("../contracts");
 const { appendEvent } = require("../eventLog");
 const { appendHistoryEvent } = require("../historyManager");
 const { updateRunAnalysisReport } = require("../runAnalysisManager");
+const { readJsonFileIfExists, writeJsonFile } = require("../jsonFile");
+
+const A4_PORTRAIT_RATIO = 210 / 297;
+const DEFAULT_ASPECT_RATIO_TOLERANCE = 0.005;
 
 async function pathExists(filePath) {
   try {
@@ -21,16 +25,11 @@ async function readJson(filePath) {
 }
 
 async function writeJson(filePath, value) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await writeJsonFile(filePath, value);
 }
 
 async function readJsonIfExists(filePath) {
-  try {
-    return await readJson(filePath);
-  } catch {
-    return null;
-  }
+  return readJsonFileIfExists(filePath);
 }
 
 function pngDimensions(buffer) {
@@ -110,7 +109,68 @@ async function inspectImageFile(filePath) {
   };
 }
 
-function pageResult({ page, info, error }) {
+function parseImageSize(value) {
+  const match = String(value || "").trim().match(/^(\d+)x(\d+)$/i);
+  if (!match) {
+    return null;
+  }
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  return width > 0 && height > 0 ? { width, height, ratio: width / height, label: `${width}x${height}` } : null;
+}
+
+function formatContractFromCandidate(candidate = {}, options = {}) {
+  const requestedSize = candidate.generation?.size || candidate.generation?.requestedSize || null;
+  const parsedSize = parseImageSize(requestedSize);
+  const expectedRatio = parsedSize?.ratio || A4_PORTRAIT_RATIO;
+  const tolerance = Number(options.aspectRatioTolerance) > 0
+    ? Number(options.aspectRatioTolerance)
+    : DEFAULT_ASPECT_RATIO_TOLERANCE;
+  return {
+    kind: "a4_portrait",
+    requestedSize,
+    expectedWidth: parsedSize?.width || null,
+    expectedHeight: parsedSize?.height || null,
+    expectedRatio,
+    tolerance,
+    provider: candidate.generation?.provider || null
+  };
+}
+
+function pageFormatMessages(info, contract) {
+  if (!info?.width || !info?.height || !contract) {
+    return { errors: [], warnings: [] };
+  }
+  const errors = [];
+  const warnings = [];
+  const actualRatio = info.width / info.height;
+  const ratioDelta = Math.abs(actualRatio - contract.expectedRatio) / contract.expectedRatio;
+  if (ratioDelta > contract.tolerance) {
+    errors.push({
+      code: "worksheet_page_aspect_ratio_mismatch",
+      message: `Arbeitsblattseite hat kein stabiles A4-Hochformat: ${info.width}x${info.height}, erwartet ${contract.requestedSize || "A4-Hochformat"}.`
+    });
+  }
+  const exactSizeExpected = contract.provider === "openai" && contract.expectedWidth && contract.expectedHeight;
+  if (exactSizeExpected && (info.width !== contract.expectedWidth || info.height !== contract.expectedHeight)) {
+    errors.push({
+      code: "worksheet_page_size_mismatch",
+      message: `OpenAI-Bildausgabe entspricht nicht der angefragten Seitengröße: ${info.width}x${info.height}, erwartet ${contract.expectedWidth}x${contract.expectedHeight}.`
+    });
+  } else if (
+    contract.expectedWidth
+    && contract.expectedHeight
+    && (info.width !== contract.expectedWidth || info.height !== contract.expectedHeight)
+  ) {
+    warnings.push({
+      code: "worksheet_page_size_differs_from_request",
+      message: `Bildgröße weicht von der angefragten Seitengröße ab: ${info.width}x${info.height}, angefragt ${contract.expectedWidth}x${contract.expectedHeight}.`
+    });
+  }
+  return { errors, warnings };
+}
+
+function pageResult({ page, info, error, formatContract }) {
   const errors = [];
   const warnings = [];
   if (error) {
@@ -128,18 +188,27 @@ function pageResult({ page, info, error }) {
       message: "Bildabmessungen konnten nicht sicher gelesen werden."
     });
   }
+  const formatMessages = pageFormatMessages(info, formatContract);
+  errors.push(...formatMessages.errors);
+  warnings.push(...formatMessages.warnings);
   return {
     page: page.page,
     role: page.role,
     path: page.path,
     ...info,
+    formatContract,
+    aspectRatio: info?.width && info?.height ? Number((info.width / info.height).toFixed(6)) : null,
     errors,
     warnings
   };
 }
 
-function textContractFromBrief(imageSheetBrief = {}) {
+function textContractFromBrief(imageSheetBrief = {}, candidate = {}) {
   const content = imageSheetBrief.contentMirror || {};
+  const generation = candidate.generation || {};
+  const contentChangePolicy = generation.contentChangePolicy || "preserve_approved_text";
+  const changeScope = generation.changeScope || "candidate_from_concept";
+  const textLocked = contentChangePolicy === "preserve_approved_text";
   const texts = [];
   if (content.title) {
     texts.push({ role: "title", text: content.title });
@@ -159,11 +228,15 @@ function textContractFromBrief(imageSheetBrief = {}) {
     }
   }
   return {
-    policy: "image_first_approved_text_only",
-    status: "not_checked",
+    policy: contentChangePolicy,
+    changeScope,
+    status: textLocked ? "locked_pending_visual_review" : "not_checked",
+    locked: textLocked,
     expectedTextCount: texts.length,
     expectedTexts: texts,
-    note: "Texttreue braucht OCR oder einen visuellen GPT-Check nach der Bildgenerierung."
+    note: textLocked
+      ? "Der Entwurfslauf durfte keinen freigegebenen Haupttext ändern. Technischer QC speichert den Textvertrag; ein echter Abweichungsnachweis braucht OCR oder visuellen GPT-Check."
+      : "Texttreue braucht OCR oder einen visuellen GPT-Check nach der Bildgenerierung."
   };
 }
 
@@ -176,6 +249,7 @@ async function runCandidateTechnicalQc(projectDir, runId, candidateId, options =
   if (!candidate) {
     throw new Error(`Candidate does not exist: ${candidateId}`);
   }
+  const formatContract = formatContractFromCandidate(candidate, options);
 
   const pages = [];
   for (const page of candidate.pages || []) {
@@ -183,16 +257,18 @@ async function runCandidateTechnicalQc(projectDir, runId, candidateId, options =
     if (!page.path || !(await pathExists(filePath))) {
       pages.push(pageResult({
         page,
+        formatContract,
         error: {
           code: "candidate_page_missing",
-          message: `Kandidatenseite fehlt: ${page.path || "unbekannt"}`
+          message: `Entwurfsseite fehlt: ${page.path || "unbekannt"}`
         }
       }));
       continue;
     }
     pages.push(pageResult({
       page,
-      info: await inspectImageFile(filePath)
+      info: await inspectImageFile(filePath),
+      formatContract
     }));
   }
 
@@ -206,7 +282,8 @@ async function runCandidateTechnicalQc(projectDir, runId, candidateId, options =
     status: errorCount > 0 ? "error" : warningCount > 0 ? "warning" : "passed",
     errorCount,
     warningCount,
-    contentFidelity: textContractFromBrief(imageSheetBrief || {}),
+    formatContract,
+    contentFidelity: textContractFromBrief(imageSheetBrief || {}, candidate),
     pages
   };
 
@@ -215,7 +292,7 @@ async function runCandidateTechnicalQc(projectDir, runId, candidateId, options =
   await appendEvent(projectDir, {
     type: EVENT_TYPES.QC_COMPLETED,
     createdAt: now,
-    step: "kandidaten",
+    step: "entwuerfe",
     runId,
     payload: {
       candidateId,

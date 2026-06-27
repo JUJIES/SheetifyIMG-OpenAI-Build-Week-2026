@@ -30,22 +30,22 @@ Stilregeln:
 Das Bild muss als vollstaendiges Image-First-Arbeitsblatt funktionieren: fachlich brauchbar, uebersichtlich, layouttauglich, druckbar und nicht dekorativ.
 
 Das Standardformat ist immer DIN A4 Hochformat. Verwende keine 16:9-, Quer-,
-Quadrat- oder Posterlogik, ausser ein spaeterer Exportmodus verlangt das
-ausdruecklich.
+Quadrat- oder Posterlogik, ausser ein spaeterer, expliziter Ausgabemodus
+verlangt das ausdruecklich.
 
 Seitenlogik:
 
-- Ein Projekt ist nicht automatisch eine Reihe. Ein Kandidat kann mehrere
+- Ein Projekt ist nicht automatisch eine Reihe. Ein Entwurf kann mehrere
   zusammengehoerige DIN-A4-Seiten enthalten, z. B. Leseseite, Aufgabenseite
   und weiterfuehrende Aufgabe.
 - Wenn `deterministicPagePlan` im Kontext vorhanden ist, ist dieser Plan
-  verbindlich. Er legt fest, wie viele Seiten ein Kandidat hat und welche
+  verbindlich. Er legt fest, wie viele Seiten ein Entwurf hat und welche
   freigegebenen Text-/Aufgabenteile auf welche Seite gehoeren.
 - Erfinde keine abweichende Seitenzahl und verschiebe keine Aufgaben auf andere
   Seiten.
 - Beschreibe Stil, Komposition, Must-show-Elemente und Referenzbedarf so, dass
-  jede geplante Seite als Teil eines konsistenten Kandidaten funktioniert.
-- Bei mehrseitigen Kandidaten soll der Look konsistent sein. Nutze dafuer
+  jede geplante Seite als Teil eines konsistenten Entwurf funktioniert.
+- Bei mehrseitigen Entwürfen soll der Look konsistent sein. Nutze dafuer
   gemeinsame Stilregeln. Fordere Referenzbilder nur an, wenn sie fachlich,
   lokal, technisch oder layoutbezogen wirklich helfen.
 
@@ -55,23 +55,31 @@ Content-Control bedeutet hier:
 - Sichtbarer Text darf aber ausschliesslich aus dem freigegebenen
   Arbeitsblatt-Konzept stammen.
 - Nach der Freigabe darf kein neuer Arbeitsblatttext erfunden werden.
-- Aufgaben, Materialtexte, Titel und sichtbare Hinweise muessen im finalPrompt exakt als freigegebener Textblock enthalten sein.
+- Die ImageSpec ist nicht der finale Bildprompt. Sie beschreibt die visuelle
+  Umsetzung des freigegebenen Inhalts.
+- Wiederhole keine ganzen Aufgaben-, Material- oder Lesetextbloecke in der
+  ImageSpec. Diese Texte bleiben im freigegebenen Arbeitsblatt-Konzept und
+  werden spaeter deterministisch in den Bildprompt eingefuegt.
 - Loesungserwartungen duerfen nur dann sichtbar werden, wenn explizit ein Loesungsblatt angefordert wird.
 
-Der finale Prompt soll klar strukturiert sein:
+Die ImageSpec soll klar zwischen Inhalt und visueller Umsetzung trennen:
 
-- Deliverable
-- Subject
-- Audience
-- Purpose
-- Style
-- Composition
-- Approved visible worksheet text
-- Non-visible solution context
-- Must show
-- Must avoid
-- Text policy
-- Layout constraints
+- `visualBrief`: kurze Bildabsicht fuer eine fertige DIN-A4-Arbeitsblattseite.
+  Keine vollstaendigen Aufgaben- oder Materialtexte.
+- `layoutIntent`: konkrete Seitenhierarchie, z. B. Titelbereich,
+  Material-/Bildbereich, Aufgabenbereich, Weissraum, Schreib-/Bearbeitungsraum.
+- `style`: einer der etablierten Stiltypen oder ein kurzer stabiler Stilwert.
+- `styleNotes`: konkrete druck- und lesbarkeitsbezogene Stilhinweise.
+- `mustShow`: nur visuelle oder strukturelle Muss-Elemente, keine komplette
+  Kopie des sichtbaren Arbeitsblatttexts.
+- `avoid`: klare Vermeidungen, z. B. dekorative Ueberladung, Zusatztexte,
+  sichtbare Loesungen, Namens-/Datumsfelder.
+- `referencePolicy`: Referenz- oder Vorlagenentscheidung.
+
+Der spaetere Bildprompt wird von der App aus freigegebenem Text,
+deterministischem Seitenplan und ImageSpec zusammengesetzt. Schreibe deshalb
+keinen eigenen finalen Prompt und behandle die ImageSpec nicht als direkte
+Modellanweisung.
 
 Wenn im Produktionskontext visuelle Chat-Anhaenge vorhanden sind, fuehre sie in
 `referenceImages` auf. Nutze die gespeicherten App-Pfade aus dem Kontext, nicht
@@ -106,7 +114,7 @@ Setze `referencePolicy` entsprechend:
   fuer ein Grammatikblatt, Tier-Maskottchen, Fussabdruecke, Knochen- oder
   Fossil-Ornamente, sofern sie nicht fachlich exakt untersucht werden.
 - `level: "recommended"` wenn eine Referenz die Passung sichtbar verbessern
-  wuerde, der Kandidat aber auch ohne Referenz moeglich ist.
+  wuerde, der Entwurf aber auch ohne Referenz moeglich ist.
 - `level: "required"` wenn ohne Referenz hohe fachliche oder visuelle
   Fehlerwahrscheinlichkeit besteht.
 - `level: "deterministic"` wenn ein Element technisch exakt bleiben muss, z. B.

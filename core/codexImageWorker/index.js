@@ -159,12 +159,18 @@ async function assertChatGptCodexLogin(config = {}) {
   return statusText;
 }
 
-function codexExecPrompt({ targetPath, prompt }) {
+function codexExecPrompt({ targetPath, prompt, requestedSize }) {
+  const size = String(requestedSize || "").trim();
+  const sizeInstruction = size
+    ? `Target pixel canvas: exactly ${size} px. Keep the full PNG output at exactly ${size} pixels if the image tool allows explicit pixel dimensions.`
+    : "Target pixel canvas: use the closest available A4 portrait pixel canvas.";
   return [
     "$imagegen",
     "Use Codex built-in image generation, not the OpenAI API.",
     "Create exactly one PNG image for the SheetifyIMG worksheet candidate.",
-    "Target format: DIN A4 portrait, closest available A4 ratio. Avoid square output.",
+    sizeInstruction,
+    "Target aspect ratio: DIN A4 portrait, exactly 210:297 / 0.7071. Avoid square output, 2:3 poster output, 16:9, or landscape.",
+    "If exact pixels are not possible, preserve the 210:297 A4 aspect ratio as the hard priority and report the actual detected pixel size.",
     `Save or copy the final generated PNG to this exact absolute path: ${targetPath}`,
     "If the image is first stored under ~/.codex/generated_images, copy the newest generated PNG to that target path.",
     "After saving, reply with only the saved path and detected pixel size if available.",
@@ -235,6 +241,7 @@ async function runCodexImageJob({ projectDir, runDir, candidateId, pageNumber, p
   await fs.mkdir(jobDir, { recursive: true });
   const codexPrompt = codexExecPrompt({
     targetPath,
+    requestedSize: requestConfig.imageSize,
     prompt
   });
   await writeText(promptPath, codexPrompt);

@@ -173,15 +173,15 @@ function contentReadinessForGeneration(content = {}, context = {}) {
     ready: reasons.length === 0,
     reasons,
     constraints,
-    summary: reasons[0] || "Arbeitsblatt-Konzept ist konkret genug für Kandidaten."
+    summary: reasons[0] || "Arbeitsblatt-Konzept ist konkret genug für Entwürfe."
   };
 }
 
 function contentReadinessMessage(readiness = {}) {
   if (readiness.ready) {
-    return readiness.summary || "Arbeitsblatt-Konzept ist konkret genug für Kandidaten.";
+    return readiness.summary || "Arbeitsblatt-Konzept ist konkret genug für Entwürfe.";
   }
-  return `Arbeitsblatt-Konzept ist noch nicht bereit für Kandidaten: ${(readiness.reasons || []).join(" ")}`;
+  return `Arbeitsblatt-Konzept ist noch nicht bereit für Entwürfe: ${(readiness.reasons || []).join(" ")}`;
 }
 
 module.exports = {

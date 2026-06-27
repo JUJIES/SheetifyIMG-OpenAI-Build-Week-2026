@@ -88,8 +88,6 @@ async function inspectProjectContract(projectDir) {
 
     if (identity.projectType === PROJECT_TYPES.SINGLE_WORKSHEET) {
       await requireIndexedArtifactFiles(projectDir, errors);
-    } else if (identity.projectType === PROJECT_TYPES.SERIES) {
-      await requireFile(projectDir, "series-manifest.json", errors);
     } else {
       errors.push({
         code: "unsupported_production_project_type",

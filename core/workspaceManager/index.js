@@ -5,8 +5,7 @@ const path = require("node:path");
 const {
   ARTIFACT_STATUSES,
   ARTIFACT_TYPES,
-  EVENT_TYPES,
-  PROJECT_TYPES
+  EVENT_TYPES
 } = require("../contracts");
 const { getApprovalState } = require("../approvalManager");
 const {
@@ -17,6 +16,7 @@ const {
 const { readEvents } = require("../eventLog");
 const { getLibraryItem } = require("../libraryManager");
 const { openProject } = require("../projectManager");
+const { listProjectWorksheets } = require("../worksheetLibraryManager");
 const { getAiRuntimeStatus, getImageRuntimeStatus } = require("../aiConfig");
 const { inputReadiness } = require("../inputReadiness");
 const { readProposalState } = require("../aiProposalManager");
@@ -24,12 +24,19 @@ const { hasMeaningfulContent } = require("../contentMirrorManager");
 const { normalizeConceptReference } = require("../conceptReference");
 const { inferReferencePolicy } = require("../referencePolicy");
 const { readTeachingContext } = require("../teachingContextManager");
+const { presentWorkflowEvent } = require("../chatEventPresenter");
 const {
   contentReadinessForGeneration,
   contentReadinessMessage
 } = require("../contentReadiness");
 const { pageCountFromContent } = require("../pagePlanManager");
-const { workflowActionSummaries } = require("../workflowPolicy");
+const {
+  deriveWorkflowActions,
+  deriveWorkflowFacts,
+  visibleWorkflowCommands
+} = require("../workflowState");
+const { commandUiMetadata } = require("../workflowCommandCatalog");
+const { readJsonFileIfExists } = require("../jsonFile");
 
 const DEFAULT_REPO_ROOT = path.resolve(__dirname, "..", "..");
 const DEFAULT_PROJECTS_DIR = path.join(DEFAULT_REPO_ROOT, "projects");
@@ -44,10 +51,7 @@ async function pathExists(filePath) {
 }
 
 async function readJsonIfExists(filePath) {
-  if (!(await pathExists(filePath))) {
-    return null;
-  }
-  return JSON.parse(await fs.readFile(filePath, "utf8"));
+  return readJsonFileIfExists(filePath);
 }
 
 async function listDirs(dirPath) {
@@ -69,12 +73,17 @@ function rel(from, to) {
   return toPosix(path.relative(from, to));
 }
 
+function assetUrl(repoRoot, filePath) {
+  return `/files/${encodeURI(toPosix(path.relative(repoRoot, filePath)))}`;
+}
+
 function commandState(id, label, enabled, reason = null, meta = {}) {
   return {
     id,
     label,
     enabled: Boolean(enabled),
     reason: enabled ? null : reason,
+    ...commandUiMetadata(id, label),
     ...meta
   };
 }
@@ -107,44 +116,56 @@ async function latestRunState(projectDir, options = {}) {
 
   const runDir = runDirs[runDirs.length - 1];
   const manifest = await readJsonIfExists(path.join(runDir, "run-manifest.json"));
-  const selection = await readJsonIfExists(path.join(runDir, "selected", "selection.json"));
-  const candidates = Array.isArray(manifest?.candidates) ? manifest.candidates : [];
+  const runId = manifest?.runId || path.basename(runDir);
+  const rawCandidates = Array.isArray(manifest?.candidates) ? manifest.candidates : [];
+  const candidates = await Promise.all(rawCandidates.map(async (candidate) => {
+    const qc = await readJsonIfExists(path.join(runDir, "qc", `${candidate.id}.technical-qc.json`));
+    if (!qc?.formatContract) {
+      return candidate;
+    }
+    return {
+      ...candidate,
+      status: qc.status === "error" ? "technical_failed" : candidate.status,
+      qc: {
+        status: qc.status || null,
+        errorCount: qc.errorCount || 0,
+        warningCount: qc.warningCount || 0,
+        path: `qc/${candidate.id}.technical-qc.json`
+      }
+    };
+  }));
+  const manifestWithQc = manifest ? { ...manifest, candidates } : manifest;
   const currentCandidates = candidates.filter((candidate) => {
-    return contentMirrorRefMatchesCurrent(candidateContentMirrorId({ manifest }, candidate), currentContentMirrorId);
+    return contentMirrorRefMatchesCurrent(candidateContentMirrorId({ manifest: manifestWithQc }, candidate), currentContentMirrorId);
   });
-  const rawSelectedCandidateId = selection?.selectedCandidate || manifest?.selectedCandidate || null;
-  const rawSelectedCandidateDetail = rawSelectedCandidateId
-    ? candidates.find((candidate) => candidate.id === rawSelectedCandidateId) || null
-    : null;
+  const selectableCurrentCandidates = currentCandidates.filter((candidate) => (candidate.pages || []).length > 0);
+  const latestCurrentCandidate = selectableCurrentCandidates.at(-1) || null;
   const concept = normalizeConceptReference(
-    selection?.concept || rawSelectedCandidateDetail?.concept || manifest?.selectedCandidateConcept || manifest?.concept || {},
+    manifest?.concept || {},
     manifest?.sourceArtifacts || {}
   );
-  const rawSelectedPageCount = Array.isArray(selection?.pages) ? selection.pages.length : 0;
-  const selectionContentMirrorId = contentMirrorIdFromConcept(concept);
-  const selectionIsCurrent = rawSelectedPageCount === 0
-    || contentMirrorRefMatchesCurrent(selectionContentMirrorId, currentContentMirrorId);
-  const selectedCandidateId = selectionIsCurrent ? rawSelectedCandidateId : null;
-  const selectedCandidateDetail = selectionIsCurrent ? rawSelectedCandidateDetail : null;
   return {
-    runId: manifest?.runId || path.basename(runDir),
+    runId,
     path: rel(projectDir, runDir),
-    manifest,
-    selection,
+    manifest: manifestWithQc,
+    selection: null,
     concept,
     candidateCount: currentCandidates.length,
     rawCandidateCount: candidates.length,
-    selectedCandidate: selectedCandidateId,
-    selectedCandidateId,
-    rawSelectedCandidate: rawSelectedCandidateId,
-    rawSelectedCandidateId,
-    selectedCandidateDetail,
-    selectedCandidateConcept: selectedCandidateId ? concept : null,
-    selectedPageCount: selectionIsCurrent ? rawSelectedPageCount : 0,
-    rawSelectedPageCount,
-    selectionIsCurrent,
-    hasOutdatedSelection: rawSelectedPageCount > 0 && !selectionIsCurrent,
-    selectionContentMirrorId
+    latestCurrentCandidateId: latestCurrentCandidate?.id || null,
+    latestCurrentCandidateArtifactId: latestCurrentCandidate?.id ? `${runId}_${latestCurrentCandidate.id}` : null,
+    selectedCandidate: null,
+    selectedCandidateId: null,
+    rawSelectedCandidate: null,
+    rawSelectedCandidateId: null,
+    selectedCandidateDetail: null,
+    selectedCandidateConcept: null,
+    selectedPageCount: 0,
+    rawSelectedPageCount: 0,
+    selectionIsCurrent: true,
+    hasOutdatedSelection: false,
+    hasUnselectedCurrentCandidate: Boolean(latestCurrentCandidate?.id),
+    selectionContentMirrorId: null
   };
 }
 
@@ -154,17 +175,152 @@ function candidateContentMirrorId(runState, candidate = {}) {
     || null;
 }
 
+function candidateHasBlockingQc(candidate = {}) {
+  return candidate.status === "technical_failed" || candidate.qc?.status === "error";
+}
+
+function sortByVersionDesc(left, right) {
+  return (Number(right.version) || 0) - (Number(left.version) || 0)
+    || String(right.createdAt || "").localeCompare(String(left.createdAt || ""));
+}
+
+function conceptSummaryFromContent(data = {}) {
+  const taskCount = Array.isArray(data.tasks) ? data.tasks.length : 0;
+  const readingTextCount = Array.isArray(data.readingTexts) ? data.readingTexts.length : 0;
+  const imageMaterialCount = Array.isArray(data.imageMaterials) ? data.imageMaterials.length : 0;
+  return {
+    title: data.title || data.topic || null,
+    taskCount,
+    readingTextCount,
+    imageMaterialCount
+  };
+}
+
+async function contentMirrorHistory(projectDir, index, currentContent = null) {
+  const artifacts = listArtifacts(index, { type: ARTIFACT_TYPES.CONTENT_MIRROR })
+    .sort(sortByVersionDesc);
+  const history = [];
+
+  for (const artifact of artifacts) {
+    const data = artifact.path ? await readJsonIfExists(path.join(projectDir, artifact.path)) : null;
+    const summary = conceptSummaryFromContent(data || {});
+    history.push({
+      id: artifact.id,
+      type: artifact.type,
+      version: Number(artifact.version) || null,
+      label: artifact.version ? `Konzept v${artifact.version}` : "Arbeitsblatt-Konzept",
+      path: artifact.path || null,
+      status: artifact.status || null,
+      current: currentContent?.id === artifact.id,
+      createdFrom: Array.isArray(artifact.createdFrom) ? artifact.createdFrom : [],
+      createdAt: artifact.createdAt || data?.createdAt || null,
+      updatedAt: artifact.updatedAt || data?.updatedAt || null,
+      title: summary.title,
+      taskCount: summary.taskCount,
+      readingTextCount: summary.readingTextCount,
+      imageMaterialCount: summary.imageMaterialCount,
+      data
+    });
+  }
+
+  return history;
+}
+
+async function candidatePreviewFromRun({ repoRoot, runDir, index, currentContentMirrorId }) {
+  const manifest = await readJsonIfExists(path.join(runDir, "run-manifest.json"));
+  const runId = manifest?.runId || path.basename(runDir);
+  const runArtifact = findArtifact(index, runId);
+  const candidates = [];
+
+  for (const candidate of manifest?.candidates || []) {
+    const concept = normalizeConceptReference(candidate.concept || manifest.concept || {}, manifest.sourceArtifacts || {});
+    const artifactId = `${runId}_${candidate.id}`;
+    const artifact = findArtifact(index, artifactId);
+    const qc = await readJsonIfExists(path.join(runDir, "qc", `${candidate.id}.technical-qc.json`));
+    const pages = [];
+    for (const page of candidate.pages || []) {
+      if (!page.path) {
+        continue;
+      }
+      const filePath = path.join(runDir, page.path);
+      const exists = await pathExists(filePath);
+      pages.push({
+        page: page.page,
+        role: page.role,
+        path: toPosix(path.relative(repoRoot, filePath)),
+        url: exists ? assetUrl(repoRoot, filePath) : null,
+        missing: !exists,
+        assetId: page.assetId || null,
+        format: page.format || null
+      });
+    }
+
+    const contentMirrorId = candidateContentMirrorId({ manifest }, candidate) || contentMirrorIdFromConcept(concept);
+    const status = artifact?.status || candidate.status || runArtifact?.status || null;
+    candidates.push({
+      artifactId,
+      id: candidate.id,
+      runId,
+      runStatus: runArtifact?.status || manifest?.status || null,
+      status,
+      current: Boolean(currentContentMirrorId && contentMirrorId === currentContentMirrorId && status !== ARTIFACT_STATUSES.OUTDATED),
+      concept,
+      basedOnConceptId: candidate.basedOnConceptId || contentMirrorId || concept.conceptId,
+      basedOnConceptVersion: candidate.basedOnConceptVersion || concept.conceptVersion,
+      contentMirrorId,
+      createdAt: artifact?.createdAt || candidate.createdAt || manifest?.createdAt || null,
+      generation: candidate.generation ? {
+        provider: candidate.generation.provider || null,
+        model: candidate.generation.model || null,
+        pageCount: candidate.generation.pageCount || candidate.generation.plannedPageCount || null,
+        plannedPageCount: candidate.generation.plannedPageCount || null,
+        generatedPageCount: candidate.generation.generatedPageCount || null,
+        qualityPreset: candidate.generation.qualityPreset || null,
+        qualityLabel: candidate.generation.qualityLabel || null
+      } : null,
+      qc: qc?.formatContract ? {
+        status: qc.status || null,
+        errorCount: qc.errorCount || 0,
+        warningCount: qc.warningCount || 0,
+        path: `runs/${runId}/qc/${candidate.id}.technical-qc.json`
+      } : candidate.qc || null,
+      pages
+    });
+  }
+
+  return candidates;
+}
+
+async function candidateHistory({ repoRoot, projectDir, index, currentContentMirrorId }) {
+  const runDirs = await listDirs(path.join(projectDir, "runs"));
+  const candidates = [];
+  for (const runDir of runDirs) {
+    candidates.push(...await candidatePreviewFromRun({
+      repoRoot,
+      runDir,
+      index,
+      currentContentMirrorId
+    }));
+  }
+  return candidates.sort((left, right) => {
+    return String(right.createdAt || "").localeCompare(String(left.createdAt || ""))
+      || String(right.runId || "").localeCompare(String(left.runId || ""))
+      || String(right.id || "").localeCompare(String(left.id || ""));
+  });
+}
+
 function firstSelectableCandidate(runState, currentContentMirrorId = null) {
+  const selectableCandidates = [];
   for (const candidate of runState?.manifest?.candidates || []) {
     const candidateContentId = candidateContentMirrorId(runState, candidate);
     if (currentContentMirrorId && candidateContentId && candidateContentId !== currentContentMirrorId) {
       continue;
     }
-    if ((candidate.pages || []).length > 0) {
-      return candidate.id;
+    if ((candidate.pages || []).length > 0 && !candidateHasBlockingQc(candidate)) {
+      selectableCandidates.push(candidate);
     }
   }
-  return null;
+  return selectableCandidates.at(-1)?.id || null;
 }
 
 function imageSpecMatchesCurrentContent(imageSpec = null, currentContent = null) {
@@ -255,8 +411,12 @@ function referencePolicySupportsWebSearch(policy = null) {
 
 function imageCandidateDefaultPayload({ activeImageSpec, runState, imageRuntime, currentContent, pageCount }) {
   const payload = {
-    imageQualityPreset: imageRuntime.imageQualityPreset
+    imageQualityPreset: imageRuntime.imageQualityPreset,
+    contentChangePolicy: "preserve_approved_text"
   };
+  if (runState?.candidateCount) {
+    payload.changeScope = "visual_only";
+  }
   if (Number(pageCount) > 1) {
     payload.pageCount = Number(pageCount);
   }
@@ -280,17 +440,41 @@ function plannedPageCountForCandidates(activeImageSpec = null, currentContentDat
 
 function candidateGenerationLabel({ hasCandidate, pageCount }) {
   if (pageCount > 1) {
-    return hasCandidate ? "Weitere Kandidatenreihe erzeugen" : "Kandidatenreihe erzeugen";
+    return hasCandidate ? "Weiteren mehrseitigen Entwurf erstellen" : "Mehrseitigen Entwurf erstellen";
   }
-  return hasCandidate ? "Weitere Variante erzeugen" : "Kandidat erzeugen";
+  return hasCandidate ? "Weitere Variante erstellen" : "Entwurf erstellen";
 }
 
-function buildWorksheetSteps({ project, currentBrief, currentContent, approvalState, runState, item, inputState }) {
+function candidateGenerationLabelForConcept({ hasCandidate, pageCount, currentContent }) {
+  const version = Number(currentContent?.version || 0) || null;
+  const conceptLabel = version ? `Konzept v${version}` : null;
+  const baseLabel = candidateGenerationLabel({ hasCandidate, pageCount });
+  if (!conceptLabel) {
+    return baseLabel;
+  }
+  if (/weitere variante/i.test(baseLabel)) {
+    return `Weitere Variante aus ${conceptLabel} erstellen`;
+  }
+  if (/weiteren mehrseitigen entwurf|mehrseitigen entwurf/i.test(baseLabel) && /weitere/i.test(baseLabel)) {
+    return `Weiteren mehrseitigen Entwurf aus ${conceptLabel} erstellen`;
+  }
+  if (/mehrseitigen entwurf/i.test(baseLabel)) {
+    return `Mehrseitigen Entwurf aus ${conceptLabel} erstellen`;
+  }
+  return `Entwurf aus ${conceptLabel} erstellen`;
+}
+
+function worksheetDepositActionLabel(pageCount = 1) {
+  return (Number(pageCount || 0) || 1) > 1 ? "Arbeitsblätter ablegen" : "Arbeitsblatt ablegen";
+}
+
+function buildWorksheetSteps({ project, currentBrief, currentContent, approvalState, runState, item, inputState, candidateGeneration }) {
   const preview = item.preview || {};
   const hasInput = Boolean(inputState?.ready);
   const canUsePreviewSelection = !runState || !runState.hasOutdatedSelection;
   const hasCandidates = Boolean(runState?.candidateCount || (canUsePreviewSelection && preview.previewMeta?.renderedCandidateCount));
-  const candidateState = hasCandidates ? "available" : "missing";
+  const candidatePending = Boolean(candidateGeneration?.isRunning);
+  const candidateState = candidatePending ? "generating" : hasCandidates ? "available" : "missing";
 
   return [
     {
@@ -307,34 +491,9 @@ function buildWorksheetSteps({ project, currentBrief, currentContent, approvalSt
     },
     {
       id: "candidates",
-      label: "Kandidaten",
+      label: "Entwürfe",
       state: candidateState,
       complete: hasCandidates
-    }
-  ];
-}
-
-async function buildSeriesSteps(projectDir) {
-  const seriesManifest = await readJsonIfExists(path.join(projectDir, "series-manifest.json"));
-  const worksheetCount = Array.isArray(seriesManifest?.worksheets) ? seriesManifest.worksheets.length : 0;
-  return [
-    {
-      id: "input",
-      label: "Input",
-      state: worksheetCount > 0 ? "has_worksheets" : "empty",
-      complete: worksheetCount > 0
-    },
-    {
-      id: "concept",
-      label: "Arbeitsblatt-Konzept",
-      state: worksheetCount > 0 ? "has_worksheets" : "empty",
-      complete: worksheetCount > 0
-    },
-    {
-      id: "candidates",
-      label: "Kandidaten",
-      state: worksheetCount > 0 ? "available" : "missing",
-      complete: worksheetCount > 0
     }
   ];
 }
@@ -352,11 +511,12 @@ function buildWorksheetCommands({
   events = [],
   inputState,
   source,
-  teachingContext
+  teachingContext,
+  candidateGeneration,
+  conceptHistory = []
 }) {
   if (project.isLegacy) {
     return [
-      commandState("copy_context", "Inhalt kopieren", true),
       commandState(
         "legacy_read_only",
         "Legacy-Projekt migrieren",
@@ -367,7 +527,16 @@ function buildWorksheetCommands({
   }
 
   const selectableCandidateId = firstSelectableCandidate(runState, currentContent?.id || null);
-  const hasSelection = Boolean(runState?.selectedPageCount);
+  const latestCurrentCandidate = (runState?.manifest?.candidates || [])
+    .find((candidate) => candidate.id === runState?.latestCurrentCandidateId) || null;
+  const defaultDepositCandidateId = latestCurrentCandidate && !candidateHasBlockingQc(latestCurrentCandidate)
+    ? runState?.latestCurrentCandidateId
+    : selectableCandidateId;
+  const defaultDepositCandidate = (runState?.manifest?.candidates || [])
+    .find((candidate) => candidate.id === defaultDepositCandidateId) || null;
+  const defaultDepositCandidatePageCount = (defaultDepositCandidate?.pages || []).length || 0;
+  const hasBlockedCandidateForDeposit = (runState?.manifest?.candidates || [])
+    .some((candidate) => (candidate.pages || []).length > 0 && candidateHasBlockingQc(candidate));
   const latestLessonBriefProposal = proposals?.latestLessonBrief || null;
   const latestContentMirrorProposal = proposals?.latestContentMirror || null;
   const latestContentWarningsProposal = proposals?.latestContentWarnings || null;
@@ -388,11 +557,14 @@ function buildWorksheetCommands({
     && proposalContentReadiness.ready;
   const imageProviderOptions = imageRuntime.imageProviders || [];
   const imageGenerationConfigured = imageRuntime.canUseOpenAi || imageRuntime.canUseCodex;
-  const defaultImageProvider = imageRuntime.canUseCodex
-    ? "codex_cli"
-    : imageRuntime.canUseOpenAi
-      ? "openai"
-      : imageRuntime.mode;
+  const candidateGenerationRunning = Boolean(candidateGeneration?.isRunning);
+  const defaultImageProvider = imageRuntime.status === "ready"
+    ? imageRuntime.mode
+    : imageRuntime.canUseCodex
+      ? "codex_cli"
+      : imageRuntime.canUseOpenAi
+        ? "openai"
+        : imageRuntime.mode;
   const proposalContentReadinessReason = contentReadinessMessage(proposalContentReadiness);
   const inputReady = Boolean(inputState?.ready);
   const inputMissingReason = inputState?.reason || "Es fehlt noch ein verwertbarer Arbeitsblatt-Auftrag.";
@@ -430,7 +602,7 @@ function buildWorksheetCommands({
     && referencePolicyNeedsAction(referenceActionPolicy)
     && referenceActionSupportsWebSearch;
   const referenceActionReason = !referenceImageSpec
-    ? "Es gibt noch keine Kandidatenvorbereitung."
+    ? "Es gibt noch keine Entwurfsvorbereitung."
     : !referencePolicyNeedsAction(referenceActionPolicy)
       ? "Referenzentscheidung ist schon erledigt."
       : referenceActionNeedsUpload
@@ -438,6 +610,12 @@ function buildWorksheetCommands({
         : "Für diese Visualisierung gibt es keine automatisch erzeugbare Vorlage.";
 
   return [
+    commandState(
+      "activate_content_mirror_version",
+      "Konzeptversion als Basis setzen",
+      conceptHistory.length > 0,
+      "Es gibt noch keine Konzeptversion."
+    ),
     commandState(
       "generate_lessonbrief_proposal",
       "Konzept vorschlagen",
@@ -482,15 +660,15 @@ function buildWorksheetCommands({
     ),
     commandState(
       "generate_candidate_from_content_proposal",
-      "Konzept übernehmen und Kandidat erzeugen",
+      "Konzept übernehmen und Entwurf erstellen",
       false,
       latestContentMirrorProposal
-        ? "Bitte zuerst das Konzept übernehmen oder aktualisieren. Danach wird Kandidat erzeugen auf dem freigegebenen Stand angeboten."
+        ? "Bitte zuerst das Konzept übernehmen oder aktualisieren. Danach wird die Aktion „Entwurf erstellen“ auf dem freigegebenen Stand angeboten."
         : "Es gibt kein offenes Arbeitsblatt-Konzept.",
       {
         requiresConfirmation: true,
         confirmationKind: "image_generation_provider",
-        confirmationMessage: `Das übernimmt das angezeigte Arbeitsblatt-Konzept, gibt es frei und erzeugt einen ${imageRuntime.imageQualityLabel || "Standard"}-Kandidaten. Der Bildanbieter ist in den Einstellungen festgelegt.`,
+        confirmationMessage: `Das übernimmt das angezeigte Arbeitsblatt-Konzept, gibt es frei und erstellt einen ${imageRuntime.imageQualityLabel || "Standard"}-Entwurf. Der Bildanbieter ist in den Einstellungen festgelegt.`,
         imageProviders: imageProviderOptions,
         defaultPayload: latestContentMirrorProposal ? {
           proposalId: latestContentMirrorProposal.proposalId,
@@ -533,7 +711,7 @@ function buildWorksheetCommands({
       "prepare_image_spec",
       preliminaryReferencePolicy.level !== "none" && !referenceImageSpec
         ? "Visualisierung prüfen"
-        : "Kandidaten vorbereiten",
+        : "Entwurf vorbereiten",
       approvalState.canGenerate && contentIsReadyForCandidates,
       approvalState.canGenerate
         ? contentReadinessReason
@@ -551,9 +729,9 @@ function buildWorksheetCommands({
     ),
     commandState(
       "adopt_image_spec",
-      "Kandidatenvorbereitung übernehmen",
+      "Entwurfsvorbereitung übernehmen",
       Boolean(latestImageSpecProposal),
-      "Es gibt keine offene Kandidatenvorbereitung.",
+      "Es gibt keine offene Entwurfsvorbereitung.",
       latestImageSpecProposal ? { defaultPayload: { proposalId: latestImageSpecProposal.proposalId } } : {}
     ),
     commandState(
@@ -574,7 +752,7 @@ function buildWorksheetCommands({
       "Webreferenz suchen",
       webReferenceActionEnabled,
       !referenceImageSpec
-        ? "Es gibt noch keine Kandidatenvorbereitung."
+        ? "Es gibt noch keine Entwurfsvorbereitung."
         : !referencePolicyNeedsAction(referenceActionPolicy)
           ? "Referenzentscheidung ist schon erledigt."
           : "Für diese Visualisierung ist keine Webreferenz vorgesehen.",
@@ -588,7 +766,7 @@ function buildWorksheetCommands({
     ),
     commandState(
       "create_run",
-      "Kandidatenrunde anlegen",
+      "Entwurfsrunde anlegen",
       approvalState.canGenerate && contentIsReadyForCandidates,
       approvalState.canGenerate
         ? contentReadinessReason
@@ -596,9 +774,17 @@ function buildWorksheetCommands({
     ),
     commandState(
       "generate_image_candidate",
-      candidateGenerationLabel({ hasCandidate: Boolean(selectableCandidateId), pageCount: plannedCandidatePageCount }),
-      approvalState.canGenerate && contentIsReadyForCandidates && imageGenerationConfigured,
-      !approvalState.canGenerate
+      candidateGenerationLabelForConcept({
+        hasCandidate: Boolean(selectableCandidateId),
+        pageCount: plannedCandidatePageCount,
+        currentContent
+      }),
+      approvalState.canGenerate && contentIsReadyForCandidates && imageGenerationConfigured && !candidateGenerationRunning,
+      candidateGenerationRunning
+        ? plannedCandidatePageCount > 1
+          ? "Für dieses Projekt läuft bereits ein mehrseitiger Entwurf im Hintergrund."
+          : "Für dieses Projekt läuft bereits ein Entwurf im Hintergrund."
+        : !approvalState.canGenerate
         ? approvalState.reason || "Arbeitsblatt-Konzept ist nicht freigegeben."
         : !contentIsReadyForCandidates
           ? contentReadinessReason
@@ -608,11 +794,11 @@ function buildWorksheetCommands({
         confirmationKind: "image_generation_provider",
         confirmationMessage: selectableCandidateId
           ? plannedCandidatePageCount > 1
-            ? `Dieser Schritt erzeugt eine weitere ${imageRuntime.imageQualityLabel || "Standard"}-Kandidatenreihe mit ${plannedCandidatePageCount} Seiten. Der Bildanbieter ist in den Einstellungen festgelegt.`
-            : `Dieser Schritt erzeugt eine weitere ${imageRuntime.imageQualityLabel || "Standard"}-Variante. Der Bildanbieter ist in den Einstellungen festgelegt.`
+            ? `Dieser Schritt erstellt einen weiteren ${imageRuntime.imageQualityLabel || "Standard"}-Entwurf mit ${plannedCandidatePageCount} Seiten. Der Bildanbieter ist in den Einstellungen festgelegt.`
+            : `Dieser Schritt erstellt eine weitere ${imageRuntime.imageQualityLabel || "Standard"}-Variante. Der Bildanbieter ist in den Einstellungen festgelegt.`
           : plannedCandidatePageCount > 1
-            ? `Dieser Schritt erzeugt eine ${imageRuntime.imageQualityLabel || "Standard"}-Kandidatenreihe mit ${plannedCandidatePageCount} Seiten. Der Bildanbieter ist in den Einstellungen festgelegt.`
-            : `Dieser Schritt erzeugt einen ${imageRuntime.imageQualityLabel || "Standard"}-Kandidaten. Der Bildanbieter ist in den Einstellungen festgelegt.`,
+            ? `Dieser Schritt erstellt einen ${imageRuntime.imageQualityLabel || "Standard"}-Entwurf mit ${plannedCandidatePageCount} Seiten. Der Bildanbieter ist in den Einstellungen festgelegt.`
+            : `Dieser Schritt erstellt einen ${imageRuntime.imageQualityLabel || "Standard"}-Entwurf. Der Bildanbieter ist in den Einstellungen festgelegt.`,
         imageProviders: imageProviderOptions,
         defaultPayload: {
           ...imageCandidateDefaultPayload({
@@ -627,42 +813,19 @@ function buildWorksheetCommands({
       }
     ),
     commandState(
-      "select_candidate",
-      plannedCandidatePageCount > 1 ? "Alle Seiten übernehmen" : "Kandidat auswählen",
-      Boolean(selectableCandidateId),
-      "Es gibt noch keinen Kandidaten mit Seiten.",
+      "deposit_worksheet",
+      worksheetDepositActionLabel(defaultDepositCandidatePageCount || plannedCandidatePageCount),
+      Boolean(defaultDepositCandidateId),
+      hasBlockedCandidateForDeposit
+        ? "Der aktuelle Entwurf hat die technische Formatprüfung nicht bestanden."
+        : "Es gibt noch keinen Entwurf mit Seiten.",
       {
-        defaultCandidateId: selectableCandidateId,
-        defaultPayload: selectableCandidateId ? {
+        defaultPayload: defaultDepositCandidateId ? {
           runId: runState?.runId || null,
-          candidateId: selectableCandidateId
+          candidateId: defaultDepositCandidateId
         } : {}
       }
     ),
-    commandState(
-      "prepare_export",
-      "PDF erstellen",
-      hasSelection && approvalState.canGenerate,
-      hasSelection
-        ? approvalState.reason || "Arbeitsblatt-Konzept ist nicht freigegeben."
-        : "Es gibt noch keine Auswahl."
-    ),
-    commandState("copy_context", "Inhalt kopieren", true)
-  ];
-}
-
-async function buildSeriesCommands(projectDir) {
-  const seriesManifest = await readJsonIfExists(path.join(projectDir, "series-manifest.json"));
-  const worksheets = Array.isArray(seriesManifest?.worksheets) ? seriesManifest.worksheets : [];
-  return [
-    commandState("copy_context", "Reiheninhalt kopieren", true),
-    commandState(
-      "prepare_series_export",
-      "Reihen-PDF erstellen",
-      worksheets.length > 0,
-      "Die Reihe enthält noch keine Arbeitsblätter.",
-      { worksheetCount: worksheets.length }
-    )
   ];
 }
 
@@ -682,8 +845,17 @@ function workspaceMessagesFromEvents(events) {
         };
       }
       if (event.type === EVENT_TYPES.CANDIDATE_CREATED) {
-        const candidateId = event.payload?.candidateId || "Kandidat";
-        const fallbackMessage = `${candidateId} ist fertig gerendert. Du kannst das PDF herunterladen, eine weitere Variante erzeugen oder das Konzept im Chat nachschärfen.`;
+        const candidateId = event.payload?.candidateId || "Entwurf";
+        const pageCount = Number(event.payload?.pageCount || event.payload?.candidate?.pages?.length || 1) || 1;
+        const runId = event.runId || event.payload?.runId || null;
+        const depositLabel = worksheetDepositActionLabel(pageCount);
+        const fallbackMessage = presentWorkflowEvent({
+          kind: "candidate_created",
+          candidate: {
+            id: candidateId,
+            pageCount
+          }
+        }) || `${candidateId} ist fertig.`;
         return {
           id: event.id,
           role: "assistant",
@@ -692,10 +864,17 @@ function workspaceMessagesFromEvents(events) {
           mode: "system",
           productionCard: {
             kind: "candidate",
-            runId: event.runId || null,
+            runId,
             candidateId
           },
-          suggestedActions: []
+          suggestedActions: [{
+            command: "deposit_worksheet",
+            label: depositLabel,
+            payload: {
+              ...(runId ? { runId } : {}),
+              candidateId
+            }
+          }]
         };
       }
       if (event.type === EVENT_TYPES.ARTIFACT_CREATED && (
@@ -709,7 +888,46 @@ function workspaceMessagesFromEvents(events) {
     .filter(Boolean);
 }
 
-async function worksheetWorkspace({ projectId, projectDir, projectsDir, repoRoot, project }) {
+function worksheetDepositKey(runId = "", candidateId = "") {
+  const normalizedRunId = String(runId || "").trim();
+  const normalizedCandidateId = String(candidateId || "").trim();
+  return normalizedRunId && normalizedCandidateId ? `${normalizedRunId}::${normalizedCandidateId}` : "";
+}
+
+function buildWorksheetDepositState(worksheets = []) {
+  const byCandidateKey = {};
+  for (const worksheet of worksheets) {
+    const source = worksheet.source || {};
+    const runId = String(source.runId || "").trim();
+    const candidateIds = new Set([
+      source.candidateId,
+      ...(Array.isArray(source.candidateIds) ? source.candidateIds : []),
+      ...(worksheet.pages || []).map((page) => page.sourceCandidateId || null)
+    ].filter(Boolean));
+    for (const candidateId of candidateIds) {
+      const key = worksheetDepositKey(runId, candidateId);
+      if (!key) {
+        continue;
+      }
+      if (!byCandidateKey[key]) {
+        byCandidateKey[key] = [];
+      }
+      byCandidateKey[key].push({
+        worksheetId: worksheet.worksheetId,
+        title: worksheet.title || worksheet.worksheetId,
+        kind: worksheet.kind || null,
+        pageCount: Number(worksheet.pageCount || worksheet.pages?.length || 0) || 0,
+        createdAt: worksheet.createdAt || null
+      });
+    }
+  }
+  return {
+    count: worksheets.length,
+    byCandidateKey
+  };
+}
+
+async function worksheetWorkspace({ projectId, projectDir, projectsDir, repoRoot, worksheetsDir, project }) {
   const item = await getLibraryItem(`project:${projectId}`, { repoRoot, projectsDir });
   const index = await readArtifactIndex(projectDir);
   const approvalState = await getApprovalState(projectDir);
@@ -720,6 +938,13 @@ async function worksheetWorkspace({ projectId, projectDir, projectsDir, repoRoot
   const runState = await latestRunState(projectDir, {
     currentContentMirrorId: currentContent?.id || null
   });
+  const candidateGeneration = project.derivedStatus?.candidateGeneration || {
+    isRunning: false,
+    activeJob: null,
+    latestCompletion: null,
+    latestFailure: null,
+    hasUnreadCompletion: false
+  };
   const events = await readEvents(projectDir);
   const chatRuntime = getAiRuntimeStatus();
   const imageRuntime = getImageRuntimeStatus();
@@ -735,6 +960,18 @@ async function worksheetWorkspace({ projectId, projectDir, projectsDir, repoRoot
     source: item.documents?.source || {},
     events
   });
+  const conceptHistory = await contentMirrorHistory(projectDir, index, currentContent);
+  const candidates = await candidateHistory({
+    repoRoot,
+    projectDir,
+    index,
+    currentContentMirrorId: currentContent?.id || null
+  });
+  const projectWorksheets = await listProjectWorksheets(projectId, {
+    repoRoot,
+    ...(worksheetsDir ? { worksheetsDir } : {})
+  });
+  const worksheetDeposits = buildWorksheetDepositState(projectWorksheets);
 
   const workspace = {
     schemaVersion: 1,
@@ -755,10 +992,14 @@ async function worksheetWorkspace({ projectId, projectDir, projectsDir, repoRoot
     teachingContext,
     inputReadiness: inputState,
     preview: item.preview,
+    candidateGeneration,
     artifacts: {
       currentBrief,
       currentContent,
       approvedContent: approvalState.approvedContentMirror,
+      concepts: conceptHistory,
+      candidates,
+      worksheetDeposits,
       counts: Object.fromEntries(Object.values(ARTIFACT_TYPES).map((type) => [
         type,
         listArtifacts(index, { type }).length
@@ -767,7 +1008,15 @@ async function worksheetWorkspace({ projectId, projectDir, projectsDir, repoRoot
     approval: approvalState,
     image: imageRuntime,
     latestRun: runState,
-    steps: buildWorksheetSteps({ project, currentBrief, currentContent, approvalState, runState, item, inputState }),
+    exports: {
+      totalCount: 0,
+      currentCount: 0,
+      hasAny: false,
+      hasCurrent: false,
+      items: [],
+      current: []
+    },
+    steps: buildWorksheetSteps({ project, currentBrief, currentContent, approvalState, runState, item, inputState, candidateGeneration }),
     proposals,
     commands: buildWorksheetCommands({
       project,
@@ -782,7 +1031,9 @@ async function worksheetWorkspace({ projectId, projectDir, projectsDir, repoRoot
       events,
       inputState,
       source: item.documents?.source || {},
-      teachingContext
+      teachingContext,
+      candidateGeneration,
+      conceptHistory
     }),
     chat: {
       ...chatRuntime,
@@ -792,171 +1043,27 @@ async function worksheetWorkspace({ projectId, projectDir, projectsDir, repoRoot
       projectDir: rel(repoRoot, projectDir)
     }
   };
-  workspace.workflowActions = workflowActionSummaries(workspace);
-  return workspace;
-}
-
-async function seriesWorkspace({ projectId, projectDir, projectsDir, repoRoot, project }) {
-  const item = await getLibraryItem(`project:${projectId}`, { repoRoot, projectsDir });
-  const index = await readArtifactIndex(projectDir);
-  const events = await readEvents(projectDir);
-  const seriesManifest = await readJsonIfExists(path.join(projectDir, "series-manifest.json"));
-  const chatRuntime = getAiRuntimeStatus();
-  const imageRuntime = getImageRuntimeStatus();
-  const workspace = {
-    schemaVersion: 1,
-    mode: "production_workspace",
-    project: {
-      projectId,
-      projectType: project.projectType,
-      title: project.title,
-      subject: project.subject,
-      topic: project.topic,
-      sourceType: project.sourceType,
-      isLegacy: project.isLegacy,
-      status: project.status
-    },
-    workspaceEntry: project.workspaceEntry,
-    documents: item.documents,
-    preview: item.preview,
-    image: imageRuntime,
-    series: seriesManifest || null,
-    artifacts: {
-      counts: Object.fromEntries(Object.values(ARTIFACT_TYPES).map((type) => [
-        type,
-        listArtifacts(index, { type }).length
-      ]))
-    },
-    steps: await buildSeriesSteps(projectDir),
-    commands: await buildSeriesCommands(projectDir),
-    chat: {
-      ...chatRuntime,
-      messages: workspaceMessagesFromEvents(events)
-    },
-    paths: {
-      projectDir: rel(repoRoot, projectDir)
-    }
-  };
-  workspace.workflowActions = workflowActionSummaries(workspace);
+  workspace.workflowState = deriveWorkflowFacts(workspace);
+  workspace.workflowActions = deriveWorkflowActions(workspace);
+  workspace.visibleCommands = visibleWorkflowCommands(workspace);
   return workspace;
 }
 
 async function buildWorkspace(projectId, options = {}) {
   const repoRoot = options.repoRoot || DEFAULT_REPO_ROOT;
   const projectsDir = options.projectsDir || DEFAULT_PROJECTS_DIR;
+  const worksheetsDir = options.worksheetsDir;
   const projectDir = path.join(projectsDir, projectId);
   const project = await openProject(projectId, { projectsDir });
 
-  if (project.projectType === PROJECT_TYPES.SERIES || project.projectType === "bundle") {
-    return seriesWorkspace({ projectId, projectDir, projectsDir, repoRoot, project });
+  if (project.projectType !== "single_worksheet") {
+    throw new Error(`Only single worksheet projects are supported here: ${project.projectType}`);
   }
 
-  return worksheetWorkspace({ projectId, projectDir, projectsDir, repoRoot, project });
-}
-
-async function worksheetCopyContext(projectId, projectDir, project) {
-  const draftBrief = await readJsonIfExists(path.join(projectDir, "brief", "draft.lessonbrief.json"));
-  const approvedBrief = await readJsonIfExists(path.join(projectDir, "brief", "approved.lessonbrief.json"));
-  const draftContent = await readJsonIfExists(path.join(projectDir, "content", "draft.content-mirror.json"));
-  const approvedContent = await readJsonIfExists(path.join(projectDir, "content", "approved.content-mirror.json"));
-  const briefStatus = approvedBrief ? "approved" : draftBrief ? "draft" : "missing";
-  const contentStatus = approvedContent ? "approved" : draftContent ? "draft" : "missing";
-  return {
-    app: "SheetifyIMG",
-    kind: "worksheet_concept_export",
-    schemaVersion: 1,
-    intendedUse: "Use this JSON as machine-readable worksheet concept input for another LLM. It intentionally contains only project metadata, lesson planning data and worksheet content data.",
-    project: {
-      projectId,
-      title: project.title,
-      subject: project.subject,
-      topic: project.topic,
-      status: project.status,
-      seriesMembership: project.manifest?.seriesMembership || null
-    },
-    sourceStatus: {
-      lessonBrief: briefStatus,
-      worksheetContent: contentStatus
-    },
-    lessonBrief: {
-      status: briefStatus,
-      data: approvedBrief || draftBrief || null
-    },
-    worksheetContent: {
-      status: contentStatus,
-      data: approvedContent || draftContent || null
-    }
-  };
-}
-
-async function seriesCopyContext(projectId, projectDir, project, options = {}) {
-  const seriesManifest = await readJsonIfExists(path.join(projectDir, "series-manifest.json"));
-  const allowedIds = new Set((options.worksheetIds || []).filter(Boolean));
-  const worksheets = [];
-
-  for (const entry of seriesManifest?.worksheets || []) {
-    if (allowedIds.size > 0 && !allowedIds.has(entry.projectId)) {
-      continue;
-    }
-    const worksheetDir = path.resolve(projectDir, entry.path || "");
-    const worksheetManifest = await readJsonIfExists(path.join(worksheetDir, "project-manifest.json"));
-    if (!worksheetManifest) {
-      worksheets.push({
-        ...entry,
-        status: "missing"
-      });
-      continue;
-    }
-    const worksheetProject = await openProject(worksheetManifest.projectId || entry.projectId, {
-      projectsDir: path.dirname(worksheetDir)
-    });
-    worksheets.push({
-      ...entry,
-      status: "available",
-      conceptExport: await worksheetCopyContext(worksheetManifest.projectId || entry.projectId, worksheetDir, worksheetProject)
-    });
-  }
-
-  return {
-    app: "SheetifyIMG",
-    kind: "series_content_export",
-    schemaVersion: 1,
-    intendedUse: "Use this JSON as machine-readable worksheet-series concept input for another LLM. It intentionally contains only project metadata, lesson planning data and worksheet content data.",
-    project: {
-      projectId,
-      title: project.title,
-      subject: project.subject,
-      topic: project.topic,
-      status: project.status
-    },
-    series: {
-      title: seriesManifest?.title || project.title,
-      worksheetCount: worksheets.length,
-      worksheets
-    }
-  };
-}
-
-async function buildCopyContext(projectId, options = {}) {
-  const repoRoot = options.repoRoot || DEFAULT_REPO_ROOT;
-  const projectsDir = options.projectsDir || DEFAULT_PROJECTS_DIR;
-  const projectDir = path.join(projectsDir, projectId);
-  const project = await openProject(projectId, { projectsDir });
-  const payload = project.projectType === PROJECT_TYPES.SERIES || project.projectType === "bundle"
-    ? await seriesCopyContext(projectId, projectDir, project, options)
-    : await worksheetCopyContext(projectId, projectDir, project);
-
-  return {
-    payload,
-    text: `${JSON.stringify(payload, null, 2)}\n`,
-    paths: {
-      projectDir: rel(repoRoot, projectDir)
-    }
-  };
+  return worksheetWorkspace({ projectId, projectDir, projectsDir, repoRoot, worksheetsDir, project });
 }
 
 module.exports = {
-  buildCopyContext,
   buildWorkspace,
   workspaceMessagesFromEvents
 };
