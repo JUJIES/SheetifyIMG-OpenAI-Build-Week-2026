@@ -11,6 +11,7 @@ const repoRoot = path.resolve(__dirname, "..");
 const requiredFiles = [
   "package-lock.json",
   "public/index.html",
+  "server/owner-auth.js",
   "server/production-server.js",
   "server/runtime-config.js",
   "server/runtime-health.js"

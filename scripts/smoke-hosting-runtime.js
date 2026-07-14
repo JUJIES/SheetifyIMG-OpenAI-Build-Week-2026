@@ -6,6 +6,7 @@ const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
+const { generateOwnerPasswordHash } = require("../server/owner-auth");
 const { resolveServerConfig } = require("../server/runtime-config");
 
 const repoRoot = path.resolve(__dirname, "..");
@@ -81,6 +82,11 @@ async function main() {
   const envFile = path.join(tempRoot, "sheetifyimg.env");
   const port = await freePort();
   const fakeSecret = "sk-hosting-smoke-not-a-real-key";
+  const ownerPassword = "hosting-owner-password-not-a-secret";
+  const ownerPasswordHash = await generateOwnerPasswordHash(ownerPassword, {
+    salt: Buffer.alloc(16, 11)
+  });
+  const ownerAuthorization = `Basic ${Buffer.from(`owner:${ownerPassword}`, "utf8").toString("base64")}`;
 
   assert.throws(
     () => resolveServerConfig({ repoRoot, env: productionEnv("", { SHEETIFYIMG_RUNTIME_DIR: "" }) }),
@@ -98,12 +104,37 @@ async function main() {
     () => resolveServerConfig({ repoRoot, env: productionEnv(runtimeDir, { SHEETIFYIMG_PUBLIC_URL: "http://example.test" }) }),
     /must use HTTPS/
   );
+  assert.throws(
+    () => resolveServerConfig({
+      repoRoot,
+      env: productionEnv(runtimeDir, { SHEETIFYIMG_PUBLIC_URL: "https://sheetify.example.test" })
+    }),
+    /requires owner auth/
+  );
+  assert.throws(
+    () => resolveServerConfig({
+      repoRoot,
+      env: productionEnv(runtimeDir, { SHEETIFYIMG_OWNER_AUTH_ENABLED: "1" })
+    }),
+    /PASSWORD_HASH is required/
+  );
+  assert.throws(
+    () => resolveServerConfig({
+      repoRoot,
+      env: productionEnv(runtimeDir, {
+        SHEETIFYIMG_OWNER_AUTH_ENABLED: "1",
+        SHEETIFYIMG_OWNER_AUTH_PASSWORD_HASH: "invalid"
+      })
+    }),
+    /supported scrypt format/
+  );
 
   const config = resolveServerConfig({ repoRoot, env: productionEnv(runtimeDir) });
   assert.equal(config.production, true);
   assert.equal(config.projectsDir, path.join(runtimeDir, "projects"));
   assert.equal(config.worksheetsDir, path.join(runtimeDir, "worksheets"));
   assert.equal(config.exposeBillingStatus, false);
+  assert.equal(config.ownerAuth.enabled, false);
   assert.equal(config.planningFlow, "v2");
   assert.equal(resolveServerConfig({
     repoRoot,
@@ -122,6 +153,9 @@ async function main() {
     "SHEETIFYIMG_IMAGE_PROVIDER=openai",
     "SHEETIFYIMG_CODEX_IMAGE_ENABLED=0",
     "SHEETIFYIMG_IMAGE_PRESET=sparsam",
+    "SHEETIFYIMG_OWNER_AUTH_ENABLED=1",
+    "SHEETIFYIMG_OWNER_AUTH_USERNAME=owner",
+    `SHEETIFYIMG_OWNER_AUTH_PASSWORD_HASH=${ownerPasswordHash}`,
     ""
   ].join("\n"), { mode: 0o600 });
 
@@ -132,6 +166,9 @@ async function main() {
     "PROJECTS_DIR",
     "WORKSHEETS_DIR",
     "SHEETIFYIMG_PLANNING_FLOW",
+    "SHEETIFYIMG_OWNER_AUTH_ENABLED",
+    "SHEETIFYIMG_OWNER_AUTH_USERNAME",
+    "SHEETIFYIMG_OWNER_AUTH_PASSWORD_HASH",
     "SHEETIFYIMG_HTTPS_KEY",
     "SHEETIFYIMG_HTTPS_CERT"
   ]) {
@@ -187,17 +224,54 @@ async function main() {
     assert.equal(liveResponse.status, 200);
     assert.equal(liveResponse.headers.get("x-content-type-options"), "nosniff");
 
-    const rootResponse = await fetch(`${baseUrl}/`);
+    const anonymousRootResponse = await fetch(`${baseUrl}/`, {
+      headers: { "cf-connecting-ip": "203.0.113.10" }
+    });
+    assert.equal(anonymousRootResponse.status, 401);
+    assert.match(anonymousRootResponse.headers.get("www-authenticate") || "", /^Basic realm="SheetifyIMG"/);
+    assert.equal(anonymousRootResponse.headers.get("cache-control"), "no-store");
+
+    const anonymousProjectResponse = await fetch(`${baseUrl}/api/projects/single`, {
+      method: "POST",
+      headers: {
+        "cf-connecting-ip": "203.0.113.20",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ title: "Must not be created" })
+    });
+    assert.equal(anonymousProjectResponse.status, 401);
+    assert.deepEqual(await fs.readdir(path.join(runtimeDir, "projects")), []);
+
+    const wrongAuthorization = `Basic ${Buffer.from("owner:wrong-password-with-enough-bytes").toString("base64")}`;
+    const wrongPasswordResponse = await fetch(`${baseUrl}/`, {
+      headers: {
+        authorization: wrongAuthorization,
+        "cf-connecting-ip": "203.0.113.10"
+      }
+    });
+    assert.equal(wrongPasswordResponse.status, 401);
+
+    const rootResponse = await fetch(`${baseUrl}/`, {
+      headers: {
+        authorization: ownerAuthorization,
+        "cf-connecting-ip": "203.0.113.10"
+      }
+    });
     assert.equal(rootResponse.status, 200);
     assert.match(rootResponse.headers.get("content-type") || "", /text\/html/);
 
-    const serviceWorkerResponse = await fetch(`${baseUrl}/service-worker.js`);
+    const serviceWorkerResponse = await fetch(`${baseUrl}/service-worker.js`, {
+      headers: { authorization: ownerAuthorization }
+    });
     assert.equal(serviceWorkerResponse.status, 200);
     assert.match(serviceWorkerResponse.headers.get("content-type") || "", /javascript/);
 
     const projectResponse = await fetch(`${baseUrl}/api/projects/single`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        authorization: ownerAuthorization,
+        "content-type": "application/json"
+      },
       body: JSON.stringify({
         title: "Hosting Smoke",
         subject: "Test",
@@ -209,30 +283,43 @@ async function main() {
     assert.equal(created.project.projectId, "hosting-smoke");
     await fs.access(path.join(runtimeDir, "projects", "hosting-smoke", "project-manifest.json"));
 
-    const listResponse = await fetch(`${baseUrl}/api/projects`);
+    const listResponse = await fetch(`${baseUrl}/api/projects`, {
+      headers: { authorization: ownerAuthorization }
+    });
     assert.equal(listResponse.status, 200);
     assert.equal(listResponse.headers.get("cache-control"), "no-store");
     assert.equal((await listResponse.json()).projects.length, 1);
 
     const invalidJson = await fetch(`${baseUrl}/api/projects/single`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        authorization: ownerAuthorization,
+        "content-type": "application/json"
+      },
       body: "{invalid"
     });
     assert.equal(invalidJson.status, 400);
 
     const oversizedJson = await fetch(`${baseUrl}/api/projects/single`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        authorization: ownerAuthorization,
+        "content-type": "application/json"
+      },
       body: JSON.stringify({ title: "x".repeat(400) })
     });
     assert.equal(oversizedJson.status, 413);
 
-    const billingResponse = await fetch(`${baseUrl}/api/billing/status`);
+    const billingResponse = await fetch(`${baseUrl}/api/billing/status`, {
+      headers: { authorization: ownerAuthorization }
+    });
     assert.equal(billingResponse.status, 404);
 
     assert.match(output(), /"planningFlow":"v2"/);
+    assert.match(output(), /"ownerAuthEnabled":true/);
     assert.doesNotMatch(output(), new RegExp(fakeSecret.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.doesNotMatch(output(), new RegExp(ownerPassword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.doesNotMatch(output(), new RegExp(ownerPasswordHash.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   } finally {
     if (child.exitCode === null) {
       child.kill("SIGTERM");

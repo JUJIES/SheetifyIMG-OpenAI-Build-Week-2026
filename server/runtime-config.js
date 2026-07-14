@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { loadEnvFile, loadLocalEnv } = require("../core/localEnv");
 const { resolvePlanningFlow } = require("../core/planningFlowConfig");
+const { parseOwnerPasswordHash } = require("./owner-auth");
 
 const RUNTIME_MODES = Object.freeze({
   DEVELOPMENT: "development",
@@ -137,6 +138,25 @@ function resolveServerConfig(options = {}) {
     throw new Error("SHEETIFYIMG_PUBLIC_URL must use HTTPS in production mode.");
   }
 
+  const ownerAuthEnabled = booleanValue(env.SHEETIFYIMG_OWNER_AUTH_ENABLED, false);
+  const ownerAuthUsername = nonEmpty(env.SHEETIFYIMG_OWNER_AUTH_USERNAME) || "owner";
+  const ownerAuthPasswordHash = nonEmpty(env.SHEETIFYIMG_OWNER_AUTH_PASSWORD_HASH);
+  if (ownerAuthUsername.includes(":") || /[\u0000-\u001f\u007f]/.test(ownerAuthUsername)) {
+    throw new Error("SHEETIFYIMG_OWNER_AUTH_USERNAME must not contain colons or control characters.");
+  }
+  if (ownerAuthUsername.length > 128) {
+    throw new Error("SHEETIFYIMG_OWNER_AUTH_USERNAME must not exceed 128 characters.");
+  }
+  if (ownerAuthEnabled && !ownerAuthPasswordHash) {
+    throw new Error("SHEETIFYIMG_OWNER_AUTH_PASSWORD_HASH is required when owner auth is enabled.");
+  }
+  if (ownerAuthPasswordHash) {
+    parseOwnerPasswordHash(ownerAuthPasswordHash);
+  }
+  if (production && publicUrl && !ownerAuthEnabled) {
+    throw new Error("Production with SHEETIFYIMG_PUBLIC_URL requires owner auth until Beta Pass is implemented.");
+  }
+
   const requireOpenAi = booleanValue(env.SHEETIFYIMG_REQUIRE_OPENAI, production);
   if (requireOpenAi && !nonEmpty(env.OPENAI_API_KEY)) {
     throw new Error("OPENAI_API_KEY is required by the production configuration.");
@@ -165,6 +185,11 @@ function resolveServerConfig(options = {}) {
     host,
     port: portNumber(env.PORT, 4173),
     publicUrl,
+    ownerAuth: Object.freeze({
+      enabled: ownerAuthEnabled,
+      username: ownerAuthUsername,
+      passwordHash: ownerAuthPasswordHash
+    }),
     httpsKeyPath,
     httpsCertPath,
     httpsEnabled: Boolean(httpsKeyPath && httpsCertPath),
@@ -197,6 +222,7 @@ function safeServerConfig(config) {
     port: config.port,
     httpsEnabled: config.httpsEnabled,
     publicUrlConfigured: Boolean(config.publicUrl),
+    ownerAuthEnabled: config.ownerAuth.enabled,
     runtimeConfigured: Boolean(config.runtimeDir),
     billingStatusExposed: config.exposeBillingStatus,
     planningFlow: config.planningFlow,

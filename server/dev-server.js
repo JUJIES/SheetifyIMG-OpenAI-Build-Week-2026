@@ -58,6 +58,7 @@ const {
   prepareRuntime,
   writeRuntimeProbe
 } = require("./runtime-health");
+const { createOwnerAuthGate } = require("./owner-auth");
 
 const repoRoot = path.resolve(__dirname, "..");
 const AI_ENV_KEYS = [
@@ -103,6 +104,7 @@ if (!process.env.SHEETIFYIMG_CHAT_INTENT_INTERPRETER) {
 }
 
 const serverConfig = resolveServerConfig({ repoRoot });
+const ownerAuthGate = createOwnerAuthGate(serverConfig.ownerAuth);
 const {
   projectsDir,
   worksheetsDir,
@@ -1000,6 +1002,10 @@ async function handleRequest(request, response) {
     const rawPath = rawPathname(request);
 
     if (request.method === "GET" && await handleHealth(pathname, response)) {
+      return;
+    }
+
+    if (!await ownerAuthGate.authorize(request, response)) {
       return;
     }
 
