@@ -159,7 +159,8 @@ function evaluateReadiness(inputContext = {}) {
   const missingRequired = REQUIRED_FIELD_IDS.filter((id) => !fieldReady(context.fields[id]));
   const optionalMissing = FIELD_IDS.filter((id) => !REQUIRED_FIELD_IDS.includes(id) && !fieldReady(context.fields[id]));
   const ready = missingRequired.length === 0;
-  const forced = context.forcedWithAssumptions === true;
+  const forced = context.forcedWithAssumptions === true && !ready;
+  context.forcedWithAssumptions = forced;
   const nextFieldId = missingRequired[0] || optionalMissing[0] || null;
   const nextField = FIELD_DEFINITIONS.find((field) => field.id === nextFieldId) || null;
   context.phase = ready
@@ -524,6 +525,45 @@ function applySemanticTeachingContext(context, interpretation, options = {}) {
   return evaluateReadiness(context);
 }
 
+function applyPlanningTeachingContextPatch(inputContext = {}, patch = {}, options = {}) {
+  const context = normalizeContext(inputContext);
+  const now = options.now || null;
+  const fields = patch.fields && typeof patch.fields === "object" ? patch.fields : {};
+  for (const id of FIELD_IDS) {
+    const fieldPatch = fields[id] || {};
+    if (fieldPatch.operation === "keep") {
+      continue;
+    }
+    if (fieldPatch.operation === "clear") {
+      context.fields[id] = emptyField(id);
+      context.fields[id].source = "ai_planning";
+      context.fields[id].updatedAt = now;
+      continue;
+    }
+    if (fieldPatch.operation !== "set") {
+      continue;
+    }
+    const value = acceptableSemanticValue(id, fieldPatch.value, options.message || "");
+    const confidence = Number(fieldPatch.confidence) || 0;
+    if (!value || confidence < confidenceThresholdForField(id)) {
+      continue;
+    }
+    const status = semanticStatusForField(fieldPatch) || "known";
+    context.fields[id] = normalizeField(id, {
+      ...context.fields[id],
+      value,
+      status,
+      assumption: status === "assumed",
+      source: "ai_planning",
+      updatedAt: now
+    });
+  }
+  if (patch.forceWithAssumptions === true) {
+    context.forcedWithAssumptions = true;
+  }
+  return evaluateReadiness(context);
+}
+
 function inferFromProjectAndDocuments(context, options = {}) {
   const project = options.project || {};
   const brief = options.brief || {};
@@ -655,6 +695,7 @@ async function updateTeachingContextFromMessage(projectDir, message, options = {
 module.exports = {
   FIELD_DEFINITIONS,
   REQUIRED_FIELD_IDS,
+  applyPlanningTeachingContextPatch,
   applySemanticTeachingContext,
   evaluateReadiness,
   readTeachingContext,

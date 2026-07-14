@@ -8,6 +8,7 @@ const { PROPOSAL_KINDS, adoptProposal, generateProposal } = require("../aiPropos
 const { readEvents } = require("../eventLog");
 const { defaultBriefDraft, defaultContentDraft } = require("../workspaceCommandDrafts");
 const { activateContentMirrorVersion } = require("./contentMirrorActivation");
+const { PLANNING_FLOWS, resolvePlanningFlow } = require("../planningFlowConfig");
 const {
   approveCurrentBrief,
   approveCurrentContent,
@@ -17,10 +18,30 @@ const {
   readJson
 } = require("./shared");
 
-async function generateCompleteConceptProposal(context) {
+function withoutClientPlanningFlow(payload = {}) {
+  const {
+    planningFlow: _planningFlow,
+    conceptFlow: _conceptFlow,
+    unifiedConcept: _unifiedConcept,
+    ...trustedPayload
+  } = payload;
+  return trustedPayload;
+}
+
+function contentProposalInput(payload = {}, planningFlow = PLANNING_FLOWS.LEGACY) {
+  const trustedPayload = withoutClientPlanningFlow(payload);
+  const useV2 = planningFlow === PLANNING_FLOWS.V2;
+  return {
+    ...trustedPayload,
+    unifiedConcept: useV2,
+    conceptFlow: useV2 ? PLANNING_FLOWS.V2 : null
+  };
+}
+
+async function generateCompleteConceptProposalLegacy(context) {
   const { projectId, projectDir, payload, input, now } = context;
   const sharedInput = {
-    ...payload,
+    ...contentProposalInput(payload, PLANNING_FLOWS.LEGACY),
     message: payload.message || input.message || "Formuliere ein vollständiges Arbeitsblatt-Konzept mit Text, Aufgaben und Bildidee.",
     now
   };
@@ -43,13 +64,31 @@ async function generateCompleteConceptProposal(context) {
   }, handlerOptions(context));
 }
 
+async function generateCompleteConceptProposalV2(context) {
+  const { projectId, payload, input, now } = context;
+  return generateProposal(projectId, PROPOSAL_KINDS.CONTENT_MIRROR, {
+    ...contentProposalInput(payload, PLANNING_FLOWS.V2),
+    message: payload.message || input.message || "Formuliere ein vollständiges Arbeitsblatt-Konzept mit Text, Aufgaben und Bildidee.",
+    unifiedConcept: true,
+    conceptFlow: PLANNING_FLOWS.V2,
+    now
+  }, handlerOptions(context));
+}
+
+function generateCompleteConceptProposal(context) {
+  const flow = resolvePlanningFlow({ trustedPlanningFlowOverride: context.planningFlow });
+  return flow === PLANNING_FLOWS.V2
+    ? generateCompleteConceptProposalV2(context)
+    : generateCompleteConceptProposalLegacy(context);
+}
+
 async function generateLessonBriefProposal(context) {
   const { projectId, payload, input, now } = context;
   if (payload.completeConcept === true) {
     return generateCompleteConceptProposal(context);
   }
   return generateProposal(projectId, PROPOSAL_KINDS.LESSON_BRIEF, {
-    ...payload,
+    ...withoutClientPlanningFlow(payload),
     message: payload.message || input.message,
     now
   }, handlerOptions(context));
@@ -65,7 +104,7 @@ async function adoptLessonBriefProposal(context) {
   if (payload.continueToContent === true) {
     await approveCurrentBrief(projectDir, handlerOptions(context));
     return generateProposal(projectId, PROPOSAL_KINDS.CONTENT_MIRROR, {
-      ...payload,
+      ...contentProposalInput(payload, context.planningFlow),
       message: payload.message || input.message || "Formuliere daraus jetzt das vollständige sichtbare Arbeitsblatt-Konzept.",
       silent: false,
       now
@@ -77,7 +116,7 @@ async function adoptLessonBriefProposal(context) {
 function generateContentMirrorProposal(context) {
   const { projectId, payload, input, now } = context;
   return generateProposal(projectId, PROPOSAL_KINDS.CONTENT_MIRROR, {
-    ...payload,
+    ...contentProposalInput(payload, context.planningFlow),
     message: payload.message || input.message,
     now
   }, handlerOptions(context));

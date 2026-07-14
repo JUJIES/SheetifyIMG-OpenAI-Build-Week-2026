@@ -48,6 +48,7 @@ function compactIntent(intent = null) {
   }
   return {
     intent: intent.intent || "none",
+    planningFlow: intent.planningFlow || null,
     confidence: intent.confidence || null,
     target: compactTarget(intent.target || {}),
     revisionTarget: compactRevisionTarget(intent.revisionTarget),
@@ -64,6 +65,25 @@ function compactIntent(intent = null) {
     ambiguity: intent.ambiguity || null,
     source: intent.source || null,
     reason: cleanText(intent.reason, 300)
+  };
+}
+
+function compactPlanningTurn(turn = null) {
+  if (!turn || typeof turn !== "object") {
+    return null;
+  }
+  return {
+    responseGoal: turn.responseGoal || null,
+    requestedAction: turn.requestedAction || "none",
+    confidence: turn.confidence || null,
+    authorizationSource: turn.actionAuthorization?.source || null,
+    authorizationExplicit: turn.actionAuthorization?.explicit === true,
+    authorizationEvidence: cleanText(turn.actionAuthorization?.evidence, 180),
+    negatedActions: Array.isArray(turn.negatedActions) ? turn.negatedActions.slice(0, 8) : [],
+    chainRequested: turn.chainRequested === true,
+    readiness: turn.readiness?.status || null,
+    visibleReplyUsed: turn.requestedAction === "none" && Boolean(turn.visibleReply),
+    actionHandoffPresent: Boolean(turn.actionHandoff)
   };
 }
 
@@ -85,7 +105,9 @@ function summarizePayload(payload = {}) {
     "preserveUnmentionedConceptParts",
     "followUpIntent",
     "changeScope",
-    "contentChangePolicy"
+    "contentChangePolicy",
+    "planningFlow",
+    "chainRequested"
   ]) {
     if (payload[key] !== undefined) {
       summary[key] = payload[key];
@@ -242,6 +264,7 @@ function buildChatRoutingTrace(input = {}) {
     userMessage: cleanText(input.context?.message || input.message),
     uiEvent: input.uiEvent || null,
     routing: {
+      flowVariant: input.context?.flowVariant || "legacy",
       semanticSource: input.context?.intentDecision?.semanticSource || null,
       finalSource: input.context?.intentDecision?.finalSource || null,
       guardApplied: input.context?.intentDecision?.guardApplied === true,
@@ -250,7 +273,10 @@ function buildChatRoutingTrace(input = {}) {
       reason: input.context?.intentDecision?.reason || null,
       deterministicIntent: compactIntent(input.context?.intentDecision?.deterministicGuard),
       modelIntent: compactIntent(input.context?.intentDecision?.modelIntent),
-      finalIntent: compactIntent(input.context?.intent || input.context?.intentDecision?.intent)
+      finalIntent: compactIntent(input.context?.intent || input.context?.intentDecision?.intent),
+      planningTurn: compactPlanningTurn(
+        input.context?.planningTurn || input.context?.intentDecision?.planningTurn
+      )
     },
     resolution: compactResolution(input.resolution || {}),
     result: {

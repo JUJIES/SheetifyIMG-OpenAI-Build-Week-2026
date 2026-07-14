@@ -847,6 +847,43 @@ function intentMessage(intent = {}, fallback = "") {
   return String(intent.sourceMessage || fallback || "").trim();
 }
 
+function isPlanningV2Intent(intent = {}) {
+  return intent?.planningFlow === "v2";
+}
+
+function withPlanningTurnPayload(resolved = null, intent = {}) {
+  if (!resolved || !isPlanningV2Intent(intent)) {
+    return resolved;
+  }
+  return {
+    ...resolved,
+    payload: {
+      ...(resolved.payload || {}),
+      planningFlow: "v2",
+      ...(intent.planningHandoff ? { planningHandoff: intent.planningHandoff } : {}),
+      ...(intent.chainRequested === true ? { chainRequested: true } : {})
+    }
+  };
+}
+
+function withPlanningTurnOffer(offer = null, intent = {}) {
+  if (!offer || !isPlanningV2Intent(intent)) {
+    return offer;
+  }
+  return {
+    ...offer,
+    suggestedActions: (offer.suggestedActions || []).map((action) => ({
+      ...action,
+      payload: {
+        ...(action.payload || {}),
+        planningFlow: "v2",
+        ...(intent.planningHandoff ? { planningHandoff: intent.planningHandoff } : {}),
+        ...(intent.chainRequested === true ? { chainRequested: true } : {})
+      }
+    }))
+  };
+}
+
 function usableWorkflowIntent(intent = {}) {
   return Boolean(intent)
     && intent.confidence !== "low"
@@ -874,6 +911,9 @@ function intentCanProceedDespiteWorkflowHold(intent = {}) {
 }
 
 function workflowCreationHoldBlocksIntent(intent = {}, message = "") {
+  if (isPlanningV2Intent(intent)) {
+    return false;
+  }
   if (workflowActionStopIntent(message)) {
     return true;
   }
@@ -884,6 +924,9 @@ function workflowCreationHoldBlocksIntent(intent = {}, message = "") {
 }
 
 function proposalAdoptionHoldBlocksIntent(intent = {}, message = "") {
+  if (isPlanningV2Intent(intent)) {
+    return false;
+  }
   if (!proposalAdoptionHoldIntent(message)) {
     return false;
   }
@@ -898,6 +941,9 @@ function proposalAdoptionHoldBlocksIntent(intent = {}, message = "") {
 }
 
 function scopedCreationHoldBlocksIntent(intent = {}, message = "") {
+  if (isPlanningV2Intent(intent)) {
+    return false;
+  }
   if (
     candidateCreationHoldIntent(message)
     && (
@@ -1003,7 +1049,10 @@ function resolveChatCommandFromIntent(workspace = {}, intent = {}, message = "")
   }
 
   if (intent.intent === INTENTS.CREATE_NEW_CONCEPT_FROM_CONTEXT) {
-    return resolveNewConceptFromContextCommand(workspace, sourceMessage, "chat_intent_new_concept_from_context");
+    return withPlanningTurnPayload(
+      resolveNewConceptFromContextCommand(workspace, sourceMessage, "chat_intent_new_concept_from_context"),
+      intent
+    );
   }
 
   if (intent.wantsContentChange === true || intent.intent === INTENTS.CONCEPT_REVISION) {
@@ -1013,13 +1062,25 @@ function resolveChatCommandFromIntent(workspace = {}, intent = {}, message = "")
     if (conceptRevisionTarget) {
       const command = commandById(workspace, "generate_content_mirror_proposal");
       if (isExecutableChatCommand(command)) {
-        return {
+        return withPlanningTurnPayload({
           command: command.id,
           payload: conceptRevisionPayload(command, sourceMessage, conceptRevisionTarget),
           source: "chat_intent_explicit_concept_revision",
           autopilot: false
-        };
+        }, intent);
       }
+    }
+    if (isPlanningV2Intent(intent)) {
+      const command = commandById(workspace, "generate_content_mirror_proposal");
+      if (!isExecutableChatCommand(command)) {
+        return null;
+      }
+      return withPlanningTurnPayload({
+        command: command.id,
+        payload: conceptRevisionPayload(command, sourceMessage, null),
+        source: "planning_turn_concept_revision",
+        autopilot: false
+      }, intent);
     }
     const revision = resolveConceptRevisionCommand(workspace, sourceMessage, {
       trustFinalIntent: true
@@ -1042,7 +1103,7 @@ function resolveChatCommandFromIntent(workspace = {}, intent = {}, message = "")
   if (intent.intent === INTENTS.CONCEPT_VERSION_ACTIVATION || intentTargetsConceptVersion(intent)) {
     const activation = resolveConceptVersionActivationIntentCommand(workspace, intent);
     if (activation) {
-      return activation;
+      return withPlanningTurnPayload(activation, intent);
     }
   }
 
@@ -1050,7 +1111,7 @@ function resolveChatCommandFromIntent(workspace = {}, intent = {}, message = "")
     intent.intent === INTENTS.CONTENT_PROPOSAL_ADOPTION
     || intent.intent === INTENTS.CONTENT_PROPOSAL_ADOPTION_CANDIDATE_CHAIN
   ) {
-    return resolveContentProposalAdoptionIntentCommand(workspace, intent);
+    return withPlanningTurnPayload(resolveContentProposalAdoptionIntentCommand(workspace, intent), intent);
   }
 
   return null;
@@ -1305,7 +1366,7 @@ function resolveChatActionOfferFromIntent(workspace = {}, intent = {}, message =
   const sourceMessage = intentMessage(intent, message);
   const prepareReference = prepareReferenceAssetOfferFromIntent(workspace, intent, sourceMessage);
   if (prepareReference) {
-    return prepareReference;
+    return withPlanningTurnOffer(prepareReference, intent);
   }
   if (workflowCreationHoldBlocksIntent(intent, sourceMessage)) {
     return null;
@@ -1321,12 +1382,12 @@ function resolveChatActionOfferFromIntent(workspace = {}, intent = {}, message =
   }
   const conceptPatchRequired = conceptPatchRequiredOfferFromDraftTarget(workspace, intent, message);
   if (conceptPatchRequired) {
-    return conceptPatchRequired;
+    return withPlanningTurnOffer(conceptPatchRequired, intent);
   }
   if (intent.intent === INTENTS.CREATE_NEW_CONCEPT_FROM_CONTEXT) {
     const newConceptOffer = newConceptFromContextOfferFromIntent(workspace, intent, message);
     if (newConceptOffer) {
-      return newConceptOffer;
+      return withPlanningTurnOffer(newConceptOffer, intent);
     }
   }
   if (!intentAllowsActionOffer(intent)) {
@@ -1338,7 +1399,7 @@ function resolveChatActionOfferFromIntent(workspace = {}, intent = {}, message =
   if (intent.intent === INTENTS.CONCEPT_VERSION_ACTIVATION || intentTargetsConceptVersion(intent)) {
     const activationOffer = conceptVersionActivationOfferFromIntent(workspace, intent);
     if (activationOffer) {
-      return activationOffer;
+      return withPlanningTurnOffer(activationOffer, intent);
     }
     if (intent.wantsCandidate !== true) {
       return null;
@@ -1348,13 +1409,13 @@ function resolveChatActionOfferFromIntent(workspace = {}, intent = {}, message =
     intent.intent === INTENTS.CONTENT_PROPOSAL_ADOPTION
     || intent.intent === INTENTS.CONTENT_PROPOSAL_ADOPTION_CANDIDATE_CHAIN
   ) {
-    return contentProposalAdoptionOfferFromIntent(workspace, intent);
+    return withPlanningTurnOffer(contentProposalAdoptionOfferFromIntent(workspace, intent), intent);
   }
   if (intent.intent === INTENTS.PDF_EXPORT) {
     return null;
   }
   if (intent.intent === INTENTS.SKIP_REFERENCE) {
-    return skipReferenceOfferFromIntent(workspace, intent, message);
+    return withPlanningTurnOffer(skipReferenceOfferFromIntent(workspace, intent, message), intent);
   }
   if (intent.intent === INTENTS.CANDIDATE_GENERATION || intent.wantsCandidate === true) {
     const pendingProposalOffer = (
@@ -1366,7 +1427,10 @@ function resolveChatActionOfferFromIntent(workspace = {}, intent = {}, message =
     )
       ? null
       : contentProposalBeforeCandidateOfferFromIntent(workspace);
-    return pendingProposalOffer || candidateOfferFromIntent(workspace, intent, message);
+    return withPlanningTurnOffer(
+      pendingProposalOffer || candidateOfferFromIntent(workspace, intent, message),
+      intent
+    );
   }
   return null;
 }

@@ -6,7 +6,15 @@ const { EVENT_TYPES } = require("../contracts");
 const { appendEvent, readEvents } = require("../eventLog");
 const { getAiRuntimeStatus } = require("../aiConfig");
 const { appendChatRoutingTrace } = require("../chatRoutingTraceManager");
-const { updateTeachingContextFromMessage } = require("../teachingContextManager");
+const {
+  applyPlanningTeachingContextPatch,
+  readTeachingContext,
+  updateTeachingContextFromMessage,
+  writeTeachingContext
+} = require("../teachingContextManager");
+const { PLANNING_FLOWS, resolvePlanningFlow } = require("../planningFlowConfig");
+const { interpretPlanningTurn } = require("../planningTurnManager");
+const { REQUESTED_ACTIONS, planningTurnDecision } = require("../planningTurnAdapter");
 const { saveVisualFeedbackAttachments } = require("../visualFeedbackManager");
 const { createUsageAttribution } = require("../usageAttributionManager");
 const {
@@ -17,6 +25,7 @@ const {
 } = require("../chatCommandResolver");
 const { interpretChatIntentDecision } = require("../chatIntentInterpreter");
 const { buildWorkspace, workspaceMessagesFromEvents } = require("../workspaceManager");
+const { sanitizeErrorMessage } = require("../modelRunLogger");
 const { runResolvedChatCommand } = require("./commandRunner");
 const {
   appendInputGateResponse,
@@ -344,12 +353,106 @@ async function prepareChatContext(projectId, projectDir, input = {}, options = {
     ...inputUploadModelContext.openAiContentItems
   ];
   const revisionTarget = sanitizeRevisionTarget(input.revisionTarget, projectId);
+  const flowVariant = resolvePlanningFlow(options);
 
   const userEvent = await appendUserChatEvent(projectDir, {
     ...input,
     operationId: options.usageAttribution?.operationId || null,
     revisionTarget
   }, message, attachments, now);
+
+  if (flowVariant === PLANNING_FLOWS.V2) {
+    const events = await readEvents(projectDir);
+    const initialWorkspace = await buildWorkspace(projectId, { repoRoot, projectsDir, worksheetsDir });
+    const priorEvents = events.filter((event) => event.id !== userEvent.id);
+    const baseTeachingContext = await readTeachingContext(projectDir, {
+      project: initialWorkspace.project,
+      events: priorEvents,
+      source: initialWorkspace.documents?.source || {},
+      brief: initialWorkspace.documents?.brief?.data || {},
+      content: initialWorkspace.documents?.content?.data || {}
+    });
+    const planningWorkspace = {
+      ...initialWorkspace,
+      teachingContext: baseTeachingContext
+    };
+    const messages = workspaceMessagesFromEvents(events);
+    try {
+      const planningTurn = await interpretPlanningTurn(projectDir, {
+        attachments,
+        message,
+        messages,
+        openAiContentItems,
+        revisionTarget,
+        uiEvent: input.uiEvent || "chat_message",
+        userEvent,
+        workspace: planningWorkspace
+      }, {
+        repoRoot,
+        now,
+        env: options.env,
+        planningTurnInterpreter: options.planningTurnInterpreter,
+        usageAttribution: options.usageAttribution
+      });
+      const decisionResult = planningTurnDecision(planningTurn, message);
+      const authorizedTeachingContextPatch = {
+        ...planningTurn.teachingContextPatch,
+        forceWithAssumptions: planningTurn.teachingContextPatch?.forceWithAssumptions === true
+          && decisionResult.ok
+          && [
+            REQUESTED_ACTIONS.CREATE_CONCEPT,
+            REQUESTED_ACTIONS.CREATE_CONCEPT_THEN_DRAFT
+          ].includes(planningTurn.requestedAction)
+      };
+      const nextTeachingContext = applyPlanningTeachingContextPatch(
+        baseTeachingContext,
+        authorizedTeachingContextPatch,
+        { now, message }
+      );
+      await writeTeachingContext(projectDir, nextTeachingContext, { now });
+      const workspace = await buildWorkspace(projectId, { repoRoot, projectsDir, worksheetsDir });
+      return {
+        attachments,
+        flowVariant,
+        intent: decisionResult.intent || null,
+        intentDecision: decisionResult.decision || null,
+        inputUploadRefs: inputUploadModelContext.inputUploadRefs,
+        message,
+        messages,
+        openAiContentItems,
+        planningFailure: decisionResult.ok ? null : {
+          kind: "authorization_blocked",
+          reason: decisionResult.reason
+        },
+        planningTurn,
+        revisionTarget,
+        usageAttribution: options.usageAttribution,
+        userEvent,
+        workspace
+      };
+    } catch (error) {
+      return {
+        attachments,
+        flowVariant,
+        intent: null,
+        intentDecision: null,
+        inputUploadRefs: inputUploadModelContext.inputUploadRefs,
+        message,
+        messages,
+        openAiContentItems,
+        planningFailure: {
+          kind: "planning_turn_error",
+          reason: sanitizeErrorMessage(error)
+        },
+        planningTurn: null,
+        revisionTarget,
+        usageAttribution: options.usageAttribution,
+        userEvent,
+        workspace: initialWorkspace
+      };
+    }
+  }
+
   await updateTeachingContextFromMessage(projectDir, message, {
     now,
     usageAttribution: options.usageAttribution
@@ -373,6 +476,7 @@ async function prepareChatContext(projectId, projectDir, input = {}, options = {
 
   return {
     attachments,
+    flowVariant,
     intent: intentDecision.intent,
     intentDecision,
     inputUploadRefs: inputUploadModelContext.inputUploadRefs,
@@ -399,6 +503,60 @@ async function withChatRoutingTrace(projectId, projectDir, context, resolution, 
   return result;
 }
 
+function planningContextRefs(context = {}) {
+  const inputUploads = Array.isArray(context.inputUploadRefs)
+    ? context.inputUploadRefs.filter(Boolean)
+    : [];
+  return inputUploads.length ? {
+    kind: "input_upload_analysis",
+    sourceUserMessage: context.message || null,
+    inputUploads
+  } : null;
+}
+
+async function appendPlanningTurnResponse(projectId, projectDir, context, content, options = {}) {
+  const contextRefs = planningContextRefs(context);
+  const provider = context.planningTurn?.provider || null;
+  const event = await appendEvent(projectDir, {
+    type: EVENT_TYPES.ASSISTANT_MESSAGE,
+    createdAt: options.now,
+    step: "auftrag",
+    payload: {
+      mode: options.mode || "planning_turn",
+      message: content,
+      suggestedActions: [],
+      ...(contextRefs ? { contextRefs } : {}),
+      ...(provider ? { provider } : {})
+    }
+  }, { now: options.now });
+  const workspace = await buildWorkspace(projectId, {
+    repoRoot: options.repoRoot,
+    projectsDir: options.projectsDir,
+    worksheetsDir: options.worksheetsDir
+  });
+  return {
+    mode: options.mode || "planning_turn",
+    response: {
+      id: event.id,
+      role: "assistant",
+      createdAt: event.createdAt,
+      content,
+      suggestedActions: [],
+      contextRefs,
+      provider
+    },
+    messages: workspace.chat?.messages || [],
+    workspace
+  };
+}
+
+function planningFailureMessage(failure = {}) {
+  if (failure.kind === "authorization_blocked") {
+    return "Ich konnte den gewünschten Produktionsschritt nicht eindeutig und sicher autorisieren. Es wurde nichts erstellt; formuliere den Auftrag bitte noch einmal ausdrücklich.";
+  }
+  return "Ich konnte diese Nachricht gerade nicht zuverlässig einordnen. Es wurde nichts ausgeführt; versuche es bitte noch einmal.";
+}
+
 async function sendChatMessage(projectId, input = {}, options = {}) {
   const repoRoot = options.repoRoot || DEFAULT_REPO_ROOT;
   const projectsDir = options.projectsDir || DEFAULT_PROJECTS_DIR;
@@ -418,6 +576,42 @@ async function sendChatMessage(projectId, input = {}, options = {}) {
   };
 
   const context = await prepareChatContext(projectId, projectDir, input, chatOptions);
+  if (context.flowVariant === PLANNING_FLOWS.V2 && context.planningFailure) {
+    const result = await appendPlanningTurnResponse(
+      projectId,
+      projectDir,
+      context,
+      planningFailureMessage(context.planningFailure),
+      {
+        ...chatOptions,
+        worksheetsDir: options.worksheetsDir,
+        mode: "planning_turn_blocked"
+      }
+    );
+    return withChatRoutingTrace(projectId, projectDir, context, {
+      kind: "none",
+      source: context.planningFailure.kind
+    }, result, input, now);
+  }
+  if (
+    context.flowVariant === PLANNING_FLOWS.V2
+    && context.planningTurn?.requestedAction === "none"
+  ) {
+    const result = await appendPlanningTurnResponse(
+      projectId,
+      projectDir,
+      context,
+      context.planningTurn.visibleReply,
+      {
+        ...chatOptions,
+        worksheetsDir: options.worksheetsDir
+      }
+    );
+    return withChatRoutingTrace(projectId, projectDir, context, {
+      kind: "none",
+      source: "planning_turn_chat"
+    }, result, input, now);
+  }
   const resolvedCommand = resolveChatCommandFromIntent(context.workspace, context.intent, context.message)
     || (shouldUseLegacyChatFallback(context.intent) ? resolveChatCommand(context.workspace, context.message) : null);
   if (resolvedCommand) {
@@ -426,6 +620,7 @@ async function sendChatMessage(projectId, input = {}, options = {}) {
       projectsDir,
       worksheetsDir: options.worksheetsDir,
       now,
+      trustedPlanningFlowOverride: context.flowVariant,
       usageAttribution
     });
     return withChatRoutingTrace(projectId, projectDir, context, {
@@ -466,6 +661,24 @@ async function sendChatMessage(projectId, input = {}, options = {}) {
       kind: "manual_guidance",
       source: "manual_candidate_flow"
     }, manualResponse, input, now);
+  }
+
+  if (context.flowVariant === PLANNING_FLOWS.V2) {
+    const result = await appendPlanningTurnResponse(
+      projectId,
+      projectDir,
+      context,
+      "Der gewünschte Schritt ist im aktuellen Projektstand noch nicht verfügbar. Es wurde nichts verändert.",
+      {
+        ...chatOptions,
+        worksheetsDir: options.worksheetsDir,
+        mode: "planning_turn_unavailable_action"
+      }
+    );
+    return withChatRoutingTrace(projectId, projectDir, context, {
+      kind: "none",
+      source: "planning_turn_action_unavailable"
+    }, result, input, now);
   }
 
   const starterIdeas = shouldOfferStarterIdeas(context.workspace, context.intent, context.message);

@@ -109,7 +109,28 @@ async function assertProposalMatchesCurrentState(projectDir, proposalId, kind) {
     const sourceBriefId = proposal.source?.currentLessonBriefId || null;
     const currentBriefId = manifest.currentArtifacts?.lessonbriefId || null;
     if (sourceBriefId && currentBriefId && sourceBriefId !== currentBriefId) {
-      throw new Error("Dieser Konzeptvorschlag gehört zu einem älteren Planungsstand. Bitte den aktuellen Vorschlag verwenden.");
+      const index = await readArtifactIndex(projectDir);
+      const currentBrief = findArtifact(index, currentBriefId);
+      const isResumableV2Adoption = Boolean(
+        proposal.conceptFrame
+        && (currentBrief?.createdFrom || []).includes(proposal.proposalId)
+      );
+      if (!isResumableV2Adoption) {
+        throw new Error("Dieser Konzeptvorschlag gehört zu einem älteren Planungsstand. Bitte den aktuellen Vorschlag verwenden.");
+      }
+    }
+    const sourceContentId = proposal.source?.currentContentMirrorId || null;
+    const currentContentId = manifest.currentArtifacts?.contentMirrorId || null;
+    if (sourceContentId && currentContentId && sourceContentId !== currentContentId) {
+      const index = await readArtifactIndex(projectDir);
+      const currentContent = findArtifact(index, currentContentId);
+      const isResumableV2Adoption = Boolean(
+        proposal.conceptFrame
+        && (currentContent?.createdFrom || []).includes(proposal.proposalId)
+      );
+      if (!isResumableV2Adoption) {
+        throw new Error("Dieser Konzeptvorschlag gehört zu einer anderen Konzeptversion. Bitte den aktuellen Vorschlag verwenden.");
+      }
     }
   }
   if (kind === PROPOSAL_KINDS.IMAGE_SPEC) {

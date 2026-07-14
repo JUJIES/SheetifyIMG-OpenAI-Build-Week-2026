@@ -65,6 +65,26 @@ function hasMeaningfulContent(content = {}) {
     || readingTexts.some((text) => String(text.body || "").trim());
 }
 
+async function assertContentMirrorReadyForApproval(projectDir, content, options = {}) {
+  if (!hasMeaningfulContent(content)) {
+    throw new Error("Content mirror cannot be approved before tasks, reading text, or image material exist.");
+  }
+  const index = options.index || await readArtifactIndex(projectDir);
+  const manifest = options.manifest || await readProjectManifest(projectDir);
+  const briefArtifact = manifest.currentArtifacts?.lessonbriefId
+    ? index.artifacts.find((entry) => entry.id === manifest.currentArtifacts.lessonbriefId)
+    : null;
+  const brief = options.brief || (briefArtifact
+    ? await readJsonIfExists(path.join(projectDir, briefArtifact.path))
+    : await readJsonIfExists(path.join(projectDir, "brief", "approved.lessonbrief.json")) || {});
+  const events = options.events || await readEvents(projectDir);
+  const readiness = contentReadinessForGeneration(content, { events, brief });
+  if (!readiness.ready) {
+    throw new Error(contentReadinessMessage(readiness));
+  }
+  return readiness;
+}
+
 async function writeProjectManifest(projectDir, manifest) {
   await writeJson(path.join(projectDir, "project-manifest.json"), manifest);
 }
@@ -168,21 +188,8 @@ async function approveContentMirrorVersion(projectDir, artifactId, options = {})
 
   const contentPath = path.join(projectDir, artifact.path);
   const content = await readJson(contentPath);
-  if (!hasMeaningfulContent(content)) {
-    throw new Error("Content mirror cannot be approved before tasks, reading text, or image material exist.");
-  }
   const manifest = await readProjectManifest(projectDir);
-  const briefArtifact = manifest.currentArtifacts?.lessonbriefId
-    ? index.artifacts.find((entry) => entry.id === manifest.currentArtifacts.lessonbriefId)
-    : null;
-  const brief = briefArtifact
-    ? await readJsonIfExists(path.join(projectDir, briefArtifact.path))
-    : await readJsonIfExists(path.join(projectDir, "brief", "approved.lessonbrief.json")) || {};
-  const events = await readEvents(projectDir);
-  const readiness = contentReadinessForGeneration(content, { events, brief });
-  if (!readiness.ready) {
-    throw new Error(contentReadinessMessage(readiness));
-  }
+  await assertContentMirrorReadyForApproval(projectDir, content, { index, manifest });
   const approvedContent = {
     ...content,
     status: ARTIFACT_STATUSES.APPROVED,
@@ -229,6 +236,7 @@ async function approveContentMirrorVersion(projectDir, artifactId, options = {})
 
 module.exports = {
   approveContentMirrorVersion,
+  assertContentMirrorReadyForApproval,
   createContentMirrorVersion,
   hasMeaningfulContent
 };

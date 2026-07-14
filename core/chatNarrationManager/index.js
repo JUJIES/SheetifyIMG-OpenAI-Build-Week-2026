@@ -33,7 +33,8 @@ const OLD_WORKFLOW_TERMS = [
 ];
 const OFFER_ONLY_MOMENTS = new Set([
   "local_action_offer",
-  "suggested_action"
+  "suggested_action",
+  "planning_chat_only"
 ]);
 const EXECUTED_MOMENTS = new Set([
   "candidate_created",

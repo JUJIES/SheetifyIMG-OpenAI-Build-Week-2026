@@ -84,7 +84,8 @@ function latestAssistantMessage(workspace = {}) {
 
 function commandErrorResponseMessage(error) {
   const detail = sanitizeErrorMessage(error);
-  return `Das konnte ich nicht sauber ausführen: ${detail}. Ich habe keinen neuen Arbeitsstand gespeichert.`;
+  const punctuatedDetail = /[.!?]$/.test(detail) ? detail : `${detail}.`;
+  return `Das konnte ich nicht vollständig ausführen: ${punctuatedDetail} Der aktuelle Projektstand wurde neu geladen; prüfe Konzept und Entwürfe bitte kurz, bevor du fortfährst.`;
 }
 
 async function appendCommandErrorMessage(projectDir, error, now) {
@@ -237,6 +238,7 @@ async function runResolvedChatCommand(projectId, projectDir, resolved, options =
 module.exports = {
   runResolvedChatCommand,
   __testing: {
+    commandErrorResponseMessage,
     suggestedActionForCommand
   }
 };

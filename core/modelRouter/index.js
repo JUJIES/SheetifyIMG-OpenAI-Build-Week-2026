@@ -7,6 +7,8 @@ const ROUTE_PURPOSES = Object.freeze({
   CONTENT_DELTA: "content_delta",
   IMAGE_SPEC: "image_spec",
   CONTENT_WARNINGS: "content_warnings",
+  PLANNING_TURN: "planning_turn",
+  WORKSHEET_CONCEPT: "worksheet_concept",
   CHAT_INTENT: "chat_intent_interpretation",
   SEMANTIC_INTERPRETATION: "semantic_interpretation",
   FINAL_CHAT: "final_chat",
@@ -57,6 +59,15 @@ function includesAny(value, terms) {
 }
 
 function routeForPurpose(purpose, requestConfig = {}) {
+  if (purpose === ROUTE_PURPOSES.WORKSHEET_CONCEPT) {
+    return {
+      purpose,
+      route: "quality_reasoning_unified_concept",
+      model: requestConfig.reasoningModel,
+      promptNames: ["global", "worksheet_concept", "content_mirror"],
+      reasoningEffort: "medium"
+    };
+  }
   if (purpose === ROUTE_PURPOSES.LESSON_BRIEF) {
     return {
       purpose,
@@ -100,6 +111,15 @@ function routeForPurpose(purpose, requestConfig = {}) {
       model: requestConfig.textModel,
       promptNames: ["global", "quality_check"],
       reasoningEffort: "medium"
+    };
+  }
+  if (purpose === ROUTE_PURPOSES.PLANNING_TURN) {
+    return {
+      purpose,
+      route: "planning_turn",
+      model: requestConfig.textModel,
+      promptNames: ["global", "planning_turn"],
+      reasoningEffort: "high"
     };
   }
   if (purpose === ROUTE_PURPOSES.CHAT_INTENT) {

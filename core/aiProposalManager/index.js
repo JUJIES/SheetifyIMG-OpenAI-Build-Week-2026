@@ -2,13 +2,26 @@
 
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { EVENT_TYPES, PROJECT_TYPES, PRODUCTION_SCHEMA_VERSION } = require("../contracts");
+const {
+  ARTIFACT_STATUSES,
+  ARTIFACT_TYPES,
+  EVENT_TYPES,
+  PROJECT_TYPES,
+  PRODUCTION_SCHEMA_VERSION
+} = require("../contracts");
 const { appendEvent, readEvents } = require("../eventLog");
 const { appendHistoryEvent } = require("../historyManager");
 const { getAiRuntimeStatus, getOpenAiRequestConfig } = require("../aiConfig");
 const { createResponse, extractOutputText } = require("../openaiClient");
-const { createLessonBriefVersion } = require("../briefManager");
-const { createContentMirrorVersion } = require("../contentMirrorManager");
+const { approveLessonBriefVersion, createLessonBriefVersion } = require("../briefManager");
+const { createContentMirrorVersion, hasMeaningfulContent } = require("../contentMirrorManager");
+const { findArtifact, listArtifacts, readArtifactIndex } = require("../artifactManager");
+const {
+  legacyLessonBriefFromConcept,
+  conceptFrameFromTeachingContext,
+  normalizeConceptFrame
+} = require("../conceptCompatibility");
+const { readTeachingContext } = require("../teachingContextManager");
 const { createContentWarningsVersion, normalizeWarnings } = require("../contentWarningManager");
 const { logModelRun, sanitizeErrorMessage } = require("../modelRunLogger");
 const { estimateOpenAiTextCost } = require("../imageCostManager");
@@ -17,7 +30,11 @@ const { ROUTE_PURPOSES, routeForPurpose } = require("../modelRouter");
 const { composePrompts } = require("../promptRegistry");
 const { productionContextToPrompt } = require("../productionContext");
 const { openProject } = require("../projectManager");
-const { requestedConstraints } = require("../contentReadiness");
+const {
+  contentReadinessForGeneration,
+  contentReadinessMessage,
+  requestedConstraints
+} = require("../contentReadiness");
 const { narrateChatMoment } = require("../chatNarrationManager");
 const { inferReferencePolicy, mergeReferencePolicies } = require("../referencePolicy");
 const { explicitPageCountFromText, pagePlanForImageSpec } = require("../pagePlanManager");
@@ -166,6 +183,7 @@ function summarizeProposal(proposal) {
     createdAt: proposal.createdAt,
     title: proposal.title || titleFromProposal(proposal),
     summary: proposal.summary || "",
+    conceptFrame: proposal.conceptFrame || null,
     data: proposal.data || null,
     source: proposal.source || null,
     model: proposal.createdBy?.model || null,
@@ -688,6 +706,23 @@ function lessonBriefSchema() {
   };
 }
 
+function conceptFrameSchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["subject", "topic", "targetGroup", "goal", "requirements", "teacherNotes", "visualStyle"],
+    properties: {
+      subject: { type: ["string", "null"] },
+      topic: { type: "string" },
+      targetGroup: { type: ["string", "null"] },
+      goal: { type: "string" },
+      requirements: { type: "array", items: { type: "string" } },
+      teacherNotes: { type: "array", items: { type: "string" } },
+      visualStyle: { type: "string" }
+    }
+  };
+}
+
 function contentMirrorSchema() {
   return {
     type: "object",
@@ -759,6 +794,30 @@ function contentMirrorSchema() {
         }
       },
       solutionNotes: { type: "array", items: { type: "string" } }
+    }
+  };
+}
+
+function unifiedConceptSchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["conceptFrame", "content"],
+    properties: {
+      conceptFrame: conceptFrameSchema(),
+      content: contentMirrorSchema()
+    }
+  };
+}
+
+function unifiedConceptDeltaSchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["conceptFrame", "changes"],
+    properties: {
+      conceptFrame: conceptFrameSchema(),
+      changes: contentDeltaSchema()
     }
   };
 }
@@ -894,11 +953,22 @@ function usesContentDelta(kind, input = {}) {
     && input.contentRevisionStrategy !== "full_snapshot";
 }
 
+function usesV2ConceptFlow(kind, input = {}) {
+  return kind === PROPOSAL_KINDS.CONTENT_MIRROR
+    && (input.unifiedConcept === true || input.conceptFlow === "v2");
+}
+
 function schemaForKind(kind, input = {}) {
   if (kind === PROPOSAL_KINDS.LESSON_BRIEF) {
     return { name: "sheetifyimg_lessonbrief_proposal", schema: lessonBriefSchema() };
   }
   if (kind === PROPOSAL_KINDS.CONTENT_MIRROR) {
+    if (usesV2ConceptFlow(kind, input) && usesContentDelta(kind, input)) {
+      return { name: "sheetifyimg_unified_worksheet_concept_delta", schema: unifiedConceptDeltaSchema() };
+    }
+    if (usesV2ConceptFlow(kind, input)) {
+      return { name: "sheetifyimg_unified_worksheet_concept", schema: unifiedConceptSchema() };
+    }
     if (usesContentDelta(kind, input)) {
       return { name: "sheetifyimg_content_delta_proposal", schema: contentDeltaSchema() };
     }
@@ -1060,7 +1130,7 @@ function inputAnalysesFromEvents(events = []) {
     .slice(-8);
 }
 
-function projectContext({ project, currentBrief, currentContent, currentWarnings, events = [] }) {
+function projectContext({ project, currentBrief, currentContent, currentWarnings, teachingContext, events = [] }) {
   const recentMessages = recentMessagesFromEvents(events);
   return {
     project: {
@@ -1076,6 +1146,7 @@ function projectContext({ project, currentBrief, currentContent, currentWarnings
     },
     inputAnalyses: inputAnalysesFromEvents(events),
     recentMessages,
+    teachingContext: teachingContext || null,
     currentBrief,
     currentContent,
     currentWarnings
@@ -1108,6 +1179,10 @@ function contextWithContentProposalBasis(context = {}, proposal = null) {
   if (!proposal) {
     return context;
   }
+  const conceptFrame = proposal.conceptFrame || null;
+  const compatibilityBrief = conceptFrame
+    ? legacyLessonBriefFromConcept(conceptFrame, proposal.data || {}, context.project || {})
+    : null;
   return {
     ...context,
     proposalBasis: {
@@ -1118,7 +1193,9 @@ function contextWithContentProposalBasis(context = {}, proposal = null) {
       summary: proposal.summary || "",
       source: proposal.source || null
     },
+    conceptFrame,
     basisContent: proposal.data || null,
+    currentBrief: compatibilityBrief || context.currentBrief,
     currentContent: proposal.data || context.currentContent
   };
 }
@@ -1149,6 +1226,9 @@ function purposeForKind(kind, input = {}) {
     return ROUTE_PURPOSES.LESSON_BRIEF;
   }
   if (kind === PROPOSAL_KINDS.CONTENT_MIRROR) {
+    if (usesV2ConceptFlow(kind, input)) {
+      return ROUTE_PURPOSES.WORKSHEET_CONCEPT;
+    }
     return usesContentDelta(kind, input)
       ? ROUTE_PURPOSES.CONTENT_DELTA
       : ROUTE_PURPOSES.CONTENT_MIRROR;
@@ -1161,6 +1241,34 @@ function purposeForKind(kind, input = {}) {
 
 function userPromptForKind(kind, message, input = {}) {
   const trimmed = String(message || "").trim();
+  const planningHandoff = String(input.planningHandoff || "").trim();
+  if (usesV2ConceptFlow(kind, input) && usesContentDelta(kind, input)) {
+    return [
+      "Aktualisiere den kompakten Konzept-Rahmen und liefere nur die minimalen strukturierten Inhaltsaenderungen.",
+      input.basisProposalId
+        ? `Nutze den offenen Konzeptvorschlag ${input.basisProposalId} als verbindliche Basis.`
+        : "Nutze currentContent und currentBrief als verbindliche Basis.",
+      "conceptFrame muss den neuen Zielstand vollständig beschreiben; changes darf nur ausdrücklich betroffene sichtbare Inhalte verändern.",
+      "Erhalte alle nicht angesprochenen Konzept- und Inhaltswerte unverändert.",
+      planningHandoff ? `Semantischer Handoff aus dem autorisierten Planungsturn:\n${planningHandoff}` : "",
+      input.revisionTarget ? `Revision target: ${JSON.stringify(input.revisionTarget)}` : "",
+      trimmed ? `Lehrkraftnachricht: ${trimmed}` : ""
+    ].filter(Boolean).join("\n\n");
+  }
+  if (usesV2ConceptFlow(kind, input)) {
+    return [
+      "Erzeuge jetzt in einem gemeinsamen Planungsschritt den kompakten Konzept-Rahmen und das vollständige sichtbare Arbeitsblatt-Konzept.",
+      "Nutze den gesamten Unterrichtsrahmen und die sichtbare Gesprächsgenese. Die neueste ausdrückliche Lehrkraftentscheidung gewinnt.",
+      ["new_concept_from_context", "followup_concept"].includes(input.revisionMode)
+        ? "Erzeuge eine eigenständige neue Konzeptfassung. Nutze vorherige Inhalte nur als Kontext und übernimm Titel, Texte, Aufgaben oder Bildmaterialien nicht automatisch."
+        : "Halte Konzept-Rahmen und sichtbare Inhalte fachlich deckungsgleich.",
+      input.contentRelationship === "independent_design_reference"
+        ? "Das vorherige Arbeitsblatt oder der genannte Entwurf ist ausschließlich eine visuelle Referenz; vermische seine Inhalte nicht mit dem neuen Konzept."
+        : "",
+      planningHandoff ? `Semantischer Handoff aus dem autorisierten Planungsturn:\n${planningHandoff}` : "",
+      trimmed ? `Aktueller ausdrücklicher Konzeptauftrag:\n${trimmed}` : ""
+    ].filter(Boolean).join("\n\n");
+  }
   if (kind === PROPOSAL_KINDS.CONTENT_MIRROR && input.revisionMode === "followup_concept") {
     return [
       "Erzeuge ein neues vollstaendiges Arbeitsblatt-Konzept fuer den Folgebogen aus der unmittelbar vorherigen Aushandlung.",
@@ -1238,6 +1346,12 @@ function parseStructuredResponse(response) {
 async function modelProposalData(kind, project, context, input, runtime, logContext = {}) {
   const requestConfig = getOpenAiRequestConfig();
   const contentDelta = usesContentDelta(kind, input);
+  const v2Concept = usesV2ConceptFlow(kind, input);
+  const generationMode = v2Concept
+    ? contentDelta ? "unified_concept_delta" : "unified_concept"
+    : contentDelta
+      ? "content_delta"
+      : "full_snapshot";
   const structured = schemaForKind(kind, input);
   const route = routeForPurpose(purposeForKind(kind, input), requestConfig);
   const baseModelContext = kind === PROPOSAL_KINDS.IMAGE_SPEC
@@ -1257,6 +1371,9 @@ async function modelProposalData(kind, project, context, input, runtime, logCont
   });
   const modelContext = {
     ...baseModelContext,
+    ...(String(input.planningHandoff || "").trim()
+      ? { planningHandoff: String(input.planningHandoff).trim() }
+      : {}),
     ...(runtimeReferenceImages.length ? { runtimeReferenceImages } : {}),
     ruleSelection: ruleSelectionSource(ruleSelection)
   };
@@ -1313,9 +1430,72 @@ async function modelProposalData(kind, project, context, input, runtime, logCont
   });
 
   let response;
+  let parsedResult;
   try {
     response = await createResponse(responseBody, requestConfig);
+    const raw = parseStructuredResponse(response);
+    const rawContent = v2Concept
+      ? contentDelta ? raw.changes : raw.content
+      : raw;
+    const deltaResult = contentDelta
+      ? applyContentDelta(context.currentContent || {}, rawContent)
+      : null;
+    let data = kind === PROPOSAL_KINDS.LESSON_BRIEF
+      ? validateLessonBrief(rawContent, project)
+      : kind === PROPOSAL_KINDS.CONTENT_MIRROR
+        ? validateContentMirror(deltaResult?.content || rawContent, project)
+        : kind === PROPOSAL_KINDS.IMAGE_SPEC
+          ? validateImageSpec(rawContent, project, modelContext, ruleSelection)
+        : validateWarnings(rawContent);
+    if (kind === PROPOSAL_KINDS.CONTENT_MIRROR) {
+      data = normalizeContentMirrorForContext(data, context);
+    }
+    const modelFrame = v2Concept
+      ? normalizeConceptFrame(raw.conceptFrame, project)
+      : context.conceptFrame || null;
+    parsedResult = {
+      data,
+      conceptFrame: modelFrame
+        ? conceptFrameFromTeachingContext(context.teachingContext, modelFrame, project)
+        : null,
+      changeSet: deltaResult?.changeSet || null,
+      ruleSelection
+    };
+    const responseModel = response.model || route.model || requestConfig.textModel;
+    const usage = response.usage || null;
+    if (logContext.projectDir) {
+      await logModelRun(logContext.projectDir, {
+        status: "success",
+        source: "proposal",
+        purpose: route.purpose,
+        route: route.route,
+        promptNames: route.promptNames,
+        model: responseModel,
+        reasoningEffort: route.reasoningEffort,
+        responseId: response.id || null,
+        durationMs: Date.now() - startedAt,
+        usage,
+        costEstimate: estimateOpenAiTextCost({ usage, model: responseModel }),
+        requestShape,
+        metadata: { generationMode, flowVariant: input.conceptFlow || null },
+        attribution: logContext.usageAttribution,
+        uiEvent: input.uiEvent || "proposal_generation"
+      }, { now: input.now || logContext.now });
+    }
+    return {
+      ...parsedResult,
+      provider: {
+        name: "openai",
+        responseId: response.id || null,
+        model: responseModel,
+        mode: runtime.mode,
+        route: route.route,
+        purpose: route.purpose
+      }
+    };
   } catch (error) {
+    const responseModel = response?.model || route.model || requestConfig.textModel;
+    const usage = response?.usage || null;
     if (logContext.projectDir) {
       await logModelRun(logContext.projectDir, {
         status: "error",
@@ -1323,11 +1503,14 @@ async function modelProposalData(kind, project, context, input, runtime, logCont
         purpose: route.purpose,
         route: route.route,
         promptNames: route.promptNames,
-        model: route.model || requestConfig.textModel,
+        model: responseModel,
         reasoningEffort: route.reasoningEffort,
+        responseId: response?.id || null,
         durationMs: Date.now() - startedAt,
+        usage,
+        costEstimate: estimateOpenAiTextCost({ usage, model: responseModel }),
         requestShape,
-        metadata: { generationMode: contentDelta ? "content_delta" : "full_snapshot" },
+        metadata: { generationMode, flowVariant: input.conceptFlow || null },
         attribution: logContext.usageAttribution,
         uiEvent: input.uiEvent || "proposal_generation",
         error
@@ -1335,67 +1518,64 @@ async function modelProposalData(kind, project, context, input, runtime, logCont
     }
     throw error;
   }
-  const responseModel = response.model || route.model || requestConfig.textModel;
-  const usage = response.usage || null;
-  const costEstimate = estimateOpenAiTextCost({
-    usage,
-    model: responseModel
-  });
-  if (logContext.projectDir) {
-    await logModelRun(logContext.projectDir, {
-      status: "success",
-      source: "proposal",
-      purpose: route.purpose,
-      route: route.route,
-      promptNames: route.promptNames,
-      model: responseModel,
-      reasoningEffort: route.reasoningEffort,
-      responseId: response.id || null,
-      durationMs: Date.now() - startedAt,
-      usage,
-      costEstimate,
-      requestShape,
-      metadata: { generationMode: contentDelta ? "content_delta" : "full_snapshot" },
-      attribution: logContext.usageAttribution,
-      uiEvent: input.uiEvent || "proposal_generation"
-    }, { now: input.now || logContext.now });
-  }
-  const raw = parseStructuredResponse(response);
-  const deltaResult = contentDelta
-    ? applyContentDelta(context.currentContent || {}, raw)
-    : null;
-  let data = kind === PROPOSAL_KINDS.LESSON_BRIEF
-    ? validateLessonBrief(raw, project)
-    : kind === PROPOSAL_KINDS.CONTENT_MIRROR
-      ? validateContentMirror(deltaResult?.content || raw, project)
-      : kind === PROPOSAL_KINDS.IMAGE_SPEC
-        ? validateImageSpec(raw, project, modelContext, ruleSelection)
-      : validateWarnings(raw);
-  if (kind === PROPOSAL_KINDS.CONTENT_MIRROR) {
-    data = normalizeContentMirrorForContext(data, context);
-  }
-
-  return {
-    data,
-    changeSet: deltaResult?.changeSet || null,
-    ruleSelection,
-    provider: {
-      name: "openai",
-      responseId: response.id || null,
-      model: responseModel,
-      mode: runtime.mode,
-      route: route.route,
-      purpose: route.purpose
-    }
-  };
 }
 
-async function readCurrentState(projectDir) {
+function latestArtifactByVersion(index = {}, type) {
+  return listArtifacts(index, { type })
+    .sort((left, right) => (Number(right.version) || 0) - (Number(left.version) || 0))[0] || null;
+}
+
+async function currentArtifactData(projectDir, manifest = {}, index = {}, fieldName, type, fallbackPaths = []) {
+  const currentId = manifest.currentArtifacts?.[fieldName] || null;
+  const artifact = (currentId ? findArtifact(index, currentId) : null)
+    || latestArtifactByVersion(index, type);
+  if (artifact?.path) {
+    const data = await readJsonIfExists(path.join(projectDir, artifact.path));
+    if (data) {
+      return data;
+    }
+  }
+  for (const relativePath of fallbackPaths) {
+    const data = await readJsonIfExists(path.join(projectDir, relativePath));
+    if (data) {
+      return data;
+    }
+  }
+  return null;
+}
+
+async function readCurrentState(projectDir, options = {}) {
+  const manifest = await readJsonIfExists(path.join(projectDir, "project-manifest.json")) || {};
+  const index = await readArtifactIndex(projectDir);
+  const events = await readEvents(projectDir);
+  const currentBrief = await currentArtifactData(
+    projectDir,
+    manifest,
+    index,
+    "lessonbriefId",
+    ARTIFACT_TYPES.LESSON_BRIEF,
+    ["brief/draft.lessonbrief.json", "brief/approved.lessonbrief.json"]
+  );
+  const currentContent = await currentArtifactData(
+    projectDir,
+    manifest,
+    index,
+    "contentMirrorId",
+    ARTIFACT_TYPES.CONTENT_MIRROR,
+    ["content/draft.content-mirror.json", "content/approved.content-mirror.json"]
+  );
+  const teachingContext = await readTeachingContext(projectDir, {
+    project: options.project || manifest,
+    events,
+    brief: currentBrief || {},
+    content: currentContent || {}
+  });
   return {
-    currentBrief: await readJsonIfExists(path.join(projectDir, "brief", "draft.lessonbrief.json")),
-    currentContent: await readJsonIfExists(path.join(projectDir, "content", "draft.content-mirror.json")),
+    currentBrief,
+    currentContent,
     currentWarnings: await readJsonIfExists(path.join(projectDir, "qc", "content-warnings.json")),
-    events: await readEvents(projectDir)
+    teachingContext,
+    events
   };
 }
 
@@ -1419,11 +1599,12 @@ async function updateProposalStatus(projectDir, proposal, status, options = {}) 
 
 async function supersedeOpenSiblingProposals(projectDir, adoptedProposal, options = {}) {
   const now = options.now || new Date().toISOString();
+  const kinds = new Set(options.kinds || [adoptedProposal.kind]);
   const proposals = await readProposals(projectDir);
   for (const proposal of proposals) {
     if (
       proposal.proposalId === adoptedProposal.proposalId
-      || proposal.kind !== adoptedProposal.kind
+      || !kinds.has(proposal.kind)
       || proposal.status !== "proposed"
     ) {
       continue;
@@ -1478,10 +1659,37 @@ function readyActionForKind(kind, context = {}) {
   return adoptCommandForKind(kind, context);
 }
 
-function retryActionsForFailedProposal(kind) {
+function retryActionsForFailedProposal(kind, input = {}) {
   if (kind === PROPOSAL_KINDS.CONTENT_MIRROR) {
+    if (input.unifiedConcept === true && input.conceptFlow === "v2") {
+      return [{
+        command: "generate_lessonbrief_proposal",
+        label: "Konzept nochmal versuchen",
+        payload: {
+          completeConcept: true,
+          planningFlow: "v2",
+          message: String(input.message || "").trim(),
+          ...(String(input.planningHandoff || "").trim()
+            ? { planningHandoff: String(input.planningHandoff).trim() }
+            : {}),
+          ...(input.chainRequested === true ? { chainRequested: true } : {})
+        }
+      }];
+    }
     return [
-      { command: "generate_content_mirror_proposal", label: "Nochmal versuchen", payload: {} },
+      {
+        command: "generate_content_mirror_proposal",
+        label: "Nochmal versuchen",
+        payload: {
+          message: String(input.message || "").trim(),
+          ...(String(input.planningHandoff || "").trim()
+            ? { planningHandoff: String(input.planningHandoff).trim() }
+            : {}),
+          ...(input.revisionMode ? { revisionMode: input.revisionMode } : {}),
+          ...(input.basisProposalId ? { basisProposalId: input.basisProposalId } : {}),
+          ...(input.conceptFlow ? { conceptFlow: input.conceptFlow } : {})
+        }
+      },
       { command: "create_content_draft", label: "Einfache Version anlegen", payload: {} }
     ];
   }
@@ -1606,7 +1814,10 @@ async function appendAssistantProposalMessage(projectDir, proposal, now, context
     : [{
       command: readyAction.command,
       label: readyAction.label,
-      payload: actionPayload
+      payload: actionPayload,
+      ...(proposal.kind === PROPOSAL_KINDS.CONTENT_MIRROR && proposal.source?.chainRequested === true
+        ? { autoOpenConfirmation: true }
+        : {})
     }];
   const fallback = proposal.kind === PROPOSAL_KINDS.CONTENT_MIRROR
     ? [
@@ -1676,7 +1887,7 @@ async function generateProposal(projectId, kind, input = {}, options = {}) {
   }
 
   const runtime = getAiRuntimeStatus();
-  const current = await readCurrentState(projectDir);
+  const current = await readCurrentState(projectDir, { project });
   const existingProposals = await readProposals(projectDir);
   const basisProposal = contentProposalBasisFromInput(existingProposals, kind, input);
   const context = contextWithContentProposalBasis(
@@ -1703,7 +1914,7 @@ async function generateProposal(projectId, kind, input = {}, options = {}) {
         payload: {
           mode: "openai_error",
           message: failedProposalMessage(kind, error),
-          suggestedActions: retryActionsForFailedProposal(kind)
+          suggestedActions: retryActionsForFailedProposal(kind, input)
         }
       }, { now });
     }
@@ -1726,6 +1937,7 @@ async function generateProposal(projectId, kind, input = {}, options = {}) {
     adoptedAt: null,
     adoptedArtifactId: null,
     createdBy: proposalData.provider,
+    ...(proposalData.conceptFrame ? { conceptFrame: proposalData.conceptFrame } : {}),
     source: {
       projectId,
       userMessage: String(input.message || "").trim() || null,
@@ -1735,6 +1947,8 @@ async function generateProposal(projectId, kind, input = {}, options = {}) {
       basisProposalId: basisProposal?.proposalId || null,
       preserveUnmentionedConceptParts: input.preserveUnmentionedConceptParts === true,
       contentRevisionStrategy: proposalData.changeSet ? "delta" : (input.contentRevisionStrategy || "full_snapshot"),
+      conceptFlow: input.conceptFlow || null,
+      chainRequested: input.chainRequested === true,
       changeSet: proposalData.changeSet || null,
       currentLessonBriefId: project.manifest?.currentArtifacts?.lessonbriefId || null,
       currentContentMirrorId: project.manifest?.currentArtifacts?.contentMirrorId || null,
@@ -1769,6 +1983,63 @@ async function generateProposal(projectId, kind, input = {}, options = {}) {
   };
 }
 
+async function compatibilityBriefProjection(projectId, projectDir, proposal, options = {}) {
+  if (!proposal.conceptFrame) {
+    return null;
+  }
+  const project = await openProject(projectId, {
+    projectsDir: options.projectsDir || DEFAULT_PROJECTS_DIR
+  });
+  const state = options.currentState || await readCurrentState(projectDir, { project });
+  const frame = normalizeConceptFrame(proposal.conceptFrame, project);
+  return {
+    data: legacyLessonBriefFromConcept(frame, proposal.data || {}, project),
+    frame,
+    state
+  };
+}
+
+async function ensureV2ConceptBrief(projectId, projectDir, proposal, options = {}) {
+  const projection = options.projection || await compatibilityBriefProjection(
+    projectId,
+    projectDir,
+    proposal,
+    options
+  );
+  if (!projection) {
+    return null;
+  }
+  const index = await readArtifactIndex(projectDir);
+  const manifest = await readJsonIfExists(path.join(projectDir, "project-manifest.json")) || {};
+  const existing = listArtifacts(index, { type: ARTIFACT_TYPES.LESSON_BRIEF })
+    .find((artifact) => (artifact.createdFrom || []).includes(proposal.proposalId)) || null;
+  if (existing) {
+    const currentBriefId = manifest.currentArtifacts?.lessonbriefId || null;
+    if (currentBriefId && currentBriefId !== existing.id) {
+      throw new Error("Der zu diesem Konzept gehörende interne Planungsstand ist nicht mehr aktuell.");
+    }
+    const data = existing.status === ARTIFACT_STATUSES.APPROVED
+      ? await readJsonIfExists(path.join(projectDir, existing.path))
+      : await approveLessonBriefVersion(projectDir, existing.id, options);
+    return {
+      artifactId: existing.id,
+      path: existing.path,
+      data,
+      reused: true
+    };
+  }
+  const created = await createLessonBriefVersion(projectDir, projection.data, {
+    ...options,
+    createdFrom: [proposal.proposalId]
+  });
+  const approved = await approveLessonBriefVersion(projectDir, created.artifactId, options);
+  return {
+    ...created,
+    data: approved,
+    reused: false
+  };
+}
+
 async function adoptProposal(projectId, kind, input = {}, options = {}) {
   const projectsDir = options.projectsDir || DEFAULT_PROJECTS_DIR;
   const projectDir = path.join(projectsDir, projectId);
@@ -1793,6 +2064,47 @@ async function adoptProposal(projectId, kind, input = {}, options = {}) {
     throw new Error(`Proposal ${proposalId} wurde durch ${latestProposal.proposalId} ersetzt. Bitte den aktuellen Vorschlag verwenden.`);
   }
 
+  const manifestBeforeAdoption = await readJsonIfExists(path.join(projectDir, "project-manifest.json")) || {};
+  if (
+    kind === PROPOSAL_KINDS.LESSON_BRIEF
+    && (
+      manifestBeforeAdoption.currentArtifacts?.lessonbriefId
+      || manifestBeforeAdoption.currentArtifacts?.contentMirrorId
+    )
+  ) {
+    throw new Error("Dieser frühe Planungsstand gehört zu einem älteren Projektzustand und kann nicht mehr übernommen werden.");
+  }
+
+  const currentState = kind === PROPOSAL_KINDS.CONTENT_MIRROR
+    ? await readCurrentState(projectDir, {
+        project: await openProject(projectId, { projectsDir })
+      })
+    : null;
+  const briefProjection = kind === PROPOSAL_KINDS.CONTENT_MIRROR
+    ? await compatibilityBriefProjection(projectId, projectDir, proposal, {
+        ...options,
+        currentState
+      })
+    : null;
+  const requiresApprovalPreflight = kind === PROPOSAL_KINDS.CONTENT_MIRROR
+    && (
+      input.requireApproval === true
+      || input.approve === true
+      || input.payload?.approve === true
+    );
+  if (requiresApprovalPreflight) {
+    if (!hasMeaningfulContent(proposal.data || {})) {
+      throw new Error("Das Arbeitsblatt-Konzept enthält noch keine sinnvoll nutzbaren Inhalte.");
+    }
+    const readiness = contentReadinessForGeneration(proposal.data || {}, {
+      events: currentState?.events || [],
+      brief: briefProjection?.data || currentState?.currentBrief || {}
+    });
+    if (!readiness.ready) {
+      throw new Error(contentReadinessMessage(readiness));
+    }
+  }
+
   let result;
   if (kind === PROPOSAL_KINDS.LESSON_BRIEF) {
     result = await createLessonBriefVersion(projectDir, proposal.data, {
@@ -1801,20 +2113,46 @@ async function adoptProposal(projectId, kind, input = {}, options = {}) {
       createdFrom: [proposalId]
     });
   } else if (kind === PROPOSAL_KINDS.CONTENT_MIRROR) {
+    const compatibilityBrief = await ensureV2ConceptBrief(
+      projectId,
+      projectDir,
+      proposal,
+      { ...options, now, projection: briefProjection }
+    );
     const revisionKind = proposal.source?.changeSet?.strategy === "delta"
       ? "delta"
       : ["new_concept_from_context", "followup_concept"].includes(proposal.source?.revisionMode)
         ? "new_concept"
         : "full_snapshot";
-    result = await createContentMirrorVersion(projectDir, proposal.data, {
-      ...options,
-      now,
-      createdFrom: [proposalId],
-      parentContentMirrorId: proposal.source?.currentContentMirrorId || null,
-      revisionKind,
-      changeSummary: proposal.source?.changeSet?.summary || proposal.summary || null,
-      imageSpecStrategy: proposal.source?.changeSet?.imageSpecStrategy || "regenerate"
-    });
+    const contentIndex = await readArtifactIndex(projectDir);
+    const existingContent = listArtifacts(contentIndex, { type: ARTIFACT_TYPES.CONTENT_MIRROR })
+      .find((artifact) => (artifact.createdFrom || []).includes(proposalId)) || null;
+    if (existingContent) {
+      const currentManifest = await readJsonIfExists(path.join(projectDir, "project-manifest.json")) || {};
+      const currentContentId = currentManifest.currentArtifacts?.contentMirrorId || null;
+      if (currentContentId && currentContentId !== existingContent.id) {
+        throw new Error("Der zu diesem Vorschlag gehörende Konzeptstand ist nicht mehr aktuell.");
+      }
+      result = {
+        artifactId: existingContent.id,
+        path: existingContent.path,
+        data: await readJsonIfExists(path.join(projectDir, existingContent.path)),
+        reused: true
+      };
+    } else {
+      result = await createContentMirrorVersion(projectDir, proposal.data, {
+        ...options,
+        now,
+        createdFrom: [proposalId],
+        parentContentMirrorId: proposal.source?.currentContentMirrorId || null,
+        revisionKind,
+        changeSummary: proposal.source?.changeSet?.summary || proposal.summary || null,
+        imageSpecStrategy: proposal.source?.changeSet?.imageSpecStrategy || "regenerate"
+      });
+    }
+    if (compatibilityBrief) {
+      result.compatibilityBrief = compatibilityBrief;
+    }
     if (
       revisionKind === "delta"
       && !proposal.source?.basisProposalId
@@ -1849,7 +2187,12 @@ async function adoptProposal(projectId, kind, input = {}, options = {}) {
     now,
     adoptedArtifactId
   });
-  await supersedeOpenSiblingProposals(projectDir, proposal, { now });
+  await supersedeOpenSiblingProposals(projectDir, proposal, {
+    now,
+    kinds: kind === PROPOSAL_KINDS.CONTENT_MIRROR && proposal.conceptFrame
+      ? [PROPOSAL_KINDS.CONTENT_MIRROR, PROPOSAL_KINDS.LESSON_BRIEF]
+      : [kind]
+  });
   if (!input.silent) {
     const fallback = kind === PROPOSAL_KINDS.IMAGE_SPEC
       ? "Die Bildplanung ist intern gespeichert. Daraus kann jetzt ein Bild-Entwurf entstehen."
@@ -1997,6 +2340,9 @@ module.exports = {
     applyContentDelta,
     contentDeltaSchema,
     contentMirrorSchema,
+    unifiedConceptSchema,
+    unifiedConceptDeltaSchema,
+    readCurrentState,
     persistentImageSpecReferences,
     usesContentDelta,
     validateContentMirror,

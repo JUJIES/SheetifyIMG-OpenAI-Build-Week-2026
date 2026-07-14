@@ -10,6 +10,7 @@ const { normalizeModelRequestShape } = require("../modelRequestMetrics");
 
 const PUBLIC_METADATA_FIELDS = new Set([
   "generationMode",
+  "flowVariant",
   "referenceImageCount",
   "runId",
   "candidateId",

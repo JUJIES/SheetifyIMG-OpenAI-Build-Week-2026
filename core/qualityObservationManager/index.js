@@ -152,6 +152,7 @@ function observationFromTrace(projectId, trace = {}, modelRuns = []) {
     operationId: trace.operationId || null,
     uiEvent: trace.uiEvent || null,
     routing: {
+      flowVariant: trace.routing?.flowVariant || "legacy",
       finalIntent: finalIntent.intent || "none",
       confidence: finalIntent.confidence || null,
       targetKind: finalIntent.target?.kind || null,
@@ -159,7 +160,12 @@ function observationFromTrace(projectId, trace = {}, modelRuns = []) {
       semanticSource: trace.routing?.semanticSource || null,
       finalSource: trace.routing?.finalSource || null,
       guardApplied: trace.routing?.guardApplied === true,
-      guardCategory: trace.routing?.guardCategory || null
+      guardCategory: trace.routing?.guardCategory || null,
+      responseGoal: trace.routing?.planningTurn?.responseGoal || null,
+      requestedAction: trace.routing?.planningTurn?.requestedAction || null,
+      authorizationSource: trace.routing?.planningTurn?.authorizationSource || null,
+      authorizationExplicit: trace.routing?.planningTurn?.authorizationExplicit === true,
+      planningReadiness: trace.routing?.planningTurn?.readiness || null
     },
     resolution: {
       kind: trace.resolution?.kind || "none",

@@ -7,6 +7,7 @@ const { buildWorkspace } = require("../workspaceManager");
 const { validateWorkflowCommand } = require("../workflowState");
 const { refreshStatusSnapshot } = require("../statusSnapshot");
 const { runWorkspaceCommandHandler } = require("../workspaceCommandHandlers");
+const { resolvePlanningFlow } = require("../planningFlowConfig");
 const {
   createUsageAttribution,
   extendUsageAttribution
@@ -100,6 +101,7 @@ async function runWorkspaceCommand(projectId, input = {}, options = {}) {
   const command = input.command || input.id;
   const payload = input.payload || {};
   const now = input.now || options.now || new Date().toISOString();
+  const planningFlow = resolvePlanningFlow(options);
   const usageAttribution = extendUsageAttribution(
     createUsageAttribution(options.usageAttribution, {
       projectId,
@@ -117,6 +119,7 @@ async function runWorkspaceCommand(projectId, input = {}, options = {}) {
     projectsDir,
     worksheetsDir,
     now,
+    planningFlow,
     usageAttribution
   });
 
@@ -131,6 +134,7 @@ async function runWorkspaceCommand(projectId, input = {}, options = {}) {
     projectsDir,
     worksheetsDir,
     now,
+    planningFlow,
     usageAttribution
   });
 

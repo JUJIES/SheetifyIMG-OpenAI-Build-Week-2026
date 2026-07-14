@@ -58,6 +58,7 @@ async function generateCandidateFromContentProposal(context) {
   await assertProposalMatchesCurrentState(projectDir, payload.proposalId, PROPOSAL_KINDS.CONTENT_MIRROR);
   const adopted = await adoptProposal(projectId, PROPOSAL_KINDS.CONTENT_MIRROR, {
     payload,
+    requireApproval: true,
     silent: true,
     now
   }, handlerOptions(context));

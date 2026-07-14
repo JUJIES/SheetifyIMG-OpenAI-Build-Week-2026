@@ -3,7 +3,11 @@
 const path = require("node:path");
 const { ARTIFACT_STATUSES, ARTIFACT_TYPES, EVENT_TYPES } = require("../contracts");
 const { listArtifacts, readArtifactIndex } = require("../artifactManager");
-const { approveContentMirrorVersion } = require("../contentMirrorManager");
+const { approveLessonBriefVersion } = require("../briefManager");
+const {
+  approveContentMirrorVersion,
+  assertContentMirrorReadyForApproval
+} = require("../contentMirrorManager");
 const { appendEvent } = require("../eventLog");
 const { appendHistoryEvent } = require("../historyManager");
 const { readJsonFile, writeJsonFile } = require("../jsonFile");
@@ -31,59 +35,142 @@ async function contentMirrorArtifactForPayload(projectDir, payload = {}) {
   return artifact;
 }
 
-async function activateContentMirrorVersion(projectDir, payload = {}, options = {}) {
-  const now = options.now || new Date().toISOString();
-  const artifact = await contentMirrorArtifactForPayload(projectDir, payload);
-  if (artifact.status === ARTIFACT_STATUSES.DRAFT && payload.approve === true) {
-    const approved = await approveContentMirrorVersion(projectDir, artifact.id, options);
+function pairedLessonBriefArtifact(index, contentArtifact) {
+  const contentSources = new Set(contentArtifact.createdFrom || []);
+  if (!contentSources.size) {
+    return null;
+  }
+  const matches = listArtifacts(index, { type: ARTIFACT_TYPES.LESSON_BRIEF })
+    .filter((brief) => (brief.createdFrom || []).some((sourceId) => contentSources.has(sourceId)));
+  if (matches.length > 1) {
+    throw new Error("Die Konzeptversion ist mit mehreren internen Planungsständen verknüpft.");
+  }
+  return matches[0] || null;
+}
+
+function draftApprovalStatus(status) {
+  return status === ARTIFACT_STATUSES.APPROVED
+    ? ARTIFACT_STATUSES.APPROVED
+    : "draft_only";
+}
+
+function aliasData(data, status) {
+  if (status === ARTIFACT_STATUSES.APPROVED) {
     return {
-      contentMirrorId: artifact.id,
-      conceptVersion: artifact.version || approved.version || null,
-      status: ARTIFACT_STATUSES.APPROVED,
-      approved: true,
-      data: approved
+      ...data,
+      status,
+      approval: {
+        ...(data.approval || {}),
+        status
+      }
     };
   }
+  return {
+    ...data,
+    status: ARTIFACT_STATUSES.DRAFT,
+    approval: data.approval ? {
+      ...data.approval,
+      status: ARTIFACT_STATUSES.DRAFT,
+      approvedAt: null
+    } : undefined
+  };
+}
+
+async function writeLessonBriefAlias(projectDir, artifact, data) {
+  const fileName = artifact.status === ARTIFACT_STATUSES.APPROVED
+    ? "approved.lessonbrief.json"
+    : "draft.lessonbrief.json";
+  await writeJson(path.join(projectDir, "brief", fileName), aliasData(data, artifact.status));
+}
+
+async function writeContentMirrorAlias(projectDir, artifact, data) {
+  const fileName = artifact.status === ARTIFACT_STATUSES.APPROVED
+    ? "approved.content-mirror.json"
+    : "draft.content-mirror.json";
+  await writeJson(path.join(projectDir, "content", fileName), aliasData(data, artifact.status));
+}
+
+async function activateContentMirrorVersion(projectDir, payload = {}, options = {}) {
+  const now = options.now || new Date().toISOString();
+  let artifact = await contentMirrorArtifactForPayload(projectDir, payload);
   if (![ARTIFACT_STATUSES.APPROVED, ARTIFACT_STATUSES.DRAFT].includes(artifact.status)) {
     throw new Error("Diese Konzeptversion kann nicht als Arbeitsstand genutzt werden.");
   }
 
+  let index = await readArtifactIndex(projectDir);
+  let pairedBrief = pairedLessonBriefArtifact(index, artifact);
+  if (
+    pairedBrief
+    && ![ARTIFACT_STATUSES.APPROVED, ARTIFACT_STATUSES.DRAFT].includes(pairedBrief.status)
+  ) {
+    throw new Error("Der zugehörige interne Planungsstand kann nicht aktiviert werden.");
+  }
+  if (
+    pairedBrief?.status === ARTIFACT_STATUSES.DRAFT
+    && artifact.status === ARTIFACT_STATUSES.APPROVED
+    && payload.approve !== true
+  ) {
+    throw new Error("Der zugehörige interne Planungsstand muss zusammen mit dieser Konzeptversion freigegeben werden.");
+  }
   const manifestPath = path.join(projectDir, "project-manifest.json");
-  const manifest = await readJson(manifestPath);
+  let manifest = await readJson(manifestPath);
   const previousContentMirrorId = manifest.currentArtifacts?.contentMirrorId || null;
-  const content = await readJson(path.join(projectDir, artifact.path));
+  const previousLessonBriefId = manifest.currentArtifacts?.lessonbriefId || null;
+  let content = await readJson(path.join(projectDir, artifact.path));
+  let pairedBriefData = pairedBrief
+    ? await readJson(path.join(projectDir, pairedBrief.path))
+    : null;
+
+  if (artifact.status === ARTIFACT_STATUSES.DRAFT && payload.approve === true) {
+    await assertContentMirrorReadyForApproval(projectDir, content, {
+      index,
+      manifest,
+      ...(pairedBriefData ? { brief: pairedBriefData } : {})
+    });
+  }
+
+  if (pairedBrief?.status === ARTIFACT_STATUSES.DRAFT && payload.approve === true) {
+    pairedBriefData = await approveLessonBriefVersion(projectDir, pairedBrief.id, options);
+    pairedBrief = {
+      ...pairedBrief,
+      status: ARTIFACT_STATUSES.APPROVED
+    };
+    manifest = await readJson(manifestPath);
+  }
+
   manifest.currentArtifacts = {
     ...(manifest.currentArtifacts || {}),
-    contentMirrorId: artifact.id
+    contentMirrorId: artifact.id,
+    ...(pairedBrief ? { lessonbriefId: pairedBrief.id } : {})
   };
+  const pairedBriefApproved = !pairedBrief || pairedBrief.status === ARTIFACT_STATUSES.APPROVED;
+  const contentApproved = artifact.status === ARTIFACT_STATUSES.APPROVED;
   manifest.approval = {
     ...(manifest.approval || {}),
-    contentMirror: artifact.status,
-    canGenerate: artifact.status === ARTIFACT_STATUSES.APPROVED,
-    reason: artifact.status === ARTIFACT_STATUSES.APPROVED ? null : "Current content mirror is not approved."
+    ...(pairedBrief ? { lessonBrief: draftApprovalStatus(pairedBrief.status) } : {}),
+    contentMirror: pairedBrief ? draftApprovalStatus(artifact.status) : artifact.status,
+    canGenerate: contentApproved && pairedBriefApproved,
+    reason: contentApproved && pairedBriefApproved
+      ? null
+      : !contentApproved
+        ? "Current content mirror is not approved."
+        : "The lesson brief paired with the current content mirror is not approved."
   };
   manifest.updatedAt = now;
   await writeJson(manifestPath, manifest);
 
-  if (artifact.status === ARTIFACT_STATUSES.APPROVED) {
-    await writeJson(path.join(projectDir, "content", "approved.content-mirror.json"), {
-      ...content,
-      status: ARTIFACT_STATUSES.APPROVED,
-      approval: {
-        ...(content.approval || {}),
-        status: ARTIFACT_STATUSES.APPROVED
-      }
-    });
+  if (pairedBrief) {
+    await writeLessonBriefAlias(projectDir, pairedBrief, pairedBriefData);
+  }
+
+  if (artifact.status === ARTIFACT_STATUSES.DRAFT && payload.approve === true) {
+    content = await approveContentMirrorVersion(projectDir, artifact.id, options);
+    artifact = {
+      ...artifact,
+      status: ARTIFACT_STATUSES.APPROVED
+    };
   } else {
-    await writeJson(path.join(projectDir, "content", "draft.content-mirror.json"), {
-      ...content,
-      status: ARTIFACT_STATUSES.DRAFT,
-      approval: {
-        ...(content.approval || {}),
-        status: ARTIFACT_STATUSES.DRAFT,
-        approvedAt: null
-      }
-    });
+    await writeContentMirrorAlias(projectDir, artifact, content);
   }
 
   await appendEvent(projectDir, {
@@ -95,6 +182,8 @@ async function activateContentMirrorVersion(projectDir, payload = {}, options = 
       type: ARTIFACT_TYPES.CONTENT_MIRROR,
       action: "activated_content_mirror_version",
       previousContentMirrorId,
+      previousLessonBriefId,
+      pairedLessonBriefId: pairedBrief?.id || null,
       status: artifact.status,
       version: artifact.version || null
     }
@@ -105,11 +194,14 @@ async function activateContentMirrorVersion(projectDir, payload = {}, options = 
     artifactId: artifact.id,
     version: artifact.version || null,
     status: artifact.status,
-    previousContentMirrorId
+    previousContentMirrorId,
+    previousLessonBriefId,
+    pairedLessonBriefId: pairedBrief?.id || null
   }, { now });
 
   return {
     contentMirrorId: artifact.id,
+    lessonBriefId: pairedBrief?.id || null,
     conceptVersion: artifact.version || content.version || null,
     status: artifact.status,
     approved: artifact.status === ARTIFACT_STATUSES.APPROVED,

@@ -5,6 +5,7 @@ const path = require("node:path");
 const { ARTIFACT_TYPES, EVENT_TYPES } = require("../contracts");
 const {
   currentArtifact,
+  findArtifact,
   listArtifacts,
   readArtifactIndex
 } = require("../artifactManager");
@@ -955,6 +956,20 @@ async function buildWorksheetPreview({ repoRoot, projectDir, project }) {
 }
 
 async function buildProjectDocuments(projectDir) {
+  const manifest = await readJsonIfExists(path.join(projectDir, "project-manifest.json")) || {};
+  const index = await readArtifactIndex(projectDir);
+  const currentBriefArtifact = manifest.currentArtifacts?.lessonbriefId
+    ? findArtifact(index, manifest.currentArtifacts.lessonbriefId)
+    : currentArtifact(index, ARTIFACT_TYPES.LESSON_BRIEF);
+  const currentContentArtifact = manifest.currentArtifacts?.contentMirrorId
+    ? findArtifact(index, manifest.currentArtifacts.contentMirrorId)
+    : currentArtifact(index, ARTIFACT_TYPES.CONTENT_MIRROR);
+  const currentBrief = currentBriefArtifact?.path
+    ? await readJsonIfExists(path.join(projectDir, currentBriefArtifact.path))
+    : null;
+  const currentContent = currentContentArtifact?.path
+    ? await readJsonIfExists(path.join(projectDir, currentContentArtifact.path))
+    : null;
   const draftBrief = await readJsonIfExists(path.join(projectDir, "brief", "draft.lessonbrief.json"));
   const approvedBrief = await readJsonIfExists(path.join(projectDir, "brief", "approved.lessonbrief.json"));
   const draftContent = await readJsonIfExists(path.join(projectDir, "content", "draft.content-mirror.json"));
@@ -969,12 +984,12 @@ async function buildProjectDocuments(projectDir) {
       transferCard
     },
     brief: {
-      status: approvedBrief ? "approved" : draftBrief ? "draft" : "missing",
-      data: approvedBrief || draftBrief
+      status: currentBriefArtifact?.status || (approvedBrief ? "approved" : draftBrief ? "draft" : "missing"),
+      data: currentBrief || approvedBrief || draftBrief
     },
     content: {
-      status: approvedContent ? "approved" : draftContent ? "draft" : "missing",
-      data: approvedContent || draftContent
+      status: currentContentArtifact?.status || (approvedContent ? "approved" : draftContent ? "draft" : "missing"),
+      data: currentContent || approvedContent || draftContent
     },
     warnings: contentWarnings || null
   };
