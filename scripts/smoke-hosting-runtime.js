@@ -162,6 +162,17 @@ async function main() {
       logs: "ready"
     });
 
+    const stateDirectoryBeforeHealth = await fs.stat(path.join(runtimeDir, "state"));
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    const repeatedReadyResponse = await fetch(`${baseUrl}/health/ready`);
+    assert.equal(repeatedReadyResponse.status, 200);
+    const stateDirectoryAfterHealth = await fs.stat(path.join(runtimeDir, "state"));
+    assert.equal(
+      stateDirectoryAfterHealth.mtimeMs,
+      stateDirectoryBeforeHealth.mtimeMs,
+      "The readiness endpoint must not mutate runtime state."
+    );
+
     const liveResponse = await fetch(`${baseUrl}/health/live`);
     assert.equal(liveResponse.status, 200);
     assert.equal(liveResponse.headers.get("x-content-type-options"), "nosniff");

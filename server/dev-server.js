@@ -631,9 +631,9 @@ async function handleHealth(pathname, response) {
   }
   if (pathname === "/health/ready") {
     const readiness = await checkRuntimeReadiness(serverConfig);
-    const writable = readiness.status === "ready" && await writeRuntimeProbe(serverConfig);
-    sendJson(response, writable ? 200 : 503, {
-      status: writable ? "ready" : "not_ready",
+    const ready = readiness.status === "ready";
+    sendJson(response, ready ? 200 : 503, {
+      status: ready ? "ready" : "not_ready",
       checks: readiness.checks
     });
     return true;
