@@ -17,6 +17,7 @@ const { approveLessonBriefVersion, createLessonBriefVersion } = require("../brie
 const { createContentMirrorVersion, hasMeaningfulContent } = require("../contentMirrorManager");
 const { findArtifact, listArtifacts, readArtifactIndex } = require("../artifactManager");
 const {
+  conceptFrameFromLegacy,
   legacyLessonBriefFromConcept,
   conceptFrameFromTeachingContext,
   normalizeConceptFrame
@@ -811,12 +812,17 @@ function unifiedConceptSchema() {
 }
 
 function unifiedConceptDeltaSchema() {
+  const nullableFrame = {
+    ...conceptFrameSchema(),
+    type: ["object", "null"]
+  };
   return {
     type: "object",
     additionalProperties: false,
-    required: ["conceptFrame", "changes"],
+    required: ["frameChanged", "conceptFrame", "changes"],
     properties: {
-      conceptFrame: conceptFrameSchema(),
+      frameChanged: { type: "boolean" },
+      conceptFrame: nullableFrame,
       changes: contentDeltaSchema()
     }
   };
@@ -1226,12 +1232,13 @@ function purposeForKind(kind, input = {}) {
     return ROUTE_PURPOSES.LESSON_BRIEF;
   }
   if (kind === PROPOSAL_KINDS.CONTENT_MIRROR) {
+    if (usesContentDelta(kind, input)) {
+      return ROUTE_PURPOSES.CONTENT_DELTA;
+    }
     if (usesV2ConceptFlow(kind, input)) {
       return ROUTE_PURPOSES.WORKSHEET_CONCEPT;
     }
-    return usesContentDelta(kind, input)
-      ? ROUTE_PURPOSES.CONTENT_DELTA
-      : ROUTE_PURPOSES.CONTENT_MIRROR;
+    return ROUTE_PURPOSES.CONTENT_MIRROR;
   }
   if (kind === PROPOSAL_KINDS.IMAGE_SPEC) {
     return ROUTE_PURPOSES.IMAGE_SPEC;
@@ -1244,11 +1251,13 @@ function userPromptForKind(kind, message, input = {}) {
   const planningHandoff = String(input.planningHandoff || "").trim();
   if (usesV2ConceptFlow(kind, input) && usesContentDelta(kind, input)) {
     return [
-      "Aktualisiere den kompakten Konzept-Rahmen und liefere nur die minimalen strukturierten Inhaltsaenderungen.",
+      "Liefere nur die minimalen strukturierten Inhaltsaenderungen und entscheide explizit, ob sich der kompakte Konzept-Rahmen aendert.",
       input.basisProposalId
         ? `Nutze den offenen Konzeptvorschlag ${input.basisProposalId} als verbindliche Basis.`
         : "Nutze currentContent und currentBrief als verbindliche Basis.",
-      "conceptFrame muss den neuen Zielstand vollständig beschreiben; changes darf nur ausdrücklich betroffene sichtbare Inhalte verändern.",
+      "Bei frameChanged=false muss conceptFrame null sein; die App uebernimmt dann den bestehenden Rahmen exakt.",
+      "Bei frameChanged=true muss conceptFrame den vollstaendigen neuen Rahmen enthalten.",
+      "changes darf nur ausdruecklich betroffene sichtbare Inhalte veraendern.",
       "Erhalte alle nicht angesprochenen Konzept- und Inhaltswerte unverändert.",
       planningHandoff ? `Semantischer Handoff aus dem autorisierten Planungsturn:\n${planningHandoff}` : "",
       input.revisionTarget ? `Revision target: ${JSON.stringify(input.revisionTarget)}` : "",
@@ -1341,6 +1350,62 @@ function parseStructuredResponse(response) {
     throw new Error("Structured response did not contain output text.");
   }
   return JSON.parse(text);
+}
+
+function sameConceptFrame(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function currentConceptFrame(context = {}, project = {}) {
+  if (context.conceptFrame) {
+    return normalizeConceptFrame(context.conceptFrame, project);
+  }
+  if (context.currentBrief) {
+    return conceptFrameFromLegacy(context.currentBrief, project);
+  }
+  return null;
+}
+
+function resolveV2DeltaConceptFrame(raw = {}, context = {}, project = {}) {
+  if (typeof raw.frameChanged !== "boolean") {
+    throw new Error("Unified concept delta must declare frameChanged.");
+  }
+  const baseFrame = currentConceptFrame(context, project);
+  if (!baseFrame) {
+    throw new Error("Unified concept delta requires an existing concept frame.");
+  }
+  if (raw.frameChanged === false) {
+    if (raw.conceptFrame !== null) {
+      throw new Error("Unified concept delta with frameChanged=false must return conceptFrame=null.");
+    }
+    const teachingContextFrame = conceptFrameFromTeachingContext(
+      context.teachingContext || {},
+      baseFrame,
+      project
+    );
+    if (!sameConceptFrame(baseFrame, teachingContextFrame)) {
+      throw new Error("Unified concept delta cannot preserve a frame that conflicts with the current teaching context.");
+    }
+    return {
+      frameChanged: false,
+      conceptFrame: baseFrame
+    };
+  }
+  if (!raw.conceptFrame || typeof raw.conceptFrame !== "object" || Array.isArray(raw.conceptFrame)) {
+    throw new Error("Unified concept delta with frameChanged=true requires a complete conceptFrame.");
+  }
+  const nextFrame = conceptFrameFromTeachingContext(
+    context.teachingContext || {},
+    normalizeConceptFrame(raw.conceptFrame, project),
+    project
+  );
+  if (sameConceptFrame(baseFrame, nextFrame)) {
+    throw new Error("Unified concept delta declared a frame change but returned the existing frame.");
+  }
+  return {
+    frameChanged: true,
+    conceptFrame: nextFrame
+  };
 }
 
 async function modelProposalData(kind, project, context, input, runtime, logContext = {}) {
@@ -1450,14 +1515,19 @@ async function modelProposalData(kind, project, context, input, runtime, logCont
     if (kind === PROPOSAL_KINDS.CONTENT_MIRROR) {
       data = normalizeContentMirrorForContext(data, context);
     }
-    const modelFrame = v2Concept
-      ? normalizeConceptFrame(raw.conceptFrame, project)
-      : context.conceptFrame || null;
+    const deltaFrame = v2Concept && contentDelta
+      ? resolveV2DeltaConceptFrame(raw, context, project)
+      : null;
+    const modelFrame = deltaFrame?.conceptFrame
+      || (v2Concept ? normalizeConceptFrame(raw.conceptFrame, project) : context.conceptFrame || null);
     parsedResult = {
       data,
-      conceptFrame: modelFrame
-        ? conceptFrameFromTeachingContext(context.teachingContext, modelFrame, project)
-        : null,
+      conceptFrame: deltaFrame
+        ? deltaFrame.conceptFrame
+        : modelFrame
+          ? conceptFrameFromTeachingContext(context.teachingContext, modelFrame, project)
+          : null,
+      frameChanged: deltaFrame?.frameChanged ?? null,
       changeSet: deltaResult?.changeSet || null,
       ruleSelection
     };
@@ -1477,7 +1547,11 @@ async function modelProposalData(kind, project, context, input, runtime, logCont
         usage,
         costEstimate: estimateOpenAiTextCost({ usage, model: responseModel }),
         requestShape,
-        metadata: { generationMode, flowVariant: input.conceptFlow || null },
+        metadata: {
+          generationMode,
+          flowVariant: input.conceptFlow || null,
+          ...(parsedResult.frameChanged !== null ? { frameChanged: parsedResult.frameChanged } : {})
+        },
         attribution: logContext.usageAttribution,
         uiEvent: input.uiEvent || "proposal_generation"
       }, { now: input.now || logContext.now });
@@ -1948,6 +2022,7 @@ async function generateProposal(projectId, kind, input = {}, options = {}) {
       preserveUnmentionedConceptParts: input.preserveUnmentionedConceptParts === true,
       contentRevisionStrategy: proposalData.changeSet ? "delta" : (input.contentRevisionStrategy || "full_snapshot"),
       conceptFlow: input.conceptFlow || null,
+      ...(typeof proposalData.frameChanged === "boolean" ? { frameChanged: proposalData.frameChanged } : {}),
       chainRequested: input.chainRequested === true,
       changeSet: proposalData.changeSet || null,
       currentLessonBriefId: project.manifest?.currentArtifacts?.lessonbriefId || null,

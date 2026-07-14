@@ -69,14 +69,38 @@ function teachingFieldValue(teachingContext = {}, id) {
     : null;
 }
 
+function normalizedRequirement(value) {
+  return String(textValue(value) || "").toLocaleLowerCase("de-DE");
+}
+
+function requirementAlreadyRepresented(requirements = [], value) {
+  const existing = new Set(requirements.map(normalizedRequirement).filter(Boolean));
+  const normalizedValue = normalizedRequirement(value);
+  const legacyProjection = normalizedRequirement(requirements.slice(0, 3).join(", "));
+  if (!normalizedValue || existing.has(normalizedValue) || normalizedValue === legacyProjection) {
+    return true;
+  }
+  const commaSeparatedParts = normalizedValue
+    .split(/\s*,\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return commaSeparatedParts.length > 1
+    && commaSeparatedParts.every((part) => existing.has(part));
+}
+
 function conceptFrameFromTeachingContext(teachingContext = {}, fallbackInput = {}, project = {}) {
   const fallback = normalizeConceptFrame(fallbackInput, project);
   const worksheetType = teachingFieldValue(teachingContext, "worksheetType");
   const specialRequirements = teachingFieldValue(teachingContext, "specialRequirements");
+  const worksheetTypeRequirement = worksheetType ? `Arbeitsblatt-Typ: ${worksheetType}` : null;
   const requirements = [
     ...fallback.requirements,
-    ...(worksheetType ? [`Arbeitsblatt-Typ: ${worksheetType}`] : []),
-    ...(specialRequirements ? [specialRequirements] : [])
+    ...(worksheetTypeRequirement && !requirementAlreadyRepresented(fallback.requirements, worksheetTypeRequirement)
+      ? [worksheetTypeRequirement]
+      : []),
+    ...(specialRequirements && !requirementAlreadyRepresented(fallback.requirements, specialRequirements)
+      ? [specialRequirements]
+      : [])
   ];
   return normalizeConceptFrame({
     ...fallback,

@@ -29,4 +29,17 @@ Regeln:
 - Die Zusammenfassung benennt knapp die fachliche Aenderung, nicht den
   technischen Delta-Mechanismus.
 
+Wenn das vorgegebene Schema zusaetzlich `frameChanged` und `conceptFrame`
+enthaelt, gilt fuer den kompakten Unterrichtsrahmen:
+
+- `frameChanged=false` und `conceptFrame=null` bei reinen Aufgaben-, Text-,
+  Rechtschreib-, Bildmaterial-, Seitenzahl- oder Layoutaenderungen.
+- `frameChanged=true` nur wenn Fach, Thema, Zielgruppe, Lernziel, fachliche
+  Anforderungen oder die uebergeordnete visuelle Stilrichtung betroffen sind.
+- Bei `frameChanged=true` liefere den vollstaendigen neuen `conceptFrame`, nicht
+  nur geaenderte Felder.
+- Aendere sichtbare Inhalte, die von einem neuen Rahmen betroffen sind, im
+  selben `changes`-Objekt mit. Der Content-Mirror bleibt die kanonische
+  Konzeptwahrheit.
+
 Gib ausschliesslich ein JSON-Objekt gemaess dem vorgegebenen Schema zurueck.
