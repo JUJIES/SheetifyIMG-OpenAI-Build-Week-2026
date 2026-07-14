@@ -21,6 +21,16 @@ async function freePort() {
   });
 }
 
+async function assertPortReusable(port) {
+  await new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", () => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  });
+}
+
 async function waitForHealth(baseUrl, child, output, timeoutMs = 8000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -234,6 +244,8 @@ async function main() {
     assert.equal(exitCode, 0, output());
     await fs.rm(tempRoot, { recursive: true, force: true });
   }
+
+  await assertPortReusable(port);
 
   console.log("Hosting runtime smoke passed.");
 }
