@@ -49,7 +49,16 @@ function workflowCommandTraceIntent(command, payload = {}) {
   };
 }
 
-async function appendWorkspaceCommandTrace(projectId, projectDir, input = {}, beforeWorkspace = {}, afterWorkspace = {}, now, usageAttribution = null) {
+async function appendWorkspaceCommandTrace(
+  projectId,
+  projectDir,
+  input = {},
+  beforeWorkspace = {},
+  afterWorkspace = {},
+  now,
+  usageAttribution = null,
+  planningFlow = "legacy"
+) {
   const command = input.command || input.id;
   const payload = input.payload || {};
   const intent = workflowCommandTraceIntent(command, payload);
@@ -57,6 +66,7 @@ async function appendWorkspaceCommandTrace(projectId, projectDir, input = {}, be
     context: {
       message: input.message || input.label || command,
       usageAttribution,
+      flowVariant: planningFlow,
       workspace: beforeWorkspace,
       intent,
       intentDecision: {
@@ -145,7 +155,16 @@ async function runWorkspaceCommand(projectId, input = {}, options = {}) {
 
   const workspace = await buildWorkspace(projectId, { repoRoot, projectsDir, worksheetsDir });
   if (traceCommand) {
-    await appendWorkspaceCommandTrace(projectId, projectDir, input, beforeWorkspace, workspace, now, usageAttribution);
+    await appendWorkspaceCommandTrace(
+      projectId,
+      projectDir,
+      input,
+      beforeWorkspace,
+      workspace,
+      now,
+      usageAttribution,
+      planningFlow
+    );
   }
 
   return {
