@@ -259,12 +259,17 @@ function suggestedActionFallback(suggestedActions = [], input = {}, workspace = 
     return "Ich greife deinen Planungsstand auf und formuliere daraus jetzt die sichtbare Konzeptfassung mit Text, Aufgaben, erwarteten Antworten und Bildidee. Danach kannst du gezielt entscheiden, ob die Fassung trägt oder noch geschärft werden soll.";
   }
   if (firstAction.command === "approve_current_content") {
-    return "Das Arbeitsblatt-Konzept wirkt jetzt tragfähig genug als Basis. Wenn du es freigibst, bleibt genau dieser Inhalt die Grundlage für die Entwürfe.";
+    return "Das Arbeitsblatt-Konzept wirkt jetzt tragfähig. Wenn du es übernimmst, bleibt genau dieser Inhalt die Grundlage für die Entwürfe.";
+  }
+  if (firstAction.command === "generate_candidate_from_content_proposal") {
+    return firstAction.requiresConfirmation
+      ? "Ich kann daraus jetzt einen Entwurf erstellen; die Bildgenerierung startet erst nach deiner bewussten Bestätigung."
+      : "Ich kann daraus jetzt einen Entwurf erstellen.";
   }
   if (firstAction.command === "generate_image_candidate") {
     return "Das Konzept steht; der nächste sinnvolle Schritt ist ein Entwurf. Die Bildgenerierung startet aber nicht nebenbei, sondern erst nach deiner bewussten Kostenbestätigung.";
   }
-  return "Ich habe den passenden nächsten Schritt vorbereitet. Du kannst ihn direkt über die vorgeschlagene Aktion ausführen oder vorher noch im Chat nachschärfen.";
+  return "Der passende nächste Schritt ist als Aktion verfügbar. Du kannst ihn direkt ausführen oder vorher noch im Chat nachschärfen.";
 }
 
 function conceptVersionFromAction(action = {}) {
@@ -349,7 +354,7 @@ function responsePlanForMoment(moment = {}) {
       RESPONSE_DEPTHS.BRIEF,
       RELATIONSHIP_MOVES.ACKNOWLEDGE,
       2,
-      "Entwurfsvorbereitung kurz erklaeren; keine neue Konzeptdebatte aufmachen."
+      "Referenz/Vorlage kurz erklaeren; keine neue Konzeptdebatte aufmachen."
     );
   }
 
@@ -367,7 +372,7 @@ function responsePlanForMoment(moment = {}) {
       RESPONSE_DEPTHS.MINIMAL,
       RELATIONSHIP_MOVES.ACKNOWLEDGE,
       1,
-      "Uebernahme knapp bestaetigen; keine Reflexion und keine neue Rueckfrage."
+      "Knapp bestaetigen, dass mit diesem Stand weitergearbeitet wird; keine Freigabe- oder Uebernahme-Sprache."
     );
   }
 
@@ -382,27 +387,27 @@ function responsePlanForMoment(moment = {}) {
 function workflowFollowupFallback(commandId, action = null) {
   const nextCandidate = action?.command === "generate_image_candidate";
   if (commandId === "generate_lessonbrief_proposal") {
-    return "Ich habe daraus eine erste Konzeptfassung gebaut. Schau vor allem auf Ziel, Aufgabenlogik und Bildidee; wenn die Richtung stimmt, können wir sie als Arbeitsblatt-Konzept ausformulieren.";
+    return "Ich formuliere daraus ein vollständiges Arbeitsblatt-Konzept mit Rahmen, Aufgaben, sichtbarem Inhalt und Bildidee.";
   }
   if (commandId === "adopt_lessonbrief_proposal") {
-    return "Okay, dann nehmen wir diese Konzeptfassung als Basis. Ich formuliere daraus als Nächstes das sichtbare Arbeitsblatt-Konzept aus.";
+    return "Okay, ich formuliere daraus jetzt das vollständige Arbeitsblatt-Konzept aus.";
   }
   if (commandId === "generate_content_mirror_proposal") {
-    return "Ich habe daraus ein vollständiges Arbeitsblatt-Konzept gemacht. Prüf kurz, ob Textmenge, Aufgaben und Bildidee wirklich zu deiner Lerngruppe passen; dann können wir es übernehmen oder gezielt nachschärfen.";
+    return "Ich habe daraus ein vollständiges Arbeitsblatt-Konzept gemacht. Prüf kurz, ob Textmenge, Aufgaben und Bildidee wirklich zu deiner Lerngruppe passen; dann kann daraus direkt ein Entwurf entstehen oder wir schärfen gezielt nach.";
   }
   if (commandId === "activate_content_mirror_version") {
     const version = conceptVersionFromAction(action);
     return nextCandidate
       ? `Alles klar, ${version} ist die Basis; ich öffne dir die Bestätigung für den nächsten Entwurf.`
-      : `Alles klar, ${version} ist jetzt die aktuelle Basis.`;
+      : `Alles klar, ich nutze ${version} für die nächsten Schritte.`;
   }
   if (commandId === "adopt_content_mirror_proposal") {
     return nextCandidate
-      ? "Alles klar, diese Konzeptversion ist freigegeben; ich öffne dir die Bestätigung für den nächsten Entwurf."
-      : "Alles klar, diese Konzeptversion ist jetzt freigegeben und damit die Grundlage für Entwürfe.";
+      ? "Alles klar, ich nutze diese Konzeptfassung und öffne dir die Bestätigung für den nächsten Entwurf."
+      : "Alles klar, ich arbeite mit dieser Konzeptfassung weiter.";
   }
   if (commandId === "approve_current_content") {
-    return "Alles klar, das Arbeitsblatt-Konzept ist freigegeben; der nächste Entwurf braucht nur noch deine bewusste Bestätigung.";
+    return "Alles klar, ich arbeite mit diesem Arbeitsblatt-Konzept weiter; der nächste Entwurf braucht nur noch deine bewusste Bestätigung.";
   }
   if (commandId === "generate_image_candidate") {
     return "Bildgenerierung läuft im Hintergrund. Sobald der Entwurf fertig ist, erscheint er in der Entwurfsansicht.";
@@ -417,24 +422,29 @@ function localActionOfferFallback(actionOffer = {}, context = {}) {
   const suggestedActions = actionOffer.suggestedActions || [];
   const firstAction = suggestedActions[0] || null;
   if (!firstAction) {
-    return actionOffer.message || "Ich habe den Stand geprüft. Sag mir kurz, ob du etwas übernehmen, ändern oder als Entwurf sehen möchtest.";
+    return actionOffer.message || "Ich habe den Stand geprüft. Sag mir kurz, ob du etwas ändern oder als Entwurf sehen möchtest.";
   }
   if (firstAction.command === "adopt_content_mirror_proposal") {
-    return "Das klingt nach: diese Konzeptfassung nehmen. Ich kann sie übernehmen und freigeben, damit sie zur Grundlage für Entwürfe wird.";
+    return "Das klingt nach: mit dieser Konzeptfassung weiterarbeiten. Ich kann sie für die nächsten Schritte nutzen.";
   }
   if (firstAction.command === "generate_content_mirror_proposal") {
-    return "Ich greife deine Änderung am Arbeitsblatt-Konzept auf und mache daraus eine neue Fassung. Danach entscheidest du, ob diese Version die neue Basis wird.";
+    return "Ich kann deine Änderung am Arbeitsblatt-Konzept zu einer neuen Fassung machen. Danach entscheidest du, ob diese Version die neue Basis wird.";
   }
   if (firstAction.command === "generate_image_candidate") {
     return firstAction.requiresConfirmation
-      ? "Alles klar, ich bereite den nächsten Entwurf aus der aktuellen Konzeptbasis vor; die Bildgenerierung startet erst nach deiner Bestätigung."
-      : "Alles klar, ich bereite den nächsten Entwurf aus der aktuellen Konzeptbasis vor.";
+      ? "Alles klar, der nächste Entwurf kann aus dem Arbeitsblatt-Konzept entstehen; die Bildgenerierung startet erst nach deiner Bestätigung."
+      : "Alles klar, aus dem Arbeitsblatt-Konzept kann der nächste Entwurf entstehen.";
+  }
+  if (firstAction.command === "generate_candidate_from_content_proposal") {
+    return firstAction.requiresConfirmation
+      ? "Alles klar, ich kann daraus jetzt einen Entwurf erstellen; die Bildgenerierung startet erst nach deiner Bestätigung."
+      : "Alles klar, ich kann daraus jetzt einen Entwurf erstellen.";
   }
   if (firstAction.command === "deposit_worksheet") {
     return "Ich kann den aktuellen Entwurf jetzt als Arbeitsblatt ablegen. Danach findest du ihn in der Arbeitsblatt-Ansicht.";
   }
   if (firstAction.command === "activate_content_mirror_version") {
-    return "Ich kann diese Konzeptversion als aktuelle Basis setzen. Danach beziehen sich die nächsten Entwurf genau auf diese Fassung.";
+    return "Ich kann diese Konzeptversion für die nächsten Schritte nutzen. Danach beziehen sich die nächsten Entwürfe genau auf diese Fassung.";
   }
   return actionOffer.message || suggestedActionFallback(suggestedActions, { message: context.message || "" }, context.workspace || {});
 }

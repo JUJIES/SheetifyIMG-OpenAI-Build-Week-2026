@@ -4,6 +4,7 @@ const { getAiRuntimeStatus, getOpenAiRequestConfig } = require("../aiConfig");
 const { createResponse, extractOutputText } = require("../openaiClient");
 const { logModelRun, sanitizeErrorMessage } = require("../modelRunLogger");
 const { estimateOpenAiTextCost } = require("../imageCostManager");
+const { measureModelRequest } = require("../modelRequestMetrics");
 const { ROUTE_PURPOSES, routeForPurpose } = require("../modelRouter");
 const { composePrompts } = require("../promptRegistry");
 
@@ -150,27 +151,32 @@ async function interpretTeachingContext(projectDir, input = {}, options = {}) {
     repoRoot: options.repoRoot
   });
   const startedAt = Date.now();
+  let modelCallLogged = false;
+  const payload = interpreterPayload(input);
+  const responseBody = {
+    model: route.model || requestConfig.textModel,
+    instructions,
+    input: [{
+      role: "user",
+      content: JSON.stringify(payload, null, 2)
+    }],
+    store: false,
+    reasoning: route.reasoningEffort && route.reasoningEffort !== "none"
+      ? { effort: route.reasoningEffort }
+      : undefined
+  };
+  const requestShape = measureModelRequest(responseBody, {
+    contextSections: payload
+  });
 
   try {
-    const response = await createResponse({
-      model: route.model || requestConfig.textModel,
-      instructions,
-      input: [{
-        role: "user",
-        content: JSON.stringify(interpreterPayload(input), null, 2)
-      }],
-      store: false,
-      reasoning: route.reasoningEffort && route.reasoningEffort !== "none"
-        ? { effort: route.reasoningEffort }
-        : undefined
-    }, requestConfig);
+    const response = await createResponse(responseBody, requestConfig);
     const responseModel = response.model || route.model || requestConfig.textModel;
     const usage = response.usage || null;
     const costEstimate = estimateOpenAiTextCost({
       usage,
       model: responseModel
     });
-    const interpretation = parseSemanticInterpretation(extractOutputText(response));
     await logModelRun(projectDir, {
       status: "success",
       source: "semantic_interpreter",
@@ -178,25 +184,35 @@ async function interpretTeachingContext(projectDir, input = {}, options = {}) {
       route: route.route,
       promptNames: route.promptNames,
       model: responseModel,
+      reasoningEffort: route.reasoningEffort,
       responseId: response.id || null,
       durationMs: Date.now() - startedAt,
       usage,
       costEstimate,
+      requestShape,
+      attribution: options.usageAttribution,
       uiEvent: options.uiEvent || "chat_message"
     }, { now: options.now });
+    modelCallLogged = true;
+    const interpretation = parseSemanticInterpretation(extractOutputText(response));
     return interpretation;
   } catch (error) {
-    await logModelRun(projectDir, {
-      status: "error",
-      source: "semantic_interpreter",
-      purpose: route.purpose,
-      route: route.route,
-      promptNames: route.promptNames,
-      model: route.model || requestConfig.textModel,
-      durationMs: Date.now() - startedAt,
-      uiEvent: options.uiEvent || "chat_message",
-      error: sanitizeErrorMessage(error)
-    }, { now: options.now });
+    if (!modelCallLogged) {
+      await logModelRun(projectDir, {
+        status: "error",
+        source: "semantic_interpreter",
+        purpose: route.purpose,
+        route: route.route,
+        promptNames: route.promptNames,
+        model: route.model || requestConfig.textModel,
+        reasoningEffort: route.reasoningEffort,
+        durationMs: Date.now() - startedAt,
+        requestShape,
+        attribution: options.usageAttribution,
+        uiEvent: options.uiEvent || "chat_message",
+        error: sanitizeErrorMessage(error)
+      }, { now: options.now });
+    }
     return null;
   }
 }

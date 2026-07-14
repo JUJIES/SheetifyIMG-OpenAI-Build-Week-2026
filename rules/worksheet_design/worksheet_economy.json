@@ -1,0 +1,47 @@
+{
+  "id": "worksheet_design.worksheet_economy",
+  "version": 1,
+  "scope": "worksheet_design",
+  "stages": ["image_spec"],
+  "priority": 79,
+  "title": "Arbeitsblatt-Oekonomie als weichen Standard sichern",
+  "appliesWhen": {
+    "always": true
+  },
+  "instructions": [
+    "Diese Regel ist ein weicher Standard fuer die visuelle Umsetzung, keine harte Seitentyp-Schablone.",
+    "Explizite Nutzerwuensche und das freigegebene Konzept bleiben staerker, auch wenn ein ungewoehnlicher Stil, Comic-Look, Collage, sehr freie Komposition oder keine Schreiblinien gewuenscht sind.",
+    "Wenn nichts Spezielleres vorgegeben ist, soll das Arbeitsblatt harmonisch, klar gegliedert, schulisch und leicht gestaltet wirken: nicht roh, nicht ueberfuellt, nicht unnoetig verspielt.",
+    "Ordne zusammengehoerige Inhalte in klaren Bloecken oder visuell erkennbaren Gruppen an, mit genug Weissraum zwischen Text, Bildern, Aufgaben und Antwortflaechen.",
+    "Illustrationen sollen eine Funktion haben: erklaeren, orientieren, motivieren oder freigegebenes Material darstellen. Sie duerfen Arbeitsraum nicht verdraengen.",
+    "Antwortlinien und Schreibflaechen brauchen ausreichend Abstand zum Aufgabenauftrag, zu Bildern und zu Blockraendern; die erste Linie darf nicht direkt an Text oder Bild kleben.",
+    "Schreiblinien innerhalb eines Aufgabenblocks sollen gleichmaessig, gut beschreibbar und nicht zu eng gesetzt sein."
+  ],
+  "imageSpecInstructions": [
+    "Beschreibe die visuelle Oekonomie knapp als Standardqualitaet: klare Bloecke, ausreichend Weissraum, funktionale Illustration und gut nutzbare Antwortflaechen.",
+    "Plane keine starre Template-Geometrie daraus und entferne keine vom Nutzer gewuenschten Elemente.",
+    "Wenn der Nutzer ein spezielles Layout, keine Schreiblinien, Comic, Collage oder einen bewusst ungewoehnlichen Stil verlangt, notiere diesen Wunsch als staerker als die Standardoekonomie."
+  ],
+  "imagePromptInstructions": [
+    "Weicher Standard: harmonisches, klar gegliedertes Arbeitsblatt mit erkennbaren Bloecken, genug Weissraum und nicht verdraengtem Arbeitsraum.",
+    "Antwortlinien/Schreibflaechen mit gleichmaessigem, beschreibbarem Abstand setzen; die erste Linie nicht direkt an Auftrag, Bild oder Rahmen kleben.",
+    "Illustrationen funktional einsetzen und Arbeitsflaechen nicht ueberladen; explizite Nutzerwuensche zu Stil, Layout oder fehlenden Linien bleiben staerker."
+  ],
+  "examples": [
+    {
+      "bad": "Ein Bild sitzt direkt neben einer Aufgabe, die erste Antwortlinie klebt am Bildrand, weitere Linien sind unterschiedlich eng.",
+      "good": "Bild und Aufgabe bilden erkennbare Bereiche; die Antwortlinien starten mit Luft zum Bild und bleiben gleichmaessig beschreibbar.",
+      "reason": "Arbeitsraum ist Teil der Unterrichtsfunktion, nicht nur Dekoration."
+    },
+    {
+      "bad": "Eine dezente Uebungsseite wird mit grossen Deko-Elementen gefuellt, sodass Aufgaben und Schreibraum gequetscht wirken.",
+      "good": "Die Illustration hilft beim Verstehen oder Orientieren, bleibt aber kleiner als der Arbeitsbereich und stuetzt die Blickfuehrung.",
+      "reason": "Illustrationen sollen funktional sein und Arbeitsflaeche nicht verdraengen."
+    },
+    {
+      "bad": "Die Regel verhindert einen ausdruecklich gewuenschten Comic- oder Collage-Stil.",
+      "good": "Der gewuenschte Stil wird umgesetzt; trotzdem bleiben Bloecke, Lesbarkeit und Arbeitsraum so klar wie in diesem Stil moeglich.",
+      "reason": "Die Regel ist ein Standardfall, kein Override gegen Nutzerwunsch."
+    }
+  ]
+}

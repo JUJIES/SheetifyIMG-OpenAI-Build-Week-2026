@@ -1,0 +1,49 @@
+{
+  "id": "worksheet_design.answer_surface_semantics",
+  "version": 1,
+  "scope": "worksheet_design",
+  "stages": ["image_spec"],
+  "priority": 78,
+  "title": "Antwortflaechen passend zur erwarteten Antwortform gestalten",
+  "appliesWhen": {
+    "always": true
+  },
+  "instructions": [
+    "Diese Regel betrifft die Antwortflaeche einer Aufgabe, nicht die Aufgaben- oder Blocknummerierung.",
+    "Wenn eine Aufgabe eine feste Anzahl einzelner Antworten verlangt, zum Beispiel `Nenne zwei`, `Benenne drei`, `Notiere vier Gruende`, soll die Antwortflaeche genau diese Anzahl sichtbarer Antwortslots anbieten.",
+    "Feste Einzelantwort-Slots sollen mit kleinen lokalen Nummern wie `1.` und `2.` beginnen, nicht mit generischen Punkten.",
+    "Die lokalen Antwortslot-Nummern gehoeren in den Schreibbereich und duerfen nicht wie neue Aufgaben wirken.",
+    "Bei offenen Erklaer-, Beschreibungs- oder Begruendungsaufgaben ohne feste Itemzahl sind normale Schreiblinien ohne Bulletpoints oder lokale Nummern besser.",
+    "Bei Zuordnungsaufgaben, Paaren, Tabellen oder Pfeil-Aufgaben soll die Antwortflaeche die passende Struktur nutzen, nicht automatisch nummerierte Schreiblinien.",
+    "Zuordnungsstrukturen duerfen keine Loesungen, neuen Fachbegriffe oder Antwortoptionen erfinden. Nutze nur freigegebene Optionen; wenn keine Optionen freigegeben sind, render leere Paarfelder, Tabellenzeilen oder Schreiblinien.",
+    "Explizite Nutzerwuensche bleiben staerker, wenn eine andere Antwortform gewuenscht ist."
+  ],
+  "imageSpecInstructions": [
+    "Plane Antwortflaechen semantisch: feste Anzahl einzelner Antworten als nummerierte Slots, offene Schreibaufgaben als Fliesstextlinien, Zuordnung als Paar-/Tabellenstruktur.",
+    "Wenn eine Zuordnungsaufgabe keine freigegebenen Optionslisten enthaelt, plane eine leere Struktur mit Beschriftungen oder Linien, aber keine erfundenen Paare.",
+    "Beschreibe diese Antwortflaechenlogik knapp, ohne neue sichtbare Aufgabeninhalte zu erfinden.",
+    "Vermeide konkurrierende Nummerierung: Aufgaben behalten ihre Aufgaben-Nummer, Antwortslots erhalten nur kleine lokale Nummern innerhalb des Schreibbereichs."
+  ],
+  "imagePromptInstructions": [
+    "Antwortflaechen semantisch rendern: Bei `Nenne/Benenne/Notiere ... zwei/drei/vier` genau so viele lokale Antwortslots mit `1.`, `2.`, `3.` statt Punkt-Bullets.",
+    "Offene Erklaer-/Beschreibungs-/Begruendungsaufgaben ohne feste Itemzahl mit normalen Schreiblinien ohne Bulletpoints oder lokale Nummern.",
+    "Zuordnungs-, Paar- oder Tabellenaufgaben als passende Paar-/Tabellen-/Pfeilstruktur; nur freigegebene Optionen nutzen, sonst leere Felder/Linien statt erfundener Loesungspaare."
+  ],
+  "examples": [
+    {
+      "bad": "`2. Nenne zwei Orte...` mit zwei Punkt-Bullets vor den Linien.",
+      "good": "`2. Nenne zwei Orte...` darunter `1. ____` und `2. ____` als lokale Antwortslots.",
+      "reason": "Die Antwortflaeche zeigt die erwartete Anzahl einzelner Antworten."
+    },
+    {
+      "bad": "`Erklaere, warum...` mit nummerierten Antwortslots `1.` und `2.`.",
+      "good": "`Erklaere, warum...` mit mehreren normalen Schreiblinien ohne Bulletpoints.",
+      "reason": "Eine Erklaeraufgabe erwartet eher zusammenhaengende Saetze als eine Liste."
+    },
+    {
+      "bad": "`Ordne jeder Plattengrenze eine Folge zu` mit erfundenen fertigen Paaren wie `Divergent -> Vulkanausbrueche`.",
+      "good": "Eine leere Zuordnungstabelle oder Paarstruktur mit freiem Antwortbereich, solange keine Optionsliste freigegeben ist.",
+      "reason": "Die Bearbeitungsform soll zur Aufgabenhandlung passen, ohne Loesungen zu erfinden."
+    }
+  ]
+}

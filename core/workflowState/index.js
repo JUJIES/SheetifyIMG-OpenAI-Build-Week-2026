@@ -172,40 +172,21 @@ function firstEnabledAction(workspace, candidates) {
 function deriveWorkflowActions(workspace = {}) {
   const facts = deriveWorkflowFacts(workspace);
   const approveContentCommand = enabledCommand(workspace, "approve_current_content");
-  const prepareImageSpecCommand = enabledCommand(workspace, "prepare_image_spec");
   const contentNeedsRepair = facts.hasContent
     && facts.currentContentStatus === "draft"
     && !approveContentCommand;
   const primaryCandidates = [
     ...(facts.hasOpenContentProposal
-      ? [{ id: "adopt_content_mirror_proposal", shownBecause: "open_concept_revision" }]
+      ? [{ id: "generate_candidate_from_content_proposal", shownBecause: "open_concept_ready_for_draft" }]
       : []),
     ...(facts.hasOpenLessonBriefProposal && !facts.hasBrief && !facts.hasContent
       ? [{ id: "adopt_lessonbrief_proposal", shownBecause: "open_lessonbrief_proposal" }]
-      : []),
-    ...(facts.hasOpenWarningsProposal
-      ? [{ id: "adopt_content_warnings_proposal", shownBecause: "open_content_warnings_proposal" }]
-      : []),
-    ...((facts.hasOpenImageSpecProposal || facts.hasActiveImageSpec) && !facts.hasCurrentCandidate
-      ? [
-        { id: "prepare_reference_asset", shownBecause: "reference_asset_required_or_recommended" },
-        { id: "prepare_web_reference_asset", shownBecause: "web_reference_required_or_recommended" }
-      ]
-      : []),
-    ...(facts.hasOpenImageSpecProposal
-      ? [{ id: "adopt_image_spec", shownBecause: "open_image_spec_proposal" }]
       : []),
     ...(!facts.hasConcept
       ? [{ id: "generate_lessonbrief_proposal", shownBecause: "missing_concept" }]
       : []),
     ...(facts.hasBrief && (!facts.hasContent || contentNeedsRepair)
       ? [{ id: "generate_content_mirror_proposal", shownBecause: "missing_or_repairing_content" }]
-      : []),
-    ...(facts.hasContent
-      ? [{ id: "approve_current_content", shownBecause: "draft_content_ready" }]
-      : []),
-    ...(prepareImageSpecCommand?.referencePreflight
-      ? [{ id: "prepare_image_spec", shownBecause: "image_spec_preflight_needed" }]
       : []),
     ...(facts.hasCurrentCandidate
       ? [{
@@ -215,13 +196,21 @@ function deriveWorkflowActions(workspace = {}) {
           : "candidate_ready_for_worksheet_deposit"
       }]
       : []),
-    ...(facts.currentConceptApproved
+    ...(facts.hasContent
       ? [{
         id: "generate_image_candidate",
-        shownBecause: facts.hasCurrentCandidate
-          ? "candidate_exists_variant_allowed"
-          : "approved_concept_without_candidate"
+        shownBecause: facts.currentConceptApproved
+          ? (facts.hasCurrentCandidate
+            ? "candidate_exists_variant_allowed"
+            : "approved_concept_without_candidate")
+          : "ready_concept_without_candidate"
       }]
+      : []),
+    ...(!facts.hasCurrentCandidate
+      ? [
+        { id: "prepare_reference_asset", shownBecause: "reference_asset_available" },
+        { id: "prepare_web_reference_asset", shownBecause: "web_reference_available" }
+      ]
       : [])
   ];
   const primary = firstEnabledAction(workspace, primaryCandidates);
@@ -237,15 +226,6 @@ function deriveWorkflowActions(workspace = {}) {
       actions.push(actionFromCommand(candidateCommand, "alternative_candidate_variant"));
     }
   }
-  if (
-    primary.command === "prepare_image_spec"
-    && referenceCanBeSkipped(commandById(workspace, primary.command))
-  ) {
-    const candidateCommand = enabledCommand(workspace, "generate_image_candidate");
-    if (candidateCommand) {
-      actions.push(actionFromCommand(candidateCommand, "image_spec_preflight_can_be_completed_inline"));
-    }
-  }
   const referenceCommand = enabledCommand(workspace, "prepare_reference_asset")
     || enabledCommand(workspace, "prepare_web_reference_asset");
   if (
@@ -253,12 +233,6 @@ function deriveWorkflowActions(workspace = {}) {
     && !actions.some((action) => (action.command || action.id) === referenceCommand.id)
   ) {
     actions.push(actionFromCommand(referenceCommand, "reference_available_for_next_variant"));
-  }
-  if (["prepare_reference_asset", "prepare_web_reference_asset"].includes(primary.command)) {
-    const adoptCommand = enabledCommand(workspace, "adopt_image_spec");
-    if (adoptCommand) {
-      actions.push(actionFromCommand(adoptCommand, "adopt_image_spec_without_reference"));
-    }
   }
   if (
     ["prepare_reference_asset", "prepare_web_reference_asset"].includes(primary.command)
@@ -354,7 +328,7 @@ function validateWorkflowCommand(workspace = {}, commandId, payload = {}) {
       return {
         ok: false,
         reason: facts.hasAnyCandidate
-          ? "Die vorhandenen Entwurf gehören zu einem älteren Konzeptstand."
+          ? "Die vorhandenen Entwürfe gehören zu einem älteren Konzeptstand."
           : "Es gibt noch keinen aktuellen Entwurf mit Seiten."
       };
     }
@@ -370,7 +344,7 @@ function validateWorkflowCommand(workspace = {}, commandId, payload = {}) {
     return {
       ok: false,
       reason: facts.hasAnyCandidate
-        ? "Die vorhandenen Entwurf gehören zu einem älteren Konzeptstand."
+        ? "Die vorhandenen Entwürfe gehören zu einem älteren Konzeptstand."
         : "Es gibt noch keinen aktuellen Entwurf mit Seiten."
     };
   }
@@ -391,7 +365,7 @@ function validateWorkflowCommand(workspace = {}, commandId, payload = {}) {
     if (!["approved", "draft"].includes(target.status)) {
       return {
         ok: false,
-        reason: "Diese Konzeptversion kann nicht als Arbeitsstand übernommen werden."
+        reason: "Diese Konzeptversion kann nicht als Arbeitsstand genutzt werden."
       };
     }
   }
@@ -407,13 +381,13 @@ function validateWorkflowCommand(workspace = {}, commandId, payload = {}) {
   if (commandId === "adopt_image_spec" && !payload.proposalId) {
     return {
       ok: false,
-      reason: "Bitte die aktuelle Entwurfsvorbereitung explizit auswaehlen."
+      reason: "Bitte die aktuelle Bildplanung explizit auswaehlen."
     };
   }
   if (commandId === "generate_image_candidate" && !facts.currentConceptApproved) {
     return {
       ok: false,
-      reason: "Arbeitsblatt-Konzept ist noch nicht freigegeben."
+      reason: "Es gibt noch keine Entwurfsbasis."
     };
   }
   return { ok: true };

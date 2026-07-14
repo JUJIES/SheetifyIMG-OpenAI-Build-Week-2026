@@ -1,6 +1,9 @@
 "use strict";
 
 const SETTINGS_STORAGE_KEY = "sheetifyimg.settings.v1";
+const VOICE_TRANSCRIPT_REVIEW_MIN_CHARS = 120;
+const VOICE_MICROPHONE_START_TIMEOUT_MS = 15000;
+const VOICE_TRANSCRIPTION_REQUEST_TIMEOUT_MS = 75000;
 const imageProviderSettingIds = new Set(["codex_cli", "openai"]);
 const imageQualitySettingIds = new Set(["sparsam", "standard", "druckqualitaet"]);
 
@@ -153,12 +156,26 @@ const state = {
   commandError: null,
   chatStreamTimer: null,
   voiceInput: {
-    recognition: null,
-    listening: false,
+    recorder: null,
+    stream: null,
+    transcriptionController: null,
+    transcriptionTimeoutId: null,
+    transcriptionProjectId: null,
+    transcriptionTimedOut: false,
+    chunks: [],
+    recording: false,
+    transcribing: false,
     starting: false,
     stopRequested: false,
-    baseText: "",
+    startedAt: 0,
     lastError: null
+  },
+  voiceDraft: null,
+  voiceTranscriptReview: {
+    lastFocusedElement: null
+  },
+  teachingContextPanel: {
+    collapsedByProjectId: {}
   },
   focusCandidateId: null,
   candidateViewer: {
@@ -170,6 +187,7 @@ const state = {
     lastFocusedElement: null
   },
   composerAttachments: [],
+  revisionTarget: null,
   inputUploadReceipts: [],
   canvasCapture: {
     active: false,
@@ -199,7 +217,10 @@ const state = {
     resizing: false,
     pointerId: null,
     startX: 0,
-    suppressClick: false
+    suppressClick: false,
+    dragBounds: null,
+    pendingClientX: null,
+    resizeFrame: null
   },
   canvasSheetWidthFrame: null,
   mobilePreview: {
@@ -207,18 +228,33 @@ const state = {
     source: "workspace",
     minimized: false,
     lastFocusedElement: null
+  },
+  mobilePreviewSwipe: {
+    active: false,
+    dragging: false,
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    lastY: 0,
+    startTime: 0,
+    lastTime: 0,
+    source: ""
   }
 };
 
-const spriteHref = "/icons/lucide-sprite.svg?v=15";
+const spriteHref = "/icons/lucide-sprite.svg?v=16";
+const worksheetShareFileCache = new Map();
 let pendingInitialRoute = initialRoute;
 let backgroundRefreshTimer = null;
 let backgroundRefreshInFlight = false;
 let selectedItemRefreshId = 0;
 let workspaceRefreshId = 0;
 let shareRefreshId = 0;
+let voiceStartRequestId = 0;
+let voiceTranscriptionRequestId = 0;
 let nextConceptCopyId = 1;
 const conceptCopyTexts = new Map();
+const candidateGenerationToastKeys = new Set();
 
 const elements = {
   topbarProject: document.querySelector("#topbarProject"),
@@ -255,7 +291,6 @@ const elements = {
   projectView: document.querySelector("#projectView"),
   workspaceView: document.querySelector("#workspaceView"),
   chatPanel: document.querySelector(".chat-panel"),
-  mobileStatusStrip: document.querySelector("#mobileStatusStrip"),
   mobilePreviewLayer: document.querySelector("#mobilePreviewLayer"),
   mobilePreviewBackdrop: document.querySelector("#mobilePreviewBackdrop"),
   mobilePreviewSheet: document.querySelector("#mobilePreviewSheet"),
@@ -264,8 +299,7 @@ const elements = {
   mobilePreviewSubtitle: document.querySelector("#mobilePreviewSubtitle"),
   mobilePreviewBody: document.querySelector("#mobilePreviewBody"),
   mobilePreviewFooter: document.querySelector("#mobilePreviewFooter"),
-  mobilePreviewMinimizeButton: document.querySelector("#mobilePreviewMinimizeButton"),
-  mobilePreviewCloseButton: document.querySelector("#mobilePreviewCloseButton"),
+  mobilePreviewCloseIconButton: document.querySelector("#mobilePreviewCloseIconButton"),
   mobilePreviewMini: document.querySelector("#mobilePreviewMini"),
   mobilePreviewMiniLabel: document.querySelector("#mobilePreviewMiniLabel"),
   projectTitle: document.querySelector("#projectTitle"),
@@ -299,8 +333,17 @@ const elements = {
   chatComposer: document.querySelector("#chatComposer"),
   chatInput: document.querySelector("#chatInput"),
   chatInputShell: document.querySelector("#chatInputShell"),
+  revisionTargetPill: document.querySelector("#revisionTargetPill"),
+  revisionTargetLabel: document.querySelector("#revisionTargetLabel"),
+  revisionTargetClearButton: document.querySelector("#revisionTargetClearButton"),
   chatSendButton: document.querySelector(".chat-send-button"),
   chatVoiceButton: document.querySelector("#chatVoiceButton"),
+  voiceTranscriptReviewButton: document.querySelector("#voiceTranscriptReviewButton"),
+  voiceTranscriptLayer: document.querySelector("#voiceTranscriptLayer"),
+  voiceTranscriptBackdrop: document.querySelector("#voiceTranscriptBackdrop"),
+  voiceTranscriptText: document.querySelector("#voiceTranscriptText"),
+  voiceTranscriptCloseButton: document.querySelector("#voiceTranscriptCloseButton"),
+  voiceTranscriptSaveButton: document.querySelector("#voiceTranscriptSaveButton"),
   chatAttachmentButton: document.querySelector("#chatAttachmentButton"),
   chatAttachmentInput: document.querySelector("#chatAttachmentInput"),
   refreshChatButton: document.querySelector("#refreshChatButton"),
@@ -312,6 +355,7 @@ const elements = {
   confirmationEyebrow: document.querySelector("#confirmationEyebrow"),
   confirmationTitle: document.querySelector("#confirmationTitle"),
   confirmationMessage: document.querySelector("#confirmationMessage"),
+  confirmationExtra: document.querySelector("#confirmationExtra"),
   confirmationCancelButton: document.querySelector("#confirmationCancelButton"),
   confirmationAcceptButton: document.querySelector("#confirmationAcceptButton"),
   manualCopyModal: document.querySelector("#manualCopyModal"),
@@ -332,6 +376,58 @@ const elements = {
   candidateInfoCloseButton: document.querySelector("#candidateInfoCloseButton"),
   toast: document.querySelector("#toast")
 };
+
+const customScrollbars = new WeakMap();
+
+function customScrollbarTargets() {
+  return [
+    elements.tree,
+    elements.previewGrid,
+    elements.chatTimeline,
+    elements.canvasBody,
+    elements.candidateInfoBody,
+    elements.mobilePreviewBody
+  ].filter(Boolean);
+}
+
+function initializeCustomScrollbars() {
+  if (typeof window.SimpleBar !== "function") {
+    document.documentElement.classList.add("native-scrollbars");
+    return;
+  }
+  customScrollbarTargets().forEach((element) => {
+    if (customScrollbars.has(element)) {
+      return;
+    }
+    element.classList.add("sheetify-scrollbar");
+    customScrollbars.set(element, new window.SimpleBar(element, {
+      autoHide: true,
+      clickOnTrack: false,
+      scrollbarMinSize: 38
+    }));
+  });
+}
+
+function customScrollContent(element) {
+  return customScrollbars.get(element)?.getContentElement() || element;
+}
+
+function customScrollElement(element) {
+  return customScrollbars.get(element)?.getScrollElement() || element;
+}
+
+function recalculateCustomScrollbar(element) {
+  const instance = customScrollbars.get(element);
+  if (!instance) {
+    return;
+  }
+  instance.recalculate();
+}
+
+function setCustomScrollContent(element, html) {
+  customScrollContent(element).innerHTML = html;
+  recalculateCustomScrollbar(element);
+}
 
 const statusLabels = {
   concept: "Arbeitsblatt-Konzept",
@@ -354,10 +450,10 @@ const canvasLabels = {
   content: "Arbeitsblatt-Konzept",
   warnings: "Arbeitsblatt-Konzept",
   candidates: "Entwürfe",
-  lessonbrief_proposal: "Konzept-Vorschlag",
-  content_proposal: "Konzept-Vorschlag",
-  warnings_proposal: "Prüfvorschlag",
-  image_spec_proposal: "Entwurfsvorbereitung"
+  lessonbrief_proposal: "Arbeitsblatt-Konzept",
+  content_proposal: "Arbeitsblatt-Konzept",
+  warnings_proposal: "Konzept-Feedback",
+  image_spec_proposal: "Referenz/Vorlage"
 };
 
 const CANVAS_DEFAULT_WIDTH = 520;
@@ -471,7 +567,7 @@ function normalizeGermanDisplayText(value) {
 function normalizeVisibleProductTerminology(value) {
   return String(value ?? "")
     .replace(/\bcandidate_0*(\d+)\b/gi, (_, number) => `Entwurf ${String(Number(number)).padStart(2, "0")}`)
-    .replace(/\bKandidatenvorbereitung\b/g, "Entwurfsvorbereitung")
+    .replace(/\bKandidatenvorbereitung\b/g, "Bildplanung")
     .replace(/\bKandidatenvorlage\b/g, "Entwurfsvorlage")
     .replace(/\bKandidatenfeedback\b/g, "Entwurfsfeedback")
     .replace(/\bKandidatenkontext\b/g, "Entwurfskontext")
@@ -494,6 +590,9 @@ function normalizeVisibleProductTerminology(value) {
     .replace(/\bals Auswahl (?:übernehmen|uebernehmen)\b/gi, "als Arbeitsblatt ablegen")
     .replace(/\bals Auswahl vorhanden\b/gi, "vorhanden")
     .replace(/\bAuswahl (?:übernehmen|uebernehmen)\b/g, "Arbeitsblatt ablegen")
+    .replace(/\b(?:das\s+)?Arbeitsblatt-Konzept ist (?:übernommen|uebernommen)\b/gi, "Mit diesem Arbeitsblatt-Konzept wird weitergearbeitet")
+    .replace(/\bKonzept(?:version)? ist (?:jetzt\s+)?(?:die\s+)?aktuelle Basis\b/gi, "Konzeptversion wird für die nächsten Schritte genutzt")
+    .replace(/\bArbeitsblatt-Konzept (?:übernehmen|uebernehmen)\b/gi, "Mit diesem Konzept weiterarbeiten")
     .replace(/\beine weitere Auswahl\b/g, "einen weiteren Entwurf")
     .replace(/\bEine weitere Auswahl\b/g, "Einen weiteren Entwurf")
     .replace(/\bweitere Auswahl\b/g, "weiteren Entwurf")
@@ -515,7 +614,7 @@ function normalizeVisibleProductTerminology(value) {
     .replace(/\bfertigen Kandidaten\b/g, "fertigen Entwurf")
     .replace(/\bpassenden Kandidaten\b/g, "passenden Entwurf")
     .replace(/\bletzten Kandidaten\b/g, "letzten Entwurf")
-    .replace(/\bvorhandenen Kandidaten\b/g, "vorhandenen Entwurf")
+    .replace(/\bvorhandenen Kandidaten\b/g, "vorhandenen Entwürfe")
     .replace(/\bKandidat erzeugen\b/g, "Entwurf erstellen")
     .replace(/\bKandidaten erzeugen\b/g, "Entwürfe erstellen")
     .replace(/\bEntwurf erzeugen\b/g, "Entwurf erstellen")
@@ -535,57 +634,170 @@ function renderInlineRichText(value) {
   return html.replace(/__CODE_(\d+)__/g, (_, index) => placeholders[Number(index)] || "");
 }
 
+function markdownHeading(line) {
+  const match = String(line || "").match(/^(#{1,6})(\s+)(.+)$/);
+  if (!match) {
+    return null;
+  }
+  return {
+    level: match[1].length,
+    contentStart: match[1].length + match[2].length,
+    text: match[3].trim()
+  };
+}
+
+function renderMarkdownHeading(heading, contentHtml) {
+  const level = Math.max(1, Math.min(6, Number(heading?.level) || 4));
+  return `<h4 class="message-heading message-heading-level-${level}">${contentHtml}</h4>`;
+}
+
 function hasFileDrag(event) {
   return Array.from(event.dataTransfer?.types || []).includes("Files");
+}
+
+function imageFileExtension(mimeType = "") {
+  const normalized = String(mimeType || "").toLowerCase();
+  if (normalized.includes("jpeg") || normalized.includes("jpg")) {
+    return "jpg";
+  }
+  if (normalized.includes("webp")) {
+    return "webp";
+  }
+  if (normalized.includes("gif")) {
+    return "gif";
+  }
+  return "png";
+}
+
+function pastedImageFileName(file = {}, index = 0) {
+  const name = String(file.name || "").trim();
+  if (name && !/^image\.(png|jpe?g|webp|gif)$/i.test(name)) {
+    return name;
+  }
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+  return `zwischenablage-${stamp}-${index + 1}.${imageFileExtension(file.type)}`;
+}
+
+function normalizePastedImageFile(file, index) {
+  if (!file) {
+    return null;
+  }
+  const mimeType = file.type || "image/png";
+  const name = pastedImageFileName(file, index);
+  try {
+    return new File([file], name, {
+      type: mimeType,
+      lastModified: Date.now()
+    });
+  } catch {
+    return file;
+  }
+}
+
+function imageFilesFromPasteEvent(event) {
+  const data = event.clipboardData;
+  if (!data) {
+    return [];
+  }
+  const itemFiles = Array.from(data.items || [])
+    .filter((item) => item.kind === "file" && String(item.type || "").startsWith("image/"))
+    .map((item) => item.getAsFile?.())
+    .filter(Boolean);
+  const files = itemFiles.length
+    ? itemFiles
+    : Array.from(data.files || []).filter((file) => String(file.type || "").startsWith("image/"));
+  return files
+    .map((file, index) => normalizePastedImageFile(file, index))
+    .filter(Boolean);
 }
 
 function setComposerDragActive(active) {
   elements.chatComposer.classList.toggle("drag-active", active);
 }
 
-function speechRecognitionConstructor() {
-  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
-}
-
 function voiceInputUnavailableReason() {
   if (!window.isSecureContext) {
     return "Mikrofon braucht HTTPS oder localhost.";
   }
-  if (!speechRecognitionConstructor()) {
-    return "Spracheingabe wird von diesem Browser nicht unterstützt.";
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    return "Audioaufnahme wird von diesem Browser nicht unterstützt.";
+  }
+  if (state.workspace?.transcription?.status === "missing_key") {
+    return "Spracheingabe braucht den OpenAI API-Key.";
   }
   return "";
 }
 
-function preferredSpeechLanguage() {
-  const languages = [
-    ...(navigator.languages || []),
-    navigator.language
-  ].filter(Boolean);
-  return languages.find((language) => /^de\b/i.test(language)) || "de-DE";
+function preferredAudioMimeType() {
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4"
+  ];
+  return candidates.find((type) => window.MediaRecorder?.isTypeSupported?.(type)) || "";
 }
 
-function cleanSpeechTranscript(value) {
-  return String(value || "").replace(/\s+/g, " ").trim();
+function extensionForAudioMimeType(mimeType = "") {
+  const normalized = String(mimeType || "").toLowerCase();
+  if (normalized.includes("mp4")) {
+    return "m4a";
+  }
+  if (normalized.includes("ogg")) {
+    return "ogg";
+  }
+  return "webm";
 }
 
-function mergeSpeechTranscript(baseText, transcript) {
-  const base = String(baseText || "");
-  const spoken = cleanSpeechTranscript(transcript);
-  if (!spoken) {
-    return base;
+function resizeChatInput() {
+  const input = elements.chatInput;
+  if (!input) {
+    return;
   }
-  if (!base.trim()) {
-    return spoken;
+  input.style.height = "auto";
+  const computed = window.getComputedStyle(input);
+  const minHeight = Number.parseFloat(computed.minHeight) || 40;
+  const maxHeight = Number.parseFloat(computed.maxHeight) || (isMobileViewport() ? 78 : 110);
+  const nextHeight = Math.min(Math.max(input.scrollHeight, minHeight), maxHeight);
+  input.style.height = `${Math.ceil(nextHeight)}px`;
+  input.style.overflowY = input.scrollHeight > maxHeight + 1 ? "auto" : "hidden";
+}
+
+function isVoiceTranscriptReviewOpen() {
+  return Boolean(elements.voiceTranscriptLayer && !elements.voiceTranscriptLayer.classList.contains("hidden"));
+}
+
+function shouldShowVoiceTranscriptReviewButton() {
+  const input = elements.chatInput;
+  if (!isMobileViewport() || !state.voiceDraft || !input || !elements.voiceTranscriptReviewButton) {
+    return false;
   }
-  const separator = /\s$/.test(base) || /^[.,!?;:]/.test(spoken) ? "" : " ";
-  return `${base}${separator}${spoken}`;
+  const value = input.value || "";
+  if (!value.trim()) {
+    return false;
+  }
+  return value.length >= VOICE_TRANSCRIPT_REVIEW_MIN_CHARS || input.scrollHeight > input.clientHeight + 4;
+}
+
+function syncVoiceTranscriptReviewButton() {
+  resizeChatInput();
+  const show = shouldShowVoiceTranscriptReviewButton();
+  elements.chatInputShell?.classList.toggle("has-voice-transcript-review", show);
+  elements.voiceTranscriptReviewButton?.classList.toggle("hidden", !show);
+  elements.voiceTranscriptReviewButton?.setAttribute("aria-expanded", isVoiceTranscriptReviewOpen() ? "true" : "false");
+  if (elements.voiceTranscriptReviewButton) {
+    elements.voiceTranscriptReviewButton.disabled = !show || elements.chatInput?.disabled === true;
+  }
+  resizeChatInput();
+  if (!show && isVoiceTranscriptReviewOpen()) {
+    closeVoiceTranscriptReview({ restoreFocus: false });
+  }
 }
 
 function setChatInputValue(value) {
   elements.chatInput.value = value;
   const caretPosition = elements.chatInput.value.length;
   elements.chatInput.setSelectionRange?.(caretPosition, caretPosition);
+  syncVoiceTranscriptReviewButton();
 }
 
 function mapMicrophonePermissionError(error = {}) {
@@ -601,44 +813,65 @@ function mapMicrophonePermissionError(error = {}) {
   return error.message || "Mikrofon konnte nicht gestartet werden.";
 }
 
-function mapSpeechRecognitionError(errorName) {
-  const messages = {
-    "audio-capture": "Kein Mikrofon gefunden.",
-    "network": "Spracherkennung ist gerade nicht erreichbar.",
-    "no-speech": "Ich habe nichts erkannt.",
-    "not-allowed": "Mikrofonzugriff wurde nicht erlaubt.",
-    "service-not-allowed": "Spracherkennung wurde vom Browser blockiert."
-  };
-  return messages[errorName] || "Spracheingabe wurde beendet.";
-}
-
 async function requestMicrophoneAccess() {
   if (!navigator.mediaDevices?.getUserMedia) {
-    return;
+    throw new Error("Audioaufnahme wird von diesem Browser nicht unterstützt.");
   }
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  stream.getTracks().forEach((track) => track.stop());
+  let timedOut = false;
+  let timeoutId = null;
+  const mediaPromise = navigator.mediaDevices.getUserMedia({ audio: true });
+  mediaPromise.then((stream) => {
+    if (timedOut) {
+      stream?.getTracks?.().forEach((track) => track.stop());
+    }
+  }, () => {});
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = window.setTimeout(() => {
+      timedOut = true;
+      reject(new Error("Mikrofon hat nicht geantwortet. Bitte erneut tippen."));
+    }, VOICE_MICROPHONE_START_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([mediaPromise, timeoutPromise]);
+  } finally {
+    if (timeoutId) {
+      window.clearTimeout(timeoutId);
+    }
+  }
 }
 
-function applySpeechResult(event) {
-  const finalParts = [];
-  const interimParts = [];
-  for (let index = 0; index < event.results.length; index += 1) {
-    const result = event.results[index];
-    const transcript = cleanSpeechTranscript(result?.[0]?.transcript || "");
-    if (!transcript) {
-      continue;
-    }
-    if (result.isFinal) {
-      finalParts.push(transcript);
-    } else {
-      interimParts.push(transcript);
-    }
+function clearVoiceTranscriptionTimeout() {
+  if (state.voiceInput.transcriptionTimeoutId) {
+    window.clearTimeout(state.voiceInput.transcriptionTimeoutId);
+    state.voiceInput.transcriptionTimeoutId = null;
   }
-  setChatInputValue(mergeSpeechTranscript(
-    state.voiceInput.baseText,
-    [...finalParts, ...interimParts].join(" ")
-  ));
+}
+
+function isCurrentVoiceTranscription(requestId, projectId) {
+  return state.voiceInput.transcribing
+    && requestId === voiceTranscriptionRequestId
+    && state.voiceInput.transcriptionProjectId === projectId;
+}
+
+function abortVoiceTranscription(options = {}) {
+  const wasTranscribing = state.voiceInput.transcribing;
+  const controller = state.voiceInput.transcriptionController;
+  if (!wasTranscribing && !controller) {
+    return;
+  }
+  voiceTranscriptionRequestId += 1;
+  clearVoiceTranscriptionTimeout();
+  state.voiceInput.transcriptionController = null;
+  state.voiceInput.transcriptionProjectId = null;
+  state.voiceInput.transcriptionTimedOut = false;
+  state.voiceInput.transcribing = false;
+  if (controller && !controller.signal.aborted) {
+    controller.abort();
+  }
+  updateComposerState();
+  if (wasTranscribing && !options.silent) {
+    showToast("Transkription abgebrochen. Du kannst neu aufnehmen.", "info");
+  }
 }
 
 function updateVoiceButton() {
@@ -647,52 +880,94 @@ function updateVoiceButton() {
     return;
   }
   const unavailableReason = voiceInputUnavailableReason();
-  const listening = state.voiceInput.listening;
+  const listening = state.voiceInput.recording;
   const starting = state.voiceInput.starting;
-  const label = listening ? "Spracheingabe stoppen" : "Spracheingabe starten";
+  const transcribing = state.voiceInput.transcribing;
+  const label = transcribing
+    ? "Transkription abbrechen"
+    : starting ? "Mikrofonstart abbrechen"
+    : listening ? "Aufnahme stoppen" : "Spracheingabe aufnehmen";
 
   button.classList.toggle("listening", listening);
   button.classList.toggle("starting", starting);
+  button.classList.toggle("transcribing", transcribing);
   button.setAttribute("aria-pressed", listening ? "true" : "false");
-  button.setAttribute("aria-label", unavailableReason || label);
-  button.title = unavailableReason || label;
-  button.disabled = Boolean(unavailableReason) || starting || (isChatBusy() && !listening);
+  button.setAttribute("aria-busy", transcribing || starting ? "true" : "false");
+  button.setAttribute("aria-label", transcribing || starting ? label : unavailableReason || label);
+  button.title = transcribing || starting ? label : unavailableReason || label;
+  button.disabled = (Boolean(unavailableReason) && !transcribing && !starting)
+    || (isChatBusy() && !listening && !transcribing && !starting);
 }
 
-function createSpeechRecognition() {
-  const Recognition = speechRecognitionConstructor();
-  if (!Recognition) {
-    return null;
-  }
-  const recognition = new Recognition();
-  recognition.lang = preferredSpeechLanguage();
-  recognition.continuous = true;
-  recognition.interimResults = true;
-  recognition.maxAlternatives = 1;
+function resetVoiceRecordingState() {
+  state.voiceInput.stream?.getTracks?.().forEach((track) => track.stop());
+  state.voiceInput.recorder = null;
+  state.voiceInput.stream = null;
+  state.voiceInput.chunks = [];
+  state.voiceInput.recording = false;
+  state.voiceInput.starting = false;
+  state.voiceInput.stopRequested = false;
+  state.voiceInput.startedAt = 0;
+}
 
-  recognition.onstart = () => {
-    state.voiceInput.starting = false;
-    state.voiceInput.listening = true;
-    state.voiceInput.lastError = null;
-    updateVoiceButton();
-  };
-  recognition.onresult = applySpeechResult;
-  recognition.onerror = (event) => {
-    state.voiceInput.lastError = event.error || "unknown";
-    state.voiceInput.starting = false;
-    if (!state.voiceInput.stopRequested && event.error !== "aborted") {
-      showToast(mapSpeechRecognitionError(event.error), event.error === "no-speech" ? "default" : "error");
+async function uploadVoiceRecording(blob, durationMs) {
+  const projectId = currentProjectId();
+  if (!projectId) {
+    return;
+  }
+  const requestId = ++voiceTranscriptionRequestId;
+  const controller = new AbortController();
+  state.voiceInput.transcribing = true;
+  state.voiceInput.transcriptionController = controller;
+  state.voiceInput.transcriptionProjectId = projectId;
+  state.voiceInput.transcriptionTimedOut = false;
+  state.voiceInput.transcriptionTimeoutId = window.setTimeout(() => {
+    if (state.voiceInput.transcriptionController !== controller) {
+      return;
     }
-    updateVoiceButton();
-  };
-  recognition.onend = () => {
-    state.voiceInput.recognition = null;
-    state.voiceInput.listening = false;
-    state.voiceInput.starting = false;
-    state.voiceInput.stopRequested = false;
-    updateVoiceButton();
-  };
-  return recognition;
+    state.voiceInput.transcriptionTimedOut = true;
+    controller.abort();
+  }, VOICE_TRANSCRIPTION_REQUEST_TIMEOUT_MS);
+  updateComposerState();
+  try {
+    const formData = new FormData();
+    const fileExtension = extensionForAudioMimeType(blob.type);
+    formData.append("audio", blob, `aufnahme.${fileExtension}`);
+    formData.append("durationMs", String(durationMs || 0));
+    const response = await fetchJson(`/api/workspace/${encodeURIComponent(projectId)}/voice-transcription`, {
+      method: "POST",
+      body: formData,
+      signal: controller.signal
+    });
+    if (!isCurrentVoiceTranscription(requestId, projectId)) {
+      return;
+    }
+    if (state.mode === "workspace" && state.selectedId === `project:${projectId}`) {
+      state.workspace = response.workspace;
+    }
+    state.voiceDraft = response.voice || null;
+    setChatInputValue(response.voice?.transcript || "");
+    elements.chatInput.focus();
+    renderWorkspace();
+  } catch (error) {
+    if (!isCurrentVoiceTranscription(requestId, projectId)) {
+      return;
+    }
+    if (error.name === "AbortError" && state.voiceInput.transcriptionTimedOut) {
+      showToast("Transkription dauert zu lange. Bitte erneut aufnehmen.", "error");
+    } else if (error.name !== "AbortError") {
+      showToast(error.message || "Spracheingabe konnte nicht transkribiert werden.", "error");
+    }
+  } finally {
+    if (requestId === voiceTranscriptionRequestId) {
+      clearVoiceTranscriptionTimeout();
+      state.voiceInput.transcriptionController = null;
+      state.voiceInput.transcriptionProjectId = null;
+      state.voiceInput.transcriptionTimedOut = false;
+      state.voiceInput.transcribing = false;
+      updateComposerState();
+    }
+  }
 }
 
 async function startVoiceInput() {
@@ -702,27 +977,54 @@ async function startVoiceInput() {
     updateVoiceButton();
     return;
   }
-  if (state.voiceInput.listening || state.voiceInput.starting) {
+  if (state.voiceInput.recording || state.voiceInput.starting || state.voiceInput.transcribing) {
     return;
   }
 
   state.voiceInput.starting = true;
   state.voiceInput.stopRequested = false;
-  state.voiceInput.baseText = elements.chatInput.value;
+  state.voiceInput.chunks = [];
   state.voiceInput.lastError = null;
+  const startRequestId = ++voiceStartRequestId;
   updateVoiceButton();
 
   try {
-    await requestMicrophoneAccess();
-    const recognition = createSpeechRecognition();
-    if (!recognition) {
-      throw new Error("Spracheingabe wird von diesem Browser nicht unterstützt.");
+    const stream = await requestMicrophoneAccess();
+    if (startRequestId !== voiceStartRequestId || !state.voiceInput.starting) {
+      stream?.getTracks?.().forEach((track) => track.stop());
+      return;
     }
-    state.voiceInput.recognition = recognition;
-    recognition.start();
+    const mimeType = preferredAudioMimeType();
+    state.voiceInput.stream = stream;
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    state.voiceInput.recorder = recorder;
+    recorder.addEventListener("dataavailable", (event) => {
+      if (event.data?.size > 0) {
+        state.voiceInput.chunks.push(event.data);
+      }
+    });
+    recorder.addEventListener("stop", () => {
+      const chunks = [...state.voiceInput.chunks];
+      const durationMs = state.voiceInput.startedAt ? Date.now() - state.voiceInput.startedAt : 0;
+      const recordedMimeType = recorder.mimeType || mimeType || "audio/webm";
+      const discardRecording = state.voiceInput.stopRequested;
+      resetVoiceRecordingState();
+      updateComposerState();
+      if (!chunks.length || discardRecording) {
+        return;
+      }
+      uploadVoiceRecording(new Blob(chunks, { type: recordedMimeType }), durationMs);
+    });
+    recorder.start();
+    state.voiceInput.startedAt = Date.now();
+    state.voiceInput.recording = true;
+    state.voiceInput.starting = false;
+    updateComposerState();
   } catch (error) {
-    state.voiceInput.recognition = null;
-    state.voiceInput.listening = false;
+    if (startRequestId !== voiceStartRequestId) {
+      return;
+    }
+    resetVoiceRecordingState();
     state.voiceInput.starting = false;
     state.voiceInput.stopRequested = false;
     updateVoiceButton();
@@ -730,25 +1032,33 @@ async function startVoiceInput() {
   }
 }
 
-function stopVoiceInput() {
-  const recognition = state.voiceInput.recognition;
-  state.voiceInput.stopRequested = true;
+function stopVoiceInput(options = {}) {
+  const recorder = state.voiceInput.recorder;
+  state.voiceInput.stopRequested = options.discard === true;
+  if (state.voiceInput.starting) {
+    voiceStartRequestId += 1;
+  }
   state.voiceInput.starting = false;
-  if (!recognition) {
-    state.voiceInput.listening = false;
-    updateVoiceButton();
+  if (!recorder) {
+    state.voiceInput.recording = false;
+    updateComposerState();
     return;
   }
   try {
-    recognition.stop();
+    recorder.stop();
   } catch {
-    recognition.abort?.();
+    resetVoiceRecordingState();
   }
-  updateVoiceButton();
+  updateComposerState();
 }
 
 function toggleVoiceInput() {
-  if (state.voiceInput.listening || state.voiceInput.starting) {
+  if (state.voiceInput.transcribing) {
+    abortVoiceTranscription();
+    elements.chatInput.focus();
+    return;
+  }
+  if (state.voiceInput.recording || state.voiceInput.starting) {
     stopVoiceInput();
     elements.chatInput.focus();
     return;
@@ -867,6 +1177,9 @@ function endProjectSplitResize() {
 }
 
 function resetCanvasLayout() {
+  if (state.canvasLayout?.resizeFrame) {
+    window.cancelAnimationFrame(state.canvasLayout.resizeFrame);
+  }
   state.canvasLayout = {
     collapsed: true,
     docked: false,
@@ -875,7 +1188,10 @@ function resetCanvasLayout() {
     resizing: false,
     pointerId: null,
     startX: 0,
-    suppressClick: false
+    suppressClick: false,
+    dragBounds: null,
+    pendingClientX: null,
+    resizeFrame: null
   };
 }
 
@@ -883,15 +1199,15 @@ function canvasWorkspaceWidth() {
   return elements.workspaceView.getBoundingClientRect().width || 0;
 }
 
-function clampCanvasWidth(width) {
-  const workspaceWidth = canvasWorkspaceWidth();
+function clampCanvasWidth(width, workspaceWidth = canvasWorkspaceWidth()) {
   const maxWidth = Math.max(CANVAS_MIN_WIDTH, workspaceWidth - CANVAS_MIN_CHAT_WIDTH - CANVAS_HANDLE_WIDTH);
   return Math.max(CANVAS_MIN_WIDTH, Math.min(width, maxWidth));
 }
 
-function applyCanvasLayout() {
+function applyCanvasLayout({ syncCandidateSheetWidths = !state.canvasLayout.resizing } = {}) {
   const layout = state.canvasLayout;
-  const width = clampCanvasWidth(layout.docked ? layout.lastExpandedWidth : layout.width);
+  const workspaceWidth = layout.resizing && layout.dragBounds ? layout.dragBounds.width : canvasWorkspaceWidth();
+  const width = clampCanvasWidth(layout.docked ? layout.lastExpandedWidth : layout.width, workspaceWidth);
   elements.workspaceView.style.setProperty("--canvas-panel-width", `${width}px`);
   elements.workspaceView.classList.toggle("canvas-collapsed", layout.collapsed);
   elements.workspaceView.classList.toggle("canvas-docked", layout.docked && !layout.collapsed);
@@ -900,7 +1216,9 @@ function applyCanvasLayout() {
     "aria-label",
     layout.collapsed ? "Canvas aufziehen" : layout.docked ? "Canvas zurückziehen" : "Canvasgröße verändern"
   );
-  requestCanvasCandidateSheetWidthSync();
+  if (syncCandidateSheetWidths) {
+    requestCanvasCandidateSheetWidthSync();
+  }
 }
 
 function syncCanvasCandidateSheetWidths() {
@@ -931,7 +1249,7 @@ function syncCanvasCandidateSheetWidths() {
 }
 
 function requestCanvasCandidateSheetWidthSync() {
-  if (state.activeCanvasMode !== "candidates" || !elements.canvasBody) {
+  if (state.activeCanvasMode !== "candidates" || state.canvasLayout.collapsed || !elements.canvasBody) {
     return;
   }
   if (state.canvasSheetWidthFrame) {
@@ -974,6 +1292,17 @@ function revealCanvasPanel() {
   });
 }
 
+function shouldAutoRevealDesktopCanvasMode(mode) {
+  return mode === "candidates";
+}
+
+function ensureDesktopCanvasVisibleForMode(mode) {
+  if (isMobileViewport() || !shouldAutoRevealDesktopCanvasMode(mode) || !state.canvasLayout.collapsed) {
+    return;
+  }
+  expandCanvas();
+}
+
 function dockCanvas() {
   state.canvasLayout.collapsed = false;
   state.canvasLayout.docked = true;
@@ -981,7 +1310,7 @@ function dockCanvas() {
 }
 
 function updateCanvasFromPointer(clientX) {
-  const rect = elements.workspaceView.getBoundingClientRect();
+  const rect = state.canvasLayout.dragBounds || elements.workspaceView.getBoundingClientRect();
   const nextWidth = rect.right - clientX;
   const dockWidth = rect.width - CANVAS_HANDLE_WIDTH;
 
@@ -999,9 +1328,36 @@ function updateCanvasFromPointer(clientX) {
 
   state.canvasLayout.collapsed = false;
   state.canvasLayout.docked = false;
-  state.canvasLayout.width = clampCanvasWidth(nextWidth);
+  state.canvasLayout.width = clampCanvasWidth(nextWidth, rect.width);
   state.canvasLayout.lastExpandedWidth = state.canvasLayout.width;
   applyCanvasLayout();
+}
+
+function requestCanvasResizeFrame(clientX) {
+  state.canvasLayout.pendingClientX = clientX;
+  if (state.canvasLayout.resizeFrame) {
+    return;
+  }
+  state.canvasLayout.resizeFrame = window.requestAnimationFrame(() => {
+    state.canvasLayout.resizeFrame = null;
+    if (!state.canvasLayout.resizing || typeof state.canvasLayout.pendingClientX !== "number") {
+      return;
+    }
+    updateCanvasFromPointer(state.canvasLayout.pendingClientX);
+  });
+}
+
+function flushCanvasResizeFrame() {
+  if (state.canvasLayout.resizeFrame) {
+    window.cancelAnimationFrame(state.canvasLayout.resizeFrame);
+    state.canvasLayout.resizeFrame = null;
+  }
+  if (!state.canvasLayout.resizing || typeof state.canvasLayout.pendingClientX !== "number") {
+    state.canvasLayout.pendingClientX = null;
+    return;
+  }
+  updateCanvasFromPointer(state.canvasLayout.pendingClientX);
+  state.canvasLayout.pendingClientX = null;
 }
 
 function startCanvasResize(event) {
@@ -1009,6 +1365,8 @@ function startCanvasResize(event) {
     return;
   }
   event.preventDefault();
+  state.canvasLayout.dragBounds = elements.workspaceView.getBoundingClientRect();
+  state.canvasLayout.pendingClientX = event.clientX;
   state.canvasLayout.resizing = true;
   state.canvasLayout.pointerId = event.pointerId;
   state.canvasLayout.startX = event.clientX;
@@ -1024,15 +1382,21 @@ function moveCanvasResize(event) {
   if (Math.abs(event.clientX - state.canvasLayout.startX) > 3) {
     state.canvasLayout.suppressClick = true;
   }
-  updateCanvasFromPointer(event.clientX);
+  requestCanvasResizeFrame(event.clientX);
 }
 
-function endCanvasResize() {
+function endCanvasResize(event) {
   if (!state.canvasLayout.resizing) {
     return;
   }
+  if (Number.isFinite(event?.clientX)) {
+    state.canvasLayout.pendingClientX = event.clientX;
+  }
+  flushCanvasResizeFrame();
+  elements.canvasResizeHandle.releasePointerCapture?.(state.canvasLayout.pointerId);
   state.canvasLayout.resizing = false;
   state.canvasLayout.pointerId = null;
+  state.canvasLayout.dragBounds = null;
   if (!state.canvasLayout.docked && !state.canvasLayout.collapsed && state.canvasLayout.width < CANVAS_COLLAPSE_THRESHOLD) {
     collapseCanvas();
     return;
@@ -1136,6 +1500,73 @@ function downloadUrl(url, fileNameHint) {
   anchor.remove();
 }
 
+function downloadBlob(blob, fileNameHint) {
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    downloadUrl(objectUrl, fileNameHint);
+  } finally {
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
+  }
+}
+
+function absoluteAppUrl(url) {
+  return new URL(url, window.location.href).href;
+}
+
+function isShareAbort(error) {
+  return error?.name === "AbortError";
+}
+
+function canUseNativeShare() {
+  return window.isSecureContext && typeof navigator.share === "function";
+}
+
+function canUseNativeFileShare(file) {
+  return canUseNativeShare()
+    && typeof navigator.canShare === "function"
+    && file
+    && navigator.canShare({ files: [file] });
+}
+
+function worksheetShareFileCacheKey(url, fileNameHint) {
+  return `${absoluteAppUrl(url)}::${fileNameHint || fileName(url) || "arbeitsblatt.pdf"}`;
+}
+
+function cachedWorksheetShareFile(url, fileNameHint) {
+  return worksheetShareFileCache.get(worksheetShareFileCacheKey(url, fileNameHint))?.file || null;
+}
+
+function prepareWorksheetShareFile({ url, fileNameHint } = {}) {
+  if (!url || !window.File) {
+    return null;
+  }
+  const key = worksheetShareFileCacheKey(url, fileNameHint);
+  const cached = worksheetShareFileCache.get(key);
+  if (cached?.promise) {
+    return cached.promise;
+  }
+  const promise = fetch(url)
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error("PDF konnte nicht geladen werden.");
+      }
+      return response.blob();
+    })
+    .then((blob) => {
+      const pdfFile = new File([blob], fileNameHint || fileName(url) || "arbeitsblatt.pdf", {
+        type: blob.type || "application/pdf"
+      });
+      worksheetShareFileCache.set(key, { file: pdfFile, promise: Promise.resolve(pdfFile) });
+      return pdfFile;
+    })
+    .catch((error) => {
+      worksheetShareFileCache.delete(key);
+      throw error;
+    });
+  worksheetShareFileCache.set(key, { file: null, promise });
+  return promise;
+}
+
 async function writeClipboardText(text) {
   if (navigator.clipboard?.writeText && window.isSecureContext) {
     try {
@@ -1168,6 +1599,54 @@ async function writeClipboardText(text) {
   return true;
 }
 
+async function shareWorksheetPdf({ url, title, fileNameHint } = {}) {
+  if (!url) {
+    return;
+  }
+  const shareTitle = String(title || fileNameHint || "Arbeitsblatt").trim() || "Arbeitsblatt";
+  const shareText = `${shareTitle} als PDF`;
+
+  try {
+    const pdfFile = cachedWorksheetShareFile(url, fileNameHint)
+      || await prepareWorksheetShareFile({ url, fileNameHint });
+    if (canUseNativeFileShare(pdfFile)) {
+      await navigator.share({
+        title: shareTitle,
+        text: shareText,
+        files: [pdfFile]
+      });
+      return;
+    }
+    const reason = window.isSecureContext
+      ? "Dieser Browser kann PDF-Dateien nicht direkt teilen."
+      : "Direktes Android-Teilen braucht HTTPS. Über diese LAN-Adresse blockiert der Browser die PDF-Übergabe.";
+    showToast(reason, "error");
+  } catch (error) {
+    if (isShareAbort(error)) {
+      return;
+    }
+    showToast(error.message || "PDF konnte nicht geteilt werden.", "error");
+  }
+}
+
+async function downloadPreparedWorksheetPdf({ url, fileNameHint } = {}) {
+  if (!url) {
+    return;
+  }
+  try {
+    const pdfFile = cachedWorksheetShareFile(url, fileNameHint)
+      || await prepareWorksheetShareFile({ url, fileNameHint });
+    if (pdfFile) {
+      downloadBlob(pdfFile, fileNameHint || pdfFile.name || fileName(url));
+      return;
+    }
+  } catch (error) {
+    showToast(error.message || "PDF konnte nicht vorbereitet werden.", "error");
+    return;
+  }
+  downloadUrl(url, fileNameHint);
+}
+
 function isManualCopyOpen() {
   return elements.manualCopyModal && !elements.manualCopyModal.classList.contains("hidden");
 }
@@ -1194,6 +1673,48 @@ function closeManualCopy() {
   elements.manualCopyModal.setAttribute("aria-hidden", "true");
 }
 
+function openVoiceTranscriptReview() {
+  if (!shouldShowVoiceTranscriptReviewButton() || !elements.voiceTranscriptLayer || !elements.voiceTranscriptText) {
+    return;
+  }
+  state.voiceTranscriptReview.lastFocusedElement = document.activeElement;
+  elements.voiceTranscriptText.value = elements.chatInput?.value || "";
+  elements.voiceTranscriptLayer.classList.remove("hidden");
+  elements.voiceTranscriptLayer.setAttribute("aria-hidden", "false");
+  elements.voiceTranscriptReviewButton?.setAttribute("aria-expanded", "true");
+  window.setTimeout(() => {
+    elements.voiceTranscriptText?.focus();
+    elements.voiceTranscriptText?.setSelectionRange?.(
+      elements.voiceTranscriptText.value.length,
+      elements.voiceTranscriptText.value.length
+    );
+  }, 0);
+}
+
+function closeVoiceTranscriptReview(options = {}) {
+  if (!elements.voiceTranscriptLayer) {
+    return;
+  }
+  elements.voiceTranscriptLayer.classList.add("hidden");
+  elements.voiceTranscriptLayer.setAttribute("aria-hidden", "true");
+  elements.voiceTranscriptReviewButton?.setAttribute("aria-expanded", "false");
+  const lastFocusedElement = state.voiceTranscriptReview.lastFocusedElement;
+  state.voiceTranscriptReview.lastFocusedElement = null;
+  if (options.restoreFocus !== false) {
+    (lastFocusedElement || elements.voiceTranscriptReviewButton)?.focus?.();
+  }
+}
+
+function saveVoiceTranscriptReview() {
+  if (!elements.voiceTranscriptText) {
+    return;
+  }
+  setChatInputValue(elements.voiceTranscriptText.value);
+  closeVoiceTranscriptReview({ restoreFocus: false });
+  elements.chatInput?.focus();
+  updateComposerState();
+}
+
 function shareButtons() {
   return [elements.shareButton, elements.workspaceMobileShareButton].filter(Boolean);
 }
@@ -1206,8 +1727,8 @@ function currentWorksheetId() {
 function currentShareRoute() {
   if (state.mode === "workspace") {
     return {
-      view: "workspace",
-      projectId: currentProjectId(),
+      view: "projects",
+      projectId: "",
       worksheetId: ""
     };
   }
@@ -1222,7 +1743,7 @@ function currentShareRoute() {
 
   return {
     view: "projects",
-    projectId: currentProjectId(),
+    projectId: "",
     worksheetId: ""
   };
 }
@@ -1245,7 +1766,8 @@ function shareUrlFromLocation() {
 }
 
 function shareRequestKey() {
-  return [shareUrlFromLocation(), currentProjectId() || ""].join("|");
+  const route = currentShareRoute();
+  return [shareUrlFromLocation(), route.projectId || "", route.worksheetId || ""].join("|");
 }
 
 function selectedShareTarget() {
@@ -1356,12 +1878,12 @@ async function refreshShareTargets() {
   renderSharePanel();
 
   try {
+    const route = currentShareRoute();
     const params = new URLSearchParams({
       currentUrl: shareUrlFromLocation()
     });
-    const projectId = currentProjectId();
-    if (projectId) {
-      params.set("projectId", projectId);
+    if (route.projectId) {
+      params.set("projectId", route.projectId);
     }
     const payload = await fetchJson(`/api/share/targets?${params}`);
     if (refreshId !== shareRefreshId) {
@@ -1506,9 +2028,6 @@ function setCanvasCaptureActive(active) {
   elements.canvasBody?.classList.toggle("capture-mode", state.canvasCapture.active);
   elements.canvasCaptureButton?.classList.toggle("active", state.canvasCapture.active);
   elements.canvasCaptureButton?.setAttribute("aria-pressed", state.canvasCapture.active ? "true" : "false");
-  if (state.canvasCapture.active) {
-    showToast("Ausschnitt auf einem Entwurf markieren.");
-  }
 }
 
 function renderCaptureSelection() {
@@ -1612,9 +2131,6 @@ async function attachVisualFeedbackFromSelection(card, displayRect) {
     ? "Was soll an diesen Ausschnitten geändert werden?"
     : "Was soll an diesem Ausschnitt geändert werden?";
   elements.chatInput.focus();
-  showToast(state.composerAttachments.length > 1
-    ? `${state.composerAttachments.length} Ausschnitte angehängt.`
-    : "Ausschnitt angehängt.", "success");
 }
 
 function startCanvasCapture(event) {
@@ -1704,10 +2220,274 @@ function attachmentsForRequest(attachments = []) {
     kind: attachment.kind,
     label: attachment.label,
     mimeType: attachment.mimeType,
+    size: attachment.size || null,
+    path: attachment.path || null,
+    originalName: attachment.originalName || null,
+    artifactId: attachment.artifactId || null,
     dataUrl: attachment.dataUrl,
     source: attachment.source,
     userInstructionRequired: attachment.userInstructionRequired === true
   }));
+}
+
+function inputUploadAttachmentFromReceipt(receipt = {}) {
+  if (receipt.status !== "saved" || !receipt.uploadedFile?.path) {
+    return null;
+  }
+  const file = receipt.uploadedFile;
+  const originalName = file.originalName || receipt.label || fileName(file.path);
+  const mimeType = file.mimeType || receipt.mimeType || "application/octet-stream";
+  const size = Number(file.size || receipt.size || 0) || 0;
+  return {
+    id: file.artifactId || receipt.id,
+    kind: "input_upload",
+    label: originalName,
+    originalName,
+    mimeType,
+    size,
+    path: file.path,
+    artifactId: file.artifactId || null,
+    source: {
+      kind: "input_upload",
+      artifactId: file.artifactId || null,
+      path: file.path,
+      originalName,
+      mimeType,
+      size
+    }
+  };
+}
+
+function inputUploadAttachmentsForRequest(receipts = state.inputUploadReceipts) {
+  return receipts
+    .map(inputUploadAttachmentFromReceipt)
+    .filter(Boolean);
+}
+
+function chatUiEventForAttachments(attachments = []) {
+  if (attachments.some((attachment) => attachment.kind === "visual_feedback")) {
+    return "visual_feedback";
+  }
+  if (attachments.some((attachment) => attachment.kind === "input_upload")) {
+    return "input_upload";
+  }
+  return "chat_message";
+}
+
+function textTargetValue(value, max = 160) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return text ? text.slice(0, max) : null;
+}
+
+function numberTargetValue(value) {
+  const number = Number(value);
+  return Number.isInteger(number) && number > 0 ? number : null;
+}
+
+function normalizeRevisionTarget(target = null) {
+  if (!target || typeof target !== "object") {
+    return null;
+  }
+  const kind = target.kind === "concept" || target.kind === "draft" ? target.kind : null;
+  if (!kind) {
+    return null;
+  }
+  const base = {
+    source: target.source === "inferred" ? "inferred" : "explicit",
+    kind,
+    label: textTargetValue(target.label, 80),
+    projectId: textTargetValue(target.projectId, 120) || currentProjectId()
+  };
+  if (kind === "concept") {
+    return {
+      ...base,
+      contentMirrorId: textTargetValue(target.contentMirrorId || target.conceptId, 160),
+      proposalId: textTargetValue(target.proposalId, 160),
+      conceptVersion: numberTargetValue(target.conceptVersion)
+    };
+  }
+  return {
+    ...base,
+    runId: textTargetValue(target.runId, 160),
+    candidateId: textTargetValue(target.candidateId, 160),
+    page: numberTargetValue(target.page)
+  };
+}
+
+function revisionTargetForRequest(target = null) {
+  const normalized = normalizeRevisionTarget(target);
+  if (!normalized) {
+    return null;
+  }
+  return Object.fromEntries(Object.entries(normalized).filter(([, value]) => value !== null && value !== ""));
+}
+
+function revisionTargetDisplayLabel(target = null) {
+  if (!target) {
+    return "";
+  }
+  if (target.kind === "concept") {
+    const label = String(target.label || "").trim();
+    if (/offener\s+konzeptvorschlag/i.test(label)) {
+      return "Offener Konzeptvorschlag";
+    }
+    const labelVersion = label.match(/\b(?:AB-Konzept|Arbeitsblatt-Konzept|Konzept|Version|v)\s*v?(\d+)\b/i);
+    const version = numberTargetValue(target.conceptVersion || labelVersion?.[1]);
+    if (version) {
+      return `Konzept v${version}`;
+    }
+    return label
+      ? label.replace(/^AB-Konzept\b/i, "Konzept").replace(/^Arbeitsblatt-Konzept\b/i, "Konzept")
+      : "Konzept";
+  }
+  if (target.label) {
+    return target.label;
+  }
+  return target.candidateId ? draftDisplayLabel({ id: target.candidateId }) : "Entwurf";
+}
+
+function renderRevisionTargetPill() {
+  const pill = elements.revisionTargetPill;
+  if (!pill || !elements.revisionTargetLabel) {
+    return;
+  }
+  const target = normalizeRevisionTarget(state.revisionTarget);
+  if (!target) {
+    pill.classList.add("hidden");
+    pill.removeAttribute("data-kind");
+    elements.chatInputShell?.classList.remove("has-revision-target");
+    elements.revisionTargetLabel.textContent = "";
+    return;
+  }
+  const label = revisionTargetDisplayLabel(target);
+  pill.classList.remove("hidden");
+  pill.dataset.kind = target.kind;
+  elements.chatInputShell?.classList.add("has-revision-target");
+  pill.title = target.kind === "concept"
+    ? "Nächste Nachricht bezieht sich auf dieses Arbeitsblatt-Konzept"
+    : "Nächste Nachricht bezieht sich auf diesen Entwurf";
+  elements.revisionTargetLabel.textContent = label;
+}
+
+function setRevisionTarget(target = null, options = {}) {
+  const normalized = normalizeRevisionTarget(target);
+  if (!normalized) {
+    showToast("Bearbeitungsbezug konnte nicht gesetzt werden.", "error");
+    return false;
+  }
+  state.revisionTarget = normalized;
+  renderRevisionTargetPill();
+  if (options.focus !== false) {
+    elements.chatInput?.focus();
+  }
+  return true;
+}
+
+function clearRevisionTarget(options = {}) {
+  state.revisionTarget = null;
+  renderRevisionTargetPill();
+  if (options.focus) {
+    elements.chatInput?.focus();
+  }
+}
+
+function currentConceptRevisionTarget(extra = {}) {
+  const concepts = workspaceConceptArtifacts(state.workspace || {});
+  const requestedConcept = extra.contentMirrorId
+    ? concepts.find((concept) => concept.id === extra.contentMirrorId)
+    : null;
+  const requestedVersion = extra.conceptVersion
+    ? concepts.find((concept) => Number(concept.version || 0) === Number(extra.conceptVersion))
+    : null;
+  const current = requestedConcept || requestedVersion || currentConceptArtifact(state.workspace || {}, concepts);
+  const currentContent = state.workspace?.artifacts?.currentContent || {};
+  const version = numberTargetValue(extra.conceptVersion || current?.version || currentContent.version);
+  return {
+    source: "explicit",
+    kind: "concept",
+    label: version ? `AB-Konzept ${conceptVersionDisplayName(version).replace(/^Version /, "")}` : "AB-Konzept",
+    projectId: currentProjectId(),
+    contentMirrorId: extra.contentMirrorId || current?.id || currentContent.id || null,
+    conceptVersion: version,
+    ...extra
+  };
+}
+
+function candidateRevisionTargetFromElement(node = null) {
+  if (!node) {
+    return null;
+  }
+  const candidateId = textTargetValue(node.dataset.candidateId, 160);
+  if (!candidateId) {
+    return null;
+  }
+  const runId = textTargetValue(node.dataset.runId, 160);
+  const candidate = findCandidatePreview(candidateId, runId) || { id: candidateId, runId };
+  const displayCandidate = candidateForDisplay(candidate, state.workspace || {});
+  return {
+    source: "explicit",
+    kind: "draft",
+    label: textTargetValue(node.dataset.displayLabel, 80) || draftDisplayLabel(displayCandidate),
+    projectId: currentProjectId(),
+    runId,
+    candidateId,
+    page: numberTargetValue(node.dataset.page)
+  };
+}
+
+function startConceptRevisionFromButton(button = null) {
+  const proposalId = textTargetValue(button?.dataset.proposalId, 160);
+  if (proposalId) {
+    return setRevisionTarget({
+      source: "explicit",
+      kind: "concept",
+      label: "Offener Konzeptvorschlag",
+      projectId: currentProjectId(),
+      proposalId
+    });
+  }
+  const extra = {};
+  const contentMirrorId = textTargetValue(button?.dataset.contentMirrorId, 160);
+  const conceptVersion = numberTargetValue(button?.dataset.conceptVersion);
+  if (contentMirrorId) {
+    extra.contentMirrorId = contentMirrorId;
+  }
+  if (conceptVersion) {
+    extra.conceptVersion = conceptVersion;
+  }
+  if (!extra.contentMirrorId && state.activeArtifactSelection?.kind === "concept") {
+    extra.contentMirrorId = state.activeArtifactSelection.id || state.activeArtifactSelection.conceptId || null;
+  }
+  if (!extra.conceptVersion && state.activeArtifactSelection?.kind === "concept") {
+    extra.conceptVersion = numberTargetValue(state.activeArtifactSelection.conceptVersion);
+  }
+  const target = currentConceptRevisionTarget(extra);
+  return setRevisionTarget(target);
+}
+
+function startDraftRevisionFromElement(node = null) {
+  const target = candidateRevisionTargetFromElement(node);
+  return setRevisionTarget(target);
+}
+
+function bindRevisionTargetActions(container) {
+  if (!container) {
+    return;
+  }
+  container.querySelectorAll("[data-revise-concept]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      startConceptRevisionFromButton(button);
+    });
+  });
+  container.querySelectorAll("[data-card-action='revise-candidate']").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      startDraftRevisionFromElement(button.closest("[data-capture-kind='candidate']") || button);
+    });
+  });
 }
 
 function fileSizeLabel(size) {
@@ -1844,7 +2624,12 @@ const mobilePreviewRenderer = window.SheetifyIMGMobilePreviewRenderer.createMobi
   countPreviewCandidates,
   candidateCountLabel,
   inputArtifactMeta,
-  worksheetConceptSubtitle
+  worksheetConceptSubtitle,
+  workspaceConceptArtifacts,
+  currentConceptArtifact,
+  conceptVersionDisplayName,
+  conceptArtifactMeta,
+  statusWord
 });
 
 const canvasRenderer = window.SheetifyIMGCanvasRenderer.createCanvasRenderer({
@@ -1860,8 +2645,6 @@ const canvasRenderer = window.SheetifyIMGCanvasRenderer.createCanvasRenderer({
   currentConceptArtifact,
   annotateCandidateDisplayList,
   workspaceCandidateHistory,
-  candidateGenerationStateForWorkspace,
-  renderCandidateGenerationPreviewCard,
   renderCandidateCard,
   renderPageCard
 });
@@ -2336,10 +3119,112 @@ function treeHasRunningCandidateGeneration(node = null) {
   if (!node) {
     return false;
   }
-  if (node.type === "worksheet" && isBackgroundCandidateGenerationRunning(node.candidateGeneration)) {
+  if (isBackgroundCandidateGenerationRunning(node.candidateGeneration)) {
     return true;
   }
   return (node.children || []).some((child) => treeHasRunningCandidateGeneration(child));
+}
+
+function candidateGenerationStatesFromTree(tree = null) {
+  const states = new Map();
+  function walk(node) {
+    if (!node) {
+      return;
+    }
+    if (isTreeProjectItemId(node.id) && node.candidateGeneration) {
+      const projectId = projectIdFromItemId(node.id);
+      states.set(projectId, {
+        projectId,
+        label: node.label || projectId,
+        candidateGeneration: node.candidateGeneration
+      });
+    }
+    for (const child of node.children || []) {
+      walk(child);
+    }
+  }
+  for (const child of tree?.children || []) {
+    walk(child);
+  }
+  return states;
+}
+
+function candidateGenerationToastKey(kind, projectId, event = {}) {
+  return [
+    kind,
+    projectId || "",
+    event.jobId || "",
+    event.completedAt || "",
+    event.candidateId || "",
+    event.message || ""
+  ].join("|");
+}
+
+function showCandidateGenerationToast(kind, {
+  projectId = "",
+  projectLabel = "",
+  candidateGeneration = null
+} = {}) {
+  const event = kind === "failure"
+    ? candidateGeneration?.latestFailure
+    : candidateGeneration?.latestCompletion;
+  if (!event?.completedAt) {
+    return;
+  }
+  const key = candidateGenerationToastKey(kind, projectId, event);
+  if (candidateGenerationToastKeys.has(key)) {
+    return;
+  }
+  candidateGenerationToastKeys.add(key);
+  const label = String(projectLabel || "").trim();
+  const target = label ? ` für "${label}"` : "";
+  if (kind === "failure") {
+    const message = event.message || `Entwurf${target} konnte nicht fertiggestellt werden.`;
+    showToast(label && event.message ? `${label}: ${message}` : message, "error");
+    return;
+  }
+  const pageCount = Number(event.pageCount || 0);
+  showToast(pageCount > 1 ? `Mehrseitiger Entwurf${target} ist fertig.` : `Entwurf${target} ist fertig.`, "success");
+}
+
+function notifyCandidateGenerationTransition(previousGeneration, nextGeneration, project = {}) {
+  if (!previousGeneration?.isRunning || nextGeneration?.isRunning) {
+    return;
+  }
+  if (
+    nextGeneration?.latestFailure?.completedAt
+    && nextGeneration.latestFailure.completedAt !== previousGeneration?.latestFailure?.completedAt
+  ) {
+    showCandidateGenerationToast("failure", {
+      projectId: project.projectId,
+      projectLabel: project.label,
+      candidateGeneration: nextGeneration
+    });
+    return;
+  }
+  if (
+    nextGeneration?.latestCompletion?.candidateId
+    && nextGeneration.latestCompletion.completedAt !== previousGeneration?.latestCompletion?.completedAt
+  ) {
+    showCandidateGenerationToast("completion", {
+      projectId: project.projectId,
+      projectLabel: project.label,
+      candidateGeneration: nextGeneration
+    });
+  }
+}
+
+function notifyCandidateGenerationTreeTransitions(previousStates, nextStates) {
+  if (!previousStates?.size) {
+    return;
+  }
+  for (const [projectId, previous] of previousStates) {
+    const next = nextStates.get(projectId);
+    notifyCandidateGenerationTransition(previous.candidateGeneration, next?.candidateGeneration, {
+      projectId,
+      label: next?.label || previous.label
+    });
+  }
 }
 
 function clearBackgroundRefreshTimer() {
@@ -2377,13 +3262,10 @@ async function runBackgroundRefresh() {
       if (previousWorkspaceSignature !== workspaceBackgroundRenderSignature(state.workspace)) {
         renderWorkspace();
       }
-      if (previousGeneration?.isRunning && !nextGeneration?.isRunning) {
-        if (nextGeneration?.latestFailure?.completedAt && nextGeneration.latestFailure.completedAt !== previousGeneration?.latestFailure?.completedAt) {
-          showToast(nextGeneration.latestFailure.message || "Die Bildgenerierung konnte nicht abgeschlossen werden.", "error");
-        } else if (nextGeneration?.latestCompletion?.candidateId && nextGeneration.latestCompletion.completedAt !== previousGeneration?.latestCompletion?.completedAt) {
-          showToast("Neuer Entwurf ist fertig.", "success");
-        }
-      }
+      notifyCandidateGenerationTransition(previousGeneration, nextGeneration, {
+        projectId,
+        label: state.workspace?.project?.title || projectId
+      });
     }
     await loadTree({
       keepSelection: true,
@@ -2522,9 +3404,10 @@ function captureTreeScroll() {
   if (!elements.tree) {
     return null;
   }
+  const treeScrollElement = customScrollElement(elements.tree);
   return {
-    left: elements.tree.scrollLeft,
-    top: elements.tree.scrollTop
+    left: treeScrollElement.scrollLeft,
+    top: treeScrollElement.scrollTop
   };
 }
 
@@ -2532,10 +3415,27 @@ function restoreTreeScroll(scrollState) {
   if (!elements.tree || !scrollState) {
     return;
   }
-  const maxTop = Math.max(0, elements.tree.scrollHeight - elements.tree.clientHeight);
-  const maxLeft = Math.max(0, elements.tree.scrollWidth - elements.tree.clientWidth);
-  elements.tree.scrollTop = Math.min(scrollState.top, maxTop);
-  elements.tree.scrollLeft = Math.min(scrollState.left, maxLeft);
+  const treeScrollElement = customScrollElement(elements.tree);
+  const maxTop = Math.max(0, treeScrollElement.scrollHeight - treeScrollElement.clientHeight);
+  const maxLeft = Math.max(0, treeScrollElement.scrollWidth - treeScrollElement.clientWidth);
+  treeScrollElement.scrollTop = Math.min(scrollState.top, maxTop);
+  treeScrollElement.scrollLeft = Math.min(scrollState.left, maxLeft);
+}
+
+function revealTreeItem(itemId, options = {}) {
+  if (!elements.tree || !itemId) {
+    return;
+  }
+  const target = [...elements.tree.querySelectorAll("[data-item-id]")]
+    .find((button) => button.dataset.itemId === itemId);
+  if (!target) {
+    return;
+  }
+  target.scrollIntoView({
+    block: options.block || "nearest",
+    inline: "nearest",
+    behavior: "auto"
+  });
 }
 
 function renderTree(tree, options = {}) {
@@ -2544,7 +3444,7 @@ function renderTree(tree, options = {}) {
   }
   const scrollState = options.scrollState || (options.preserveScroll ? captureTreeScroll() : null);
   closeTreeContextMenu();
-  elements.tree.innerHTML = (tree.children || []).map((folder) => renderTreeFolder(folder, 0)).join("");
+  setCustomScrollContent(elements.tree, (tree.children || []).map((folder) => renderTreeFolder(folder, 0)).join(""));
   elements.tree.querySelectorAll("[data-toggle-folder-id]").forEach((button) => {
     button.addEventListener("click", () => toggleFolder(button.dataset.toggleFolderId));
   });
@@ -2900,7 +3800,6 @@ async function updateFolderColor(folderId, color) {
       body: JSON.stringify({ color: color || null })
     });
     await loadTree({ keepSelection: true, selectAfterLoad: false, preserveScroll: true });
-    showToast(color ? "Ordnerfarbe geändert" : "Ordnerfarbe zurückgesetzt", "success");
   } catch (error) {
     showToast(error.message, "error");
   }
@@ -2934,7 +3833,6 @@ async function createLibraryFolder(parentId) {
     });
     state.collapsedFolders.delete(parentId);
     await loadTree({ keepSelection: true, selectAfterLoad: false });
-    showToast("Ordner angelegt", "success");
   } catch (error) {
     showToast(error.message, "error");
   }
@@ -2955,7 +3853,6 @@ async function renameLibraryFolder(folderId) {
       body: JSON.stringify({ label: label.trim() })
     });
     await loadTree({ keepSelection: true, selectAfterLoad: false });
-    showToast("Ordner umbenannt", "success");
   } catch (error) {
     showToast(error.message, "error");
   }
@@ -2979,7 +3876,6 @@ async function deleteLibraryFolder(folderId) {
       : `/api/worksheets/folders/${encodeURIComponent(folderId)}`;
     await fetchJson(endpoint, { method: "DELETE" });
     await loadTree({ keepSelection: true, selectAfterLoad: false });
-    showToast("Ordner gelöscht", "success");
   } catch (error) {
     showToast(error.message, "error");
   }
@@ -3001,7 +3897,6 @@ async function renameProjectFromTree(projectId) {
       renderWorkspace();
     }
     await loadTree({ keepSelection: true, selectAfterLoad: state.mode === "library" });
-    showToast("Projekt umbenannt", "success");
   } catch (error) {
     showToast(error.message, "error");
   }
@@ -3019,7 +3914,6 @@ async function renameWorksheetFromTree(itemId) {
       body: JSON.stringify({ title: title.trim() })
     });
     await loadTree({ keepSelection: true, selectAfterLoad: state.mode === "library" });
-    showToast("Arbeitsblatt umbenannt", "success");
   } catch (error) {
     showToast(error.message, "error");
   }
@@ -3159,14 +4053,15 @@ async function deleteProjectFromTree(projectId) {
   await deleteSelectedProjectsFromTree([projectId]);
 }
 
-async function loadTree({ keepSelection = false, selectAfterLoad = true, quiet = false, preserveScroll = false, renderIfChangedOnly = false } = {}) {
+async function loadTree({ keepSelection = false, selectAfterLoad = true, quiet = false, preserveScroll = false, renderIfChangedOnly = false, revealSelected = false, openSelectedMobileSheet = false } = {}) {
   renderLibraryViewChrome();
   const treeScrollState = preserveScroll ? captureTreeScroll() : null;
   const previousTreeSignature = renderIfChangedOnly ? treeRenderSignature(state.tree) : "";
+  const previousCandidateGenerationStates = candidateGenerationStatesFromTree(state.tree);
   const previousSelectedId = state.selectedId;
   const previousSelectionSignature = renderIfChangedOnly ? selectedTreeSignature() : "";
   if (!quiet) {
-    elements.tree.innerHTML = '<div class="tree-loading">Lade Projekte...</div>';
+    setCustomScrollContent(elements.tree, '<div class="tree-loading">Lade Projekte...</div>');
   }
   try {
     const query = state.query.trim();
@@ -3174,8 +4069,12 @@ async function loadTree({ keepSelection = false, selectAfterLoad = true, quiet =
     const url = query ? `${baseUrl}?q=${encodeURIComponent(query)}` : baseUrl;
     const payload = await fetchJson(url);
     state.tree = payload.tree;
+    notifyCandidateGenerationTreeTransitions(previousCandidateGenerationStates, candidateGenerationStatesFromTree(state.tree));
     const availableIds = new Set(selectableIdsFromTree(state.tree));
     const routeToApply = pendingInitialRoute;
+    const routeRequestsOverviewOnly = Boolean(routeToApply)
+      && routeToApply.view === state.libraryView
+      && !routeToApply.itemId;
     let openInitialWorkspace = false;
     let missingInitialRoute = null;
     if (keepSelection) {
@@ -3201,7 +4100,9 @@ async function loadTree({ keepSelection = false, selectAfterLoad = true, quiet =
         setTreeSelection([]);
       }
     }
-    if (!missingInitialRoute && (!state.selectedId || !availableIds.has(state.selectedId))) {
+    if (routeRequestsOverviewOnly) {
+      setTreeSelection([]);
+    } else if (!missingInitialRoute && (!state.selectedId || !availableIds.has(state.selectedId))) {
       const nextSelectedId = findDefaultLibraryItem(state.tree);
       if (nextSelectedId) {
         setTreeSelection([nextSelectedId], {
@@ -3225,17 +4126,22 @@ async function loadTree({ keepSelection = false, selectAfterLoad = true, quiet =
       await openWorkspace(routeToApply.projectId);
     } else if (selectAfterLoad && state.mode === "library" && state.selectedId) {
       await selectItem(state.selectedId, {
-        openMobileSheet: Boolean(routeToApply?.itemId),
+        openMobileSheet: Boolean(routeToApply?.itemId) || Boolean(openSelectedMobileSheet),
         preserveTreeScroll: preserveScroll,
         skipSelectionUpdate: true
       });
+      if (revealSelected) {
+        revealTreeItem(state.selectedId, { block: "center" });
+      }
     } else if (selectAfterLoad && state.mode === "library" && !state.selectedId && !isProjectsLibraryView()) {
       renderWorksheetsEmptyState();
+    } else if (revealSelected && state.selectedId) {
+      revealTreeItem(state.selectedId, { block: "center" });
     }
     syncBackgroundRefresh();
   } catch (error) {
     if (!quiet) {
-      elements.tree.innerHTML = `<div class="tree-error">${escapeHtml(error.message)}</div>`;
+      setCustomScrollContent(elements.tree, `<div class="tree-error">${escapeHtml(error.message)}</div>`);
     }
     syncBackgroundRefresh();
   }
@@ -3328,7 +4234,7 @@ async function selectItem(itemId, options = {}) {
   elements.emptyState.classList.add("hidden");
   elements.projectView.classList.remove("hidden");
   elements.workspaceView.classList.add("hidden");
-  elements.previewGrid.innerHTML = '<div class="no-preview">Lade Vorschau...</div>';
+  setCustomScrollContent(elements.previewGrid, '<div class="no-preview">Lade Vorschau...</div>');
 
   try {
     if (isTreeWorksheetItemId(itemId)) {
@@ -3353,7 +4259,7 @@ async function selectItem(itemId, options = {}) {
       openMobilePreview(isTreeWorksheetItemId(itemId) ? "worksheet" : "project", { source: "library" });
     }
   } catch (error) {
-    elements.previewGrid.innerHTML = `<div class="no-preview">${escapeHtml(error.message)}</div>`;
+    setCustomScrollContent(elements.previewGrid, `<div class="no-preview">${escapeHtml(error.message)}</div>`);
     syncBackgroundRefresh();
   }
 }
@@ -3415,7 +4321,7 @@ function renderWorksheetItem(item) {
   elements.previewTitle.textContent = worksheet.title || "PDF";
   elements.previewGrid.dataset.previewType = pages.length ? "worksheet_pages" : "pdf";
   applyPreviewLayout({ previewType: pages.length ? "selected_pages" : "pdf" });
-  elements.previewGrid.innerHTML = pages.length
+  setCustomScrollContent(elements.previewGrid, pages.length
     ? pages.map((page, index) => renderWorksheetPageCard(page, index, pages.length, worksheet.title || "Arbeitsblatt")).join("")
     : pdf?.url
     ? renderPdfCard({
@@ -3423,7 +4329,7 @@ function renderWorksheetItem(item) {
       pageCount: worksheet.pageCount,
       concept: worksheet.source?.concept || null
     })
-    : '<div class="no-preview">PDF nicht gefunden.</div>';
+    : '<div class="no-preview">PDF nicht gefunden.</div>');
   bindPreviewCardActions(elements.previewGrid);
   applyProjectSplitLayout();
 }
@@ -3451,6 +4357,8 @@ function defaultStatusStep(item) {
 
 function buildStatusRows(item) {
   const derived = item.project?.derivedStatus || {};
+  const workflowSteps = Array.isArray(item.steps) ? item.steps : [];
+  const workflowStep = (id) => workflowSteps.find((step) => step.id === id) || null;
   const latestRun = Array.isArray(derived.runs) ? derived.runs[derived.runs.length - 1] : null;
   const artifactSummary = item.artifacts?.summary || {};
   const totalCandidateCount = Number(artifactSummary.candidateCount || 0);
@@ -3466,14 +4374,16 @@ function buildStatusRows(item) {
     : Boolean(item.documents?.source?.manifest || item.documents?.source?.transferCard || item.documents?.brief?.data || item.documents?.content?.data);
   const hasBrief = Boolean(derived.hasEffectiveApprovedBrief || item.documents?.brief?.data);
   const hasContent = Boolean(derived.hasEffectiveApprovedContent || item.documents?.content?.data);
+  const hasConceptProposal = Boolean(item.proposals?.latestContentMirror?.data);
+  const conceptComplete = Boolean(workflowStep("concept")?.complete || hasContent || hasConceptProposal);
   const hasCandidates = Boolean(renderedCandidateCount || plannedCandidateCount);
-  const conceptState = hasContent || hasBrief ? "Vorhanden" : "Offen";
+  const conceptState = conceptComplete ? "Vorhanden" : hasBrief ? "In Arbeit" : "Offen";
   const candidateState = candidateGenerationPending
     ? "Wird erstellt"
     : hasCandidates ? "Vorhanden" : "Offen";
   return [
     { id: "input", number: 1, icon: "inbox", title: "Input", state: hasInput ? "Vorhanden" : "Offen", tone: hasInput ? "done" : "active" },
-    { id: "concept", number: 2, icon: "notebook-text", title: "Arbeitsblatt-Konzept", state: conceptState, tone: hasContent ? "done" : hasBrief ? "active" : "pending" },
+    { id: "concept", number: 2, icon: "notebook-text", title: "Arbeitsblatt-Konzept", state: conceptState, tone: conceptComplete ? "done" : hasBrief ? "active" : "pending" },
     { id: "candidates", number: 3, icon: "images", title: "Entwürfe", state: candidateState, tone: candidateGenerationPending ? "working" : hasCandidates ? "done" : "pending" }
   ];
 }
@@ -3494,10 +4404,7 @@ function projectArtifactSummaryParts(item = {}) {
   const summary = item.artifacts?.summary || {};
   const conceptCount = Number(summary.conceptCount || 0);
   const candidateCount = Number(summary.candidateCount || 0);
-  const candidateGroups = Array.isArray(summary.candidateGroups)
-    ? summary.candidateGroups.filter((group) => Number(group.candidateCount || 0) > 0)
-    : [];
-  const shouldShow = conceptCount > 1 || candidateCount > 1 || candidateGroups.length > 1;
+  const shouldShow = conceptCount > 1 || candidateCount > 1;
   if (!shouldShow) {
     return null;
   }
@@ -3506,15 +4413,8 @@ function projectArtifactSummaryParts(item = {}) {
     conceptCount > 1 ? conceptVersionCountLabel(conceptCount) : null,
     candidateCount ? candidateCountLabel(candidateCount) : "keine Entwürfe"
   ].filter(Boolean).join(" · ");
-  const shouldShowDistribution = conceptCount > 1 || candidateGroups.length > 1;
-  const distribution = shouldShowDistribution && candidateGroups.length
-    ? candidateGroups.map((group) => {
-      const label = group.label || (group.conceptVersion ? `v${group.conceptVersion}` : "ohne Version");
-      return `${label}: ${candidateCountLabel(Number(group.candidateCount || 0))}`;
-    }).join(" · ")
-    : "";
 
-  return { headline, distribution };
+  return { headline };
 }
 
 function renderStatusArtifactSummary(item = {}) {
@@ -3526,7 +4426,6 @@ function renderStatusArtifactSummary(item = {}) {
   elements.statusArtifactSummary.innerHTML = parts
     ? `
       <strong>${escapeHtml(parts.headline)}</strong>
-      ${parts.distribution ? `<em>${escapeHtml(parts.distribution)}</em>` : ""}
     `
     : "";
 }
@@ -3568,10 +4467,6 @@ function countPreviewCandidatePages(preview) {
     const plannedPages = Number(candidate.generation?.generatedPageCount || candidate.generation?.pageCount || 0) || 0;
     return total + (renderedPages || plannedPages);
   }, 0);
-}
-
-function renderCandidateGenerationPreviewCard(candidateGeneration = {}, options = {}) {
-  return candidateCardRenderer.renderCandidateGenerationPreviewCard(candidateGeneration, options);
 }
 
 function renderPreviewForStep(item, step) {
@@ -3634,35 +4529,29 @@ function bindCanvasModeButtons(container) {
 }
 
 function renderPreview(preview) {
-  const candidateGenerationPending = Boolean(preview?.candidateGeneration?.isRunning);
   elements.previewEyebrow.textContent = "Vorschau";
   elements.previewTitle.textContent = titleForPreview(preview);
   elements.previewGrid.dataset.previewType = preview?.previewType || "";
   applyPreviewLayout(preview);
   if (!preview || preview.previewType === "project_status") {
-    elements.previewGrid.innerHTML = candidateGenerationPending
-      ? renderCandidateGenerationPreviewCard(preview.candidateGeneration)
-      : '<div class="no-preview">Noch keine Bild- oder PDF-Vorschau vorhanden.</div>';
+    setCustomScrollContent(elements.previewGrid, '<div class="no-preview">Noch keine Bild- oder PDF-Vorschau vorhanden.</div>');
     bindPreviewOpenActions(preview);
     return;
   }
   if (preview.previewType === "pdf") {
-    elements.previewGrid.innerHTML = preview.pdfs?.length
+    setCustomScrollContent(elements.previewGrid, preview.pdfs?.length
       ? preview.pdfs.map(renderPdfCard).join("")
-      : '<div class="no-preview">Noch kein PDF vorhanden.</div>';
+      : '<div class="no-preview">Noch kein PDF vorhanden.</div>');
   } else if (preview.previewType === "selected_pages") {
-    elements.previewGrid.innerHTML = preview.pages?.length
+    setCustomScrollContent(elements.previewGrid, preview.pages?.length
       ? preview.pages.map(renderPageCard).join("")
-      : '<div class="no-preview">Noch keine Entwurfsvorschau vorhanden.</div>';
+      : '<div class="no-preview">Noch keine Entwurfsvorschau vorhanden.</div>');
   } else if (preview.previewType === "candidates") {
     const candidates = annotateCandidateDisplayList(preview.candidates || []);
-    const cards = [
-      ...(candidateGenerationPending ? [renderCandidateGenerationPreviewCard(preview.candidateGeneration)] : []),
-      ...candidates.map((candidate) => renderCandidateCard(candidate, state.workspace, { showConceptTag: false }))
-    ];
-    elements.previewGrid.innerHTML = cards.length
+    const cards = candidates.map((candidate) => renderCandidateCard(candidate, state.workspace, { showConceptTag: false }));
+    setCustomScrollContent(elements.previewGrid, cards.length
       ? cards.join("")
-      : '<div class="no-preview">Noch keine Entwürfe vorhanden.</div>';
+      : '<div class="no-preview">Noch keine Entwürfe vorhanden.</div>');
   }
   bindPreviewOpenActions(preview);
 }
@@ -3957,6 +4846,7 @@ function downloadCandidateImages(button) {
 
 function bindPreviewCardActions(container) {
   actionBindings.bindPreviewCardActions(container);
+  bindRevisionTargetActions(container);
 }
 
 function currentPreviewCandidates() {
@@ -4128,7 +5018,7 @@ function referencePolicyLabel(policy = {}) {
     return "Keine Referenz nötig";
   }
   return policy.label || {
-    deterministic: "App-Vorlage nötig",
+    deterministic: "Exaktheit beachten",
     required: "Referenz sinnvoll",
     recommended: "Referenz empfohlen",
     optional: "Referenz optional"
@@ -4140,11 +5030,11 @@ function referencePolicySummary(policy = {}) {
     return "Das Bildmodell kann diese Visualisierung voraussichtlich ohne spezielle Vorlage erzeugen.";
   }
   const source = policy.preferredSource === "app_template"
-    ? "Am besten als App-Vorlage oder feste Vorlage."
+    ? "Spezialvorlagen sind im normalen Ablauf deaktiviert; bei Bedarf ein eigenes Referenzbild anhängen."
     : policy.preferredSource === "user_upload_or_reference_search"
-      ? "Am besten mit hochgeladener Referenz oder späterer Referenzsuche."
+      ? "Am besten mit hochgeladener Referenz oder optionaler offener Bildreferenz."
       : policy.preferredSource === "app_template_or_user_upload"
-        ? "Am besten als App-Vorlage oder hochgeladene Referenz."
+        ? "Am besten mit hochgeladener Referenz."
         : "";
   const action = policy.suggestedAction || "";
   return [policy.reason, source, action].filter(Boolean).join(" ");
@@ -4155,6 +5045,13 @@ function renderCandidateInfo(candidate) {
   const generation = candidate.generation || {};
   const metadata = firstPage.metadata || {};
   const referencePolicy = generation.referencePolicy || metadata.referencePolicy || null;
+  const referenceImages = (Array.isArray(generation.referenceImages) && generation.referenceImages.length
+    ? generation.referenceImages
+    : Array.isArray(metadata.referenceImages)
+      ? metadata.referenceImages
+      : [])
+    .filter((reference) => reference?.path)
+    .slice(0, 4);
   const duration = formatDuration(metadata.durationMs);
   const usage = candidateUsageLabel(candidate);
   const billing = candidateBillingSummary(candidate);
@@ -4170,19 +5067,29 @@ function renderCandidateInfo(candidate) {
       ${renderInfoRow("Tokens", billing?.tokenLabel)}
       ${renderInfoRow("Abrechnung", billing?.providerLabel)}
       ${renderInfoRow("Nutzung", usage)}
-      ${renderInfoRow("Vorbereitung", generation.imageSpecSummary || generation.imageSpecProposalId)}
+      ${renderInfoRow("Interne Bildplanung", generation.imageSpecSummary || generation.imageSpecProposalId)}
       ${renderInfoRow("Referenz", referencePolicy ? referencePolicyLabel(referencePolicy) : "")}
       ${renderInfoRow("Konzept", draftVersionLabel(candidate) || conceptLabel(candidate.concept || candidate))}
     </section>
     ${referencePolicy ? `
       <section class="candidate-info-section">
-        <p class="detail-label">Referenzentscheidung</p>
+        <p class="detail-label">Referenz/Vorlage</p>
         <p>${escapeHtml(referencePolicySummary(referencePolicy))}</p>
+      </section>
+    ` : ""}
+    ${referenceImages.length ? `
+      <section class="candidate-info-section">
+        <p class="detail-label">Beigelegte Referenzen</p>
+        <div class="candidate-reference-list">
+          ${referenceImages.map((reference) => `
+            <span>${escapeHtml(reference.role || "Referenz")} · ${escapeHtml(fileName(reference.path) || reference.path)}</span>
+          `).join("")}
+        </div>
       </section>
     ` : ""}
     ${generation.imageSpecProposalId ? `
       <section class="candidate-info-section">
-        <p class="detail-label">Vorbereitungs-ID</p>
+        <p class="detail-label">Bildplanungs-ID</p>
         <p>${escapeHtml(generation.imageSpecProposalId)}</p>
       </section>
     ` : ""}
@@ -4219,7 +5126,7 @@ function openCandidateInfo(candidateId, runId) {
     candidate.generation?.provider || "openai",
     candidate.status
   ].filter(Boolean).join(" · ");
-  elements.candidateInfoBody.innerHTML = renderCandidateInfo(candidate);
+  setCustomScrollContent(elements.candidateInfoBody, renderCandidateInfo(candidate));
   elements.candidateInfoModal.classList.remove("hidden");
   elements.candidateInfoCloseButton?.focus();
 }
@@ -4229,7 +5136,7 @@ function closeCandidateInfo() {
     return;
   }
   elements.candidateInfoModal.classList.add("hidden");
-  elements.candidateInfoBody.innerHTML = "";
+  setCustomScrollContent(elements.candidateInfoBody, "");
   const lastFocusedElement = state.candidateInfo.lastFocusedElement;
   state.candidateInfo.lastFocusedElement = null;
   lastFocusedElement?.focus?.();
@@ -4520,14 +5427,12 @@ function markdownToHtml(markdown) {
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
     const trimmed = line.trim();
+    const heading = markdownHeading(trimmed);
     if (!trimmed) {
       closeList();
-    } else if (trimmed.startsWith("# ")) {
+    } else if (heading) {
       closeList();
-      html.push(`<h4>${renderInlineRichText(trimmed.slice(2))}</h4>`);
-    } else if (trimmed.startsWith("## ")) {
-      closeList();
-      html.push(`<h4>${renderInlineRichText(trimmed.slice(3))}</h4>`);
+      html.push(renderMarkdownHeading(heading, renderInlineRichText(heading.text)));
     } else if (trimmed.startsWith("- ")) {
       if (!listOpen) {
         html.push("<ul>");
@@ -4560,15 +5465,13 @@ function streamingLineHtml(line, lineOffset, revealStart, includeCursor = false)
   const trimStart = line.search(/\S/);
   const contentOffset = lineOffset + Math.max(trimStart, 0);
   const cursor = includeCursor ? '<span class="streaming-cursor"></span>' : "";
-  if (trimmed.startsWith("# ")) {
+  const heading = markdownHeading(trimmed);
+  if (heading) {
     return {
-      html: `<h4>${renderStreamingInlineText(trimmed.slice(2), contentOffset + 2, revealStart)}${cursor}</h4>`,
-      list: false
-    };
-  }
-  if (trimmed.startsWith("## ")) {
-    return {
-      html: `<h4>${renderStreamingInlineText(trimmed.slice(3), contentOffset + 3, revealStart)}${cursor}</h4>`,
+      html: renderMarkdownHeading(
+        heading,
+        `${renderStreamingInlineText(heading.text, contentOffset + heading.contentStart, revealStart)}${cursor}`
+      ),
       list: false
     };
   }
@@ -4748,6 +5651,10 @@ function taskVisibleContent(task = {}) {
   };
 }
 
+function taskGroupLabelText(task = {}) {
+  return normalizeGermanDisplayText(firstNonEmpty(task.groupLabel));
+}
+
 function taskActionLabel(task = {}) {
   const prompt = normalizeGermanDisplayText(taskPromptText(task));
   const text = prompt.toLowerCase();
@@ -4814,15 +5721,36 @@ function conceptStructureItems(content = {}, brief = {}) {
   const readingTexts = Array.isArray(content.readingTexts) ? content.readingTexts : [];
   const pages = worksheetPagesValue(brief, content);
   const taskPrefix = pages && pages > 1 && tasks.length <= pages ? "Blatt" : "Aufgabe";
+  const groupCounts = tasks.reduce((counts, task) => {
+    const groupLabel = taskGroupLabelText(task);
+    if (groupLabel) {
+      counts.set(groupLabel, (counts.get(groupLabel) || 0) + 1);
+    }
+    return counts;
+  }, new Map());
+  const groupIndexes = new Map();
   const visibleBlocks = [
     ...readingTexts.map((_, index) => ({
       title: readingTexts.length > 1 ? `Text ${index + 1}` : "Text",
       structureTone: "text"
     })),
-    ...tasks.map((_, index) => ({
-      title: `${taskPrefix} ${index + 1}`,
-      structureTone: taskPrefix === "Blatt" ? "sheet" : "task"
-    }))
+    ...tasks.map((task, index) => {
+      const groupLabel = taskGroupLabelText(task);
+      if (!groupLabel) {
+        return {
+          title: `${taskPrefix} ${index + 1}`,
+          structureTone: taskPrefix === "Blatt" ? "sheet" : "task"
+        };
+      }
+      const groupIndex = (groupIndexes.get(groupLabel) || 0) + 1;
+      groupIndexes.set(groupLabel, groupIndex);
+      return {
+        title: groupCounts.get(groupLabel) === 1 && /^Station\s+/i.test(groupLabel)
+          ? groupLabel
+          : `${groupLabel} · Aufgabe ${groupIndex}`,
+        structureTone: "task"
+      };
+    })
   ];
 
   if (visibleBlocks.length) {
@@ -4877,6 +5805,14 @@ function conceptVisibleContentItems(content = {}) {
   const tasks = Array.isArray(content.tasks) ? content.tasks : [];
   const solutionNotes = Array.isArray(content.solutionNotes) ? content.solutionNotes : [];
   const items = [];
+  const groupCounts = tasks.reduce((counts, task) => {
+    const groupLabel = taskGroupLabelText(task);
+    if (groupLabel) {
+      counts.set(groupLabel, (counts.get(groupLabel) || 0) + 1);
+    }
+    return counts;
+  }, new Map());
+  const groupIndexes = new Map();
 
   readingTexts.forEach((text, index) => {
     const title = firstNonEmpty(text.title, `Text ${index + 1}`);
@@ -4893,9 +5829,18 @@ function conceptVisibleContentItems(content = {}) {
   tasks.forEach((task, index) => {
     const visibleTask = taskVisibleContent(task);
     const expected = firstNonEmpty(task.expectedAnswer);
+    const groupLabel = taskGroupLabelText(task);
+    const groupIndex = groupLabel ? (groupIndexes.get(groupLabel) || 0) + 1 : 0;
+    if (groupLabel) {
+      groupIndexes.set(groupLabel, groupIndex);
+    }
     if (visibleTask.title || visibleTask.body || expected) {
       items.push({
-        kicker: `Aufgabe ${index + 1}`,
+        kicker: groupLabel
+          ? groupCounts.get(groupLabel) === 1 && /^Station\s+/i.test(groupLabel)
+            ? groupLabel
+            : `${groupLabel} · Aufgabe ${groupIndex}`
+          : `Aufgabe ${index + 1}`,
         title: visibleTask.title,
         body: visibleTask.body,
         expected,
@@ -5177,10 +6122,10 @@ function statusWord(value) {
     return "in Arbeit";
   }
   if (value === "proposed") {
-    return "Vorschlag";
+    return "bereit";
   }
   if (value === "adopted") {
-    return "übernommen";
+    return "gespeichert";
   }
   if (value === "superseded" || value === "outdated") {
     return "älterer Stand";
@@ -5196,7 +6141,7 @@ function renderAssignmentPreview(item) {
   elements.previewEyebrow.textContent = "Vorschau";
   elements.previewTitle.textContent = "Input";
   if (!hasSourceInput) {
-    elements.previewGrid.innerHTML = `
+    setCustomScrollContent(elements.previewGrid, `
       <article class="detail-panel">
         <section class="detail-section">
           <p class="detail-label">Start</p>
@@ -5204,12 +6149,12 @@ function renderAssignmentPreview(item) {
           <p class="detail-muted">Noch kein Input vorhanden. Schreibe im Chat, was entstehen soll, oder lade Material dazu.</p>
         </section>
       </article>
-    `;
+    `);
     applyPreviewLayout(null);
     bindPreviewOpenActions(null);
     return;
   }
-  elements.previewGrid.innerHTML = `
+  setCustomScrollContent(elements.previewGrid, `
     <article class="detail-panel">
       <section class="detail-section">
         <p class="detail-label">Input</p>
@@ -5218,7 +6163,7 @@ function renderAssignmentPreview(item) {
       ${renderSourceInputs({ source, projectId: item.project?.projectId })}
       ${renderRawInputMessages(userMessages)}
     </article>
-  `;
+  `);
   applyPreviewLayout(null);
   bindPreviewCardActions(elements.previewGrid);
   bindPreviewOpenActions(null);
@@ -5288,7 +6233,7 @@ function renderConceptPreview(item) {
   elements.previewGrid.dataset.previewType = "concept";
   elements.previewEyebrow.textContent = "Vorschau";
   elements.previewTitle.textContent = "Arbeitsblatt-Konzept";
-  elements.previewGrid.innerHTML = `
+  setCustomScrollContent(elements.previewGrid, `
     <article class="detail-panel">
       <section class="detail-section">
         ${renderConceptDocumentHeader({
@@ -5311,7 +6256,7 @@ function renderConceptPreview(item) {
       ${renderConceptVersionOverview(item, selectedConcept)}
       ${renderConceptSections(sections, { compact: false })}
     </article>
-  `;
+  `);
   applyPreviewLayout(null);
   elements.previewGrid.querySelectorAll("[data-library-concept-id]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -5336,7 +6281,8 @@ async function openWorkspace(projectId) {
     return;
   }
   const requestId = ++workspaceRefreshId;
-  stopVoiceInput();
+  stopVoiceInput({ discard: true });
+  abortVoiceTranscription({ silent: true });
   resetCanvasLayout();
   setCanvasCaptureActive(false);
   closeCandidateViewer();
@@ -5358,8 +6304,8 @@ async function openWorkspace(projectId) {
   ensureTreePrimarySelection(`project:${projectId}`);
   renderTree(state.tree);
 
-  elements.chatTimeline.innerHTML = '<div class="chat-loading">Workspace wird geladen...</div>';
-  elements.canvasBody.innerHTML = '<div class="no-preview">Canvas wird geladen...</div>';
+  setCustomScrollContent(elements.chatTimeline, '<div class="chat-loading">Workspace wird geladen...</div>');
+  setCustomScrollContent(elements.canvasBody, '<div class="no-preview">Canvas wird geladen...</div>');
   applyCanvasLayout();
 
   try {
@@ -5371,16 +6317,18 @@ async function openWorkspace(projectId) {
     state.workspace = payload.workspace;
     state.activeCanvasMode = defaultCanvasMode(state.workspace);
     state.activeArtifactSelection = null;
+    ensureDesktopCanvasVisibleForMode(state.activeCanvasMode);
     renderWorkspace();
     syncBackgroundRefresh();
   } catch (error) {
-    elements.chatTimeline.innerHTML = `<div class="chat-error">${escapeHtml(error.message)}</div>`;
+    setCustomScrollContent(elements.chatTimeline, `<div class="chat-error">${escapeHtml(error.message)}</div>`);
     syncBackgroundRefresh();
   }
 }
 
 function closeWorkspace() {
-  stopVoiceInput();
+  stopVoiceInput({ discard: true });
+  abortVoiceTranscription({ silent: true });
   state.mode = "library";
   state.workspace = null;
   state.activeArtifactSelection = null;
@@ -5443,7 +6391,6 @@ function renderDesktopWorkspaceShell(workspace) {
 }
 
 function renderMobileWorkspaceShell(workspace) {
-  renderMobileStatusStrip(workspace);
   if (state.mobilePreview.mode && !state.mobilePreview.minimized && isMobileViewport()) {
     renderMobilePreview();
   }
@@ -5468,17 +6415,24 @@ function renderWorkspace() {
 
 function productionSteps(workspace) {
   const docs = workspace.documents || {};
+  const workflowSteps = Array.isArray(workspace.steps) ? workspace.steps : [];
+  const workflowStep = (id) => workflowSteps.find((step) => step.id === id) || null;
   const candidateGenerationPending = isCandidateGenerationPendingForWorkspace(workspace);
   const hasInput = hasInputArtifact(workspace);
   const hasBrief = Boolean(docs.brief?.data);
   const hasContent = Boolean(docs.content?.data);
   const hasApprovedContent = Boolean(workspace.approval?.canGenerate);
+  const hasConceptProposal = Boolean(workspace.proposals?.latestContentMirror?.data);
   const hasCandidates = Boolean(workspace.latestRun?.candidateCount || workspace.preview?.previewMeta?.renderedCandidateCount);
-  const inputComplete = hasInput || hasBrief || hasContent || hasCandidates;
+  const inputComplete = Boolean(workflowStep("input")?.complete || hasInput || hasBrief || hasContent || hasCandidates);
+  const conceptComplete = Boolean(workflowStep("concept")?.complete || hasApprovedContent || hasConceptProposal);
+  const conceptActive = !conceptComplete && Boolean(hasBrief || hasContent);
+  const candidateComplete = Boolean(workflowStep("candidates")?.complete || hasCandidates);
+  const conceptCanvasMode = hasConceptProposal && !hasContent ? "content_proposal" : "content";
   const checks = [
     { id: "input", number: 1, icon: "inbox", label: "Input", complete: inputComplete, active: !inputComplete, canvasMode: "assignment" },
-    { id: "concept", number: 2, icon: "notebook-text", label: "Arbeitsblatt-Konzept", complete: hasApprovedContent, active: (hasBrief || hasContent) && !hasApprovedContent, canvasMode: "content" },
-    { id: "candidates", number: 3, icon: "images", label: "Entwürfe", complete: hasCandidates, active: candidateGenerationPending, state: candidateGenerationPending ? "Wird erstellt" : "", canvasMode: "candidates" }
+    { id: "concept", number: 2, icon: "notebook-text", label: "Arbeitsblatt-Konzept", complete: conceptComplete, active: conceptActive, canvasMode: conceptCanvasMode },
+    { id: "candidates", number: 3, icon: "images", label: "Entwürfe", complete: candidateComplete, active: candidateGenerationPending, state: candidateGenerationPending ? "Wird erstellt" : "", canvasMode: "candidates" }
   ];
   const firstActive = checks.find((step) => step.active) || checks.find((step) => !step.complete);
   return checks.map((step) => ({
@@ -5563,62 +6517,6 @@ function concreteMobileMode(mode, workspace = state.workspace) {
     return "input";
   }
   return mode || "content";
-}
-
-function shortStepLabel(step = {}) {
-  const labels = {
-    input: "Input",
-    concept: "Konzept",
-    candidates: "Entwürfe"
-  };
-  return labels[step.id] || step.label || "Status";
-}
-
-function mobileStatusPreviewChip(workspace = {}) {
-  const candidateCount = workspace.latestRun?.candidateCount || workspace.preview?.previewMeta?.renderedCandidateCount || 0;
-  if (candidateCount) {
-    const candidatePages = countPreviewCandidatePages(workspace.preview);
-    if (candidatePages > candidateCount) {
-      return { label: `${candidatePages} Seiten`, mode: "candidates", tone: "active" };
-    }
-    return { label: `${candidateCount} Entwurf${candidateCount === 1 ? "" : "en"}`, mode: "candidates", tone: "active" };
-  }
-  if (hasConceptArtifact(workspace)) {
-    return { label: "Konzept öffnen", mode: mobileConceptMode(workspace), tone: "active" };
-  }
-  return null;
-}
-
-function renderMobileStatusStrip(workspace = {}) {
-  if (!elements.mobileStatusStrip) {
-    return;
-  }
-  const steps = productionSteps(workspace);
-  const activeStep = steps.find((step) => step.tone === "active") || steps.find((step) => !step.complete) || steps[0];
-  const activeMode = activeStep?.id === "concept" ? mobileConceptMode(workspace) : activeStep?.canvasMode || "input";
-  const contextReady = Boolean(workspace.teachingContext?.readiness?.ready || workspace.teachingContext?.readiness?.conceptAllowed);
-  const chips = [
-    activeStep ? {
-      label: `${activeStep.number}/3 ${shortStepLabel(activeStep)} ${activeStep.tone === "done" ? "fertig" : "aktiv"}`,
-      mode: activeMode,
-      tone: activeStep.tone
-    } : null,
-    workspace.teachingContext ? {
-      label: contextReady ? "Rahmen bereit" : "Rahmen offen",
-      mode: "context",
-      tone: contextReady ? "done" : "pending"
-    } : null,
-    mobileStatusPreviewChip(workspace)
-  ].filter(Boolean);
-
-  elements.mobileStatusStrip.innerHTML = chips.map((chip) => `
-    <button class="mobile-status-chip ${escapeHtml(chip.tone || "pending")}" type="button" data-mobile-preview-mode="${escapeHtml(chip.mode)}">
-      ${escapeHtml(chip.label)}
-    </button>
-  `).join("");
-  elements.mobileStatusStrip.querySelectorAll("[data-mobile-preview-mode]").forEach((button) => {
-    button.addEventListener("click", () => openMobilePreview(button.dataset.mobilePreviewMode));
-  });
 }
 
 function artifactSelectionFromButton(button) {
@@ -5746,15 +6644,24 @@ function artifactRows(workspace) {
       }))
     });
   } else {
-    const conceptStatus = workspace.approval?.canGenerate
-      ? "freigegeben"
+    const conceptStep = Array.isArray(workspace.steps)
+      ? workspace.steps.find((step) => step.id === "concept")
+      : null;
+    const hasConceptProposal = Boolean(workspace.proposals?.latestContentMirror?.data);
+    const conceptStatus = conceptStep?.complete || workspace.approval?.canGenerate || hasConceptProposal
+      ? "bereit"
       : workspace.documents?.content?.data
         ? "in Arbeit"
         : workspace.documents?.brief?.data || workspace.proposals?.latestLessonBrief || workspace.proposals?.latestContentMirror
           ? "in Arbeit"
           : null;
     if (conceptStatus) {
-      rows.push({ label: "Arbeitsblatt-Konzept", meta: conceptStatus, icon: "notebook-text", mode: "content" });
+      rows.push({
+        label: "Arbeitsblatt-Konzept",
+        meta: conceptStatus,
+        icon: "notebook-text",
+        mode: hasConceptProposal && !workspace.documents?.content?.data ? "content_proposal" : "content"
+      });
     }
   }
   const candidates = workspaceCandidateHistory(workspace);
@@ -5832,8 +6739,8 @@ function currentConceptArtifact(workspace = {}, concepts = workspaceConceptArtif
 function conceptGroupMeta(concepts = [], currentConcept = null) {
   const count = concepts.length;
   const currentLabel = currentConcept?.version
-    ? `${conceptVersionDisplayName(currentConcept.version)} aktuell`
-    : "aktueller Stand";
+    ? `${conceptVersionDisplayName(currentConcept.version)} Arbeitsstand`
+    : "Arbeitsstand";
   return count === 1 ? currentLabel : `${count} Versionen · ${currentLabel}`;
 }
 
@@ -5886,7 +6793,7 @@ function candidateGroupMeta(candidates = [], workspace = {}) {
     `${candidates.length} vorhanden`,
     pageCount > candidates.length ? `${pageCount} Seiten` : null,
     blockedCount ? `${blockedCount} Formatfehler` : null,
-    currentCount > 1 ? `${currentCount} aktuell` : currentCount === 1 ? "aktuell" : (workspaceConceptLabel(workspace) || null)
+    currentCount > 1 ? `${currentCount} zum Arbeitsstand` : currentCount === 1 ? "zum Arbeitsstand" : (workspaceConceptLabel(workspace) || null)
   ].filter(Boolean);
   return parts.join(" · ");
 }
@@ -6046,7 +6953,7 @@ function renderArtifactChild(row, index, total, relationContext = {}) {
         <span class="artifact-tree-copy">
           <span class="artifact-tree-title-line">
             <strong>${escapeHtml(row.label)}</strong>
-            ${row.blocked ? '<span class="artifact-tree-inline-status problem">Formatfehler</span>' : row.current ? '<span class="artifact-tree-inline-status">aktuell</span>' : ""}
+            ${row.blocked ? '<span class="artifact-tree-inline-status problem">Formatfehler</span>' : row.current ? '<span class="artifact-tree-inline-status">Arbeitsstand</span>' : ""}
           </span>
           <small>${escapeHtml(row.meta)}</small>
         </span>
@@ -6207,14 +7114,10 @@ function enabledCommands(workspace) {
   const priorities = [
     "adopt_lessonbrief_proposal",
     "adopt_content_mirror_proposal",
-    "adopt_content_warnings_proposal",
     "generate_lessonbrief_proposal",
     "generate_content_mirror_proposal",
-    "generate_content_warnings_proposal",
-    "prepare_image_spec",
     "prepare_reference_asset",
     "prepare_web_reference_asset",
-    "adopt_image_spec",
     "approve_current_content",
     "deposit_worksheet",
     "generate_image_candidate",
@@ -6774,7 +7677,6 @@ function renderSettings() {
       if (state.workspace) {
         renderWorkspace();
       }
-      showToast(providerId === "codex_cli" ? "Bildanbieter: Codex Usage" : "Bildanbieter: OpenAI API", "success");
     });
   });
   container.querySelectorAll("[data-image-quality]").forEach((button) => {
@@ -6789,7 +7691,6 @@ function renderSettings() {
       if (state.workspace) {
         renderWorkspace();
       }
-      showToast(`Qualität: ${qualitySettingOptions().find((option) => option.id === imageQualityPreset)?.label || "Standard"}`, "success");
     });
   });
   container.querySelector("[data-openai-streaming]")?.addEventListener("change", (event) => {
@@ -6827,12 +7728,413 @@ function closeSettings() {
   state.settingsModal.lastFocusedElement = null;
 }
 
+function runReferenceRoleOptions() {
+  return [
+    {
+      value: "style_reference",
+      label: "Stil",
+      description: "Look, Farben, Schriftanmutung"
+    },
+    {
+      value: "layout_reference",
+      label: "Aufbau",
+      description: "Blattkomposition, Bereiche, Anordnung"
+    },
+    {
+      value: "style_layout_reference",
+      label: "Vorlage",
+      description: "Komposition und Stil für ein Folgeblatt"
+    },
+    {
+      value: "material_image",
+      label: "Bildmaterial",
+      description: "sichtbar ins Arbeitsblatt einbauen"
+    }
+  ];
+}
+
+function roleLabel(role = "") {
+  return runReferenceRoleOptions().find((option) => option.value === role)?.label || "Referenz";
+}
+
+function runReferencePurpose(role = "", label = "") {
+  const cleanLabel = String(label || "Referenzbild").trim();
+  if (role === "material_image") {
+    return `${cleanLabel} als konkretes Bildmaterial im Arbeitsblatt nutzen`;
+  }
+  if (role === "layout_reference") {
+    return `${cleanLabel} als Aufbau- und Layoutreferenz nutzen`;
+  }
+  if (role === "style_layout_reference") {
+    return `${cleanLabel} als Vorlage fuer Stil und Aufbau nutzen`;
+  }
+  return `${cleanLabel} als Stilreferenz nutzen`;
+}
+
+function projectRelativeReferencePath(value = "") {
+  const text = String(value || "").replaceAll("\\", "/").replace(/^\/+/, "");
+  const projectId = currentProjectId();
+  if (!text || !projectId) {
+    return text;
+  }
+  const projectPrefix = `projects/${projectId}/`;
+  const projectIndex = text.indexOf(projectPrefix);
+  if (projectIndex >= 0) {
+    return text.slice(projectIndex + projectPrefix.length);
+  }
+  return text;
+}
+
+function runReferenceSourceKey(source = {}) {
+  return `${source.kind || "reference"}:${source.path || source.id || ""}:${source.page || ""}`;
+}
+
+function sourceFileRunReferenceSource(file = {}) {
+  const pathValue = projectRelativeReferencePath(file.path);
+  const label = file.originalName || fileName(pathValue) || "Bild";
+  return pathValue && isImageInput(file) ? {
+    key: `input:${pathValue}`,
+    kind: "input_upload",
+    label,
+    detail: "Input-Bild",
+    path: pathValue,
+    url: sourceFileUrl(currentProjectId(), file),
+    defaultRole: "material_image",
+    source: {
+      kind: "input_upload",
+      artifactId: file.artifactId || null,
+      path: pathValue,
+      originalName: file.originalName || null,
+      mimeType: file.mimeType || null,
+      size: file.size || null
+    }
+  } : null;
+}
+
+function candidatePageRunReferenceSource(candidate = {}, page = {}) {
+  const pathValue = projectRelativeReferencePath(page.path);
+  if (!pathValue) {
+    return null;
+  }
+  const display = draftDisplayLabel(candidate);
+  const pageNumber = Number(page.page || 1) || 1;
+  return {
+    key: `candidate:${candidate.runId || ""}:${candidate.id || ""}:${pageNumber}:${pathValue}`,
+    kind: "candidate_page",
+    label: `${display}, Seite ${pageNumber}`,
+    detail: "Entwurf",
+    path: pathValue,
+    url: page.url || null,
+    page: pageNumber,
+    defaultRole: "style_layout_reference",
+    source: {
+      kind: "candidate",
+      projectId: currentProjectId(),
+      runId: candidate.runId || null,
+      candidateId: candidate.id || null,
+      page: pageNumber,
+      role: page.role || null
+    }
+  };
+}
+
+function availableRunReferenceSources(workspace = state.workspace) {
+  const sourceFiles = sourceFilesFrom(workspace?.documents?.source || {})
+    .map(sourceFileRunReferenceSource)
+    .filter(Boolean);
+  const candidatePages = (workspace?.artifacts?.candidates || [])
+    .flatMap((candidate) => (candidate.pages || [])
+      .filter((page) => page.url && page.path)
+      .map((page) => candidatePageRunReferenceSource(candidate, page))
+      .filter(Boolean));
+  return [...sourceFiles, ...candidatePages];
+}
+
+function initialRunReferenceSelection(payload = {}, sources = []) {
+  const byPath = new Map(sources.map((source) => [source.path, source]));
+  return (Array.isArray(payload.referenceImages) ? payload.referenceImages : [])
+    .filter((reference) => reference?.path)
+    .slice(0, 4)
+    .map((reference, index) => {
+      const refPath = projectRelativeReferencePath(reference.path);
+      const source = byPath.get(refPath);
+      const label = reference.sourceLabel || source?.label || fileName(refPath) || `Referenz ${index + 1}`;
+      return {
+        localId: `existing_${index}_${Date.now()}`,
+        key: source?.key || `existing:${refPath}`,
+        label,
+        path: refPath,
+        url: source?.url || (refPath ? `/files/${encodeURI(`projects/${currentProjectId()}/${refPath}`)}` : ""),
+        role: reference.role || source?.defaultRole || "style_reference",
+        targetPage: Number(reference.targetPage || reference.page || 0) || 0,
+        userDetails: reference.userDetails || reference.details || "",
+        source: reference.source || source?.source || null
+      };
+    });
+}
+
+function runReferenceSelectionToPayload(selection = []) {
+  return selection
+    .filter((reference) => reference.path)
+    .slice(0, 4)
+    .map((reference, index) => {
+      const role = reference.role || "style_reference";
+      const label = reference.label || fileName(reference.path) || `Referenz ${index + 1}`;
+      return {
+        id: `run_ref_${String(index + 1).padStart(2, "0")}`,
+        role,
+        path: reference.path,
+        purpose: runReferencePurpose(role, label),
+        userDetails: String(reference.userDetails || "").trim() || null,
+        targetPage: Number(reference.targetPage || 0) || null,
+        sourceLabel: label,
+        source: reference.source || null,
+        scope: "next_candidate"
+      };
+    });
+}
+
+async function uploadRunReferenceFiles(fileList = []) {
+  const projectId = currentProjectId();
+  const files = Array.from(fileList || []).filter(Boolean);
+  const imageFiles = files.filter((file) => String(file.type || "").startsWith("image/"));
+  if (!projectId || !imageFiles.length) {
+    return [];
+  }
+  const uploadedSources = [];
+  for (const file of imageFiles) {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("deferChatReceipt", "true");
+    const response = await fetchJson(`/api/workspace/${encodeURIComponent(projectId)}/input-upload`, {
+      method: "POST",
+      body: formData
+    });
+    state.workspace = response.workspace || state.workspace;
+    const source = sourceFileRunReferenceSource(response.upload?.file || {});
+    if (source) {
+      uploadedSources.push(source);
+    }
+  }
+  renderWorkspace();
+  await loadTree({ keepSelection: true, selectAfterLoad: false });
+  return uploadedSources;
+}
+
+function pageTargetOptions(pageCount = 1, selectedPage = 0) {
+  const count = Math.max(1, Number(pageCount || 1) || 1);
+  return [
+    `<option value="" ${selectedPage ? "" : "selected"}>alle Seiten</option>`,
+    ...Array.from({ length: count }, (_, index) => {
+      const page = index + 1;
+      return `<option value="${page}" ${Number(selectedPage) === page ? "selected" : ""}>Seite ${page}</option>`;
+    })
+  ].join("");
+}
+
+function renderRunReferenceSelector({ command = {}, payload = {}, selection = [], sources = [], uploading = false } = {}) {
+  const pageCount = commandPageCount(command, payload) || 1;
+  const roleOptions = runReferenceRoleOptions();
+  const availableToAdd = sources.filter((source) => !selection.some((reference) => reference.path === source.path));
+  const sourceOptions = availableToAdd.map((source) => `
+    <option value="${escapeHtml(source.key)}">${escapeHtml(`${source.label} · ${source.detail}`)}</option>
+  `).join("");
+  return `
+    <section class="run-reference-panel">
+      <header>
+        <div>
+          <strong>Referenzen</strong>
+          <span>Optional für diesen Lauf</span>
+        </div>
+      </header>
+      <div class="run-reference-add-row">
+        <label class="run-reference-source-field">
+          <span class="sr-only">Bild auswählen</span>
+          <select data-run-reference-source ${availableToAdd.length ? "" : "disabled"} aria-label="Referenzquelle">
+            ${sourceOptions || "<option>Keine vorhandenen Bilder</option>"}
+          </select>
+        </label>
+        <button class="secondary-button mini-button" type="button" data-run-reference-add ${availableToAdd.length && selection.length < 4 ? "" : "disabled"}>Hinzufügen</button>
+        <button class="secondary-button mini-button" type="button" data-run-reference-upload ${uploading || selection.length >= 4 ? "disabled" : ""}>Aus Datei</button>
+        <input class="sr-only" type="file" accept="image/*" multiple data-run-reference-file-input>
+      </div>
+      ${uploading ? `<p class="run-reference-note">Bild wird gespeichert...</p>` : ""}
+      ${selection.length ? `
+        <div class="run-reference-list">
+          ${selection.map((reference, index) => `
+            <article class="run-reference-item" data-run-reference-index="${index}">
+              <div class="run-reference-thumb">
+                ${reference.url ? `<img src="${escapeHtml(reference.url)}" alt="">` : ""}
+              </div>
+              <div class="run-reference-fields">
+                <div class="run-reference-item-header">
+                  <strong>${escapeHtml(reference.label || fileName(reference.path) || "Referenz")}</strong>
+                  <button class="icon-button icon-button-plain" type="button" data-run-reference-remove="${index}" aria-label="Referenz entfernen" title="Referenz entfernen">${icon("x", "icon icon-small")}</button>
+                </div>
+                <div class="run-reference-controls">
+                  <label>
+                    <span>Funktion</span>
+                    <select data-run-reference-role="${index}">
+                      ${roleOptions.map((option) => `<option value="${escapeHtml(option.value)}" ${option.value === reference.role ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+                    </select>
+                    <em>${escapeHtml(roleOptions.find((option) => option.value === reference.role)?.description || "Referenzfunktion festlegen")}</em>
+                  </label>
+                  <label>
+                    <span>Gilt für</span>
+                    <select data-run-reference-page="${index}">
+                      ${pageTargetOptions(pageCount, reference.targetPage)}
+                    </select>
+                  </label>
+                </div>
+                <label class="run-reference-detail">
+                  <span>Details</span>
+                  <textarea data-run-reference-details="${index}" rows="2" maxlength="220" placeholder="${escapeHtml(`${roleLabel(reference.role)} genauer beschreiben...`)}">${escapeHtml(reference.userDetails || "")}</textarea>
+                </label>
+              </div>
+            </article>
+          `).join("")}
+        </div>
+      ` : `<p class="run-reference-note">Keine Referenz ausgewählt.</p>`}
+    </section>
+  `;
+}
+
+async function requestImageGenerationConfirmation(command = {}, payload = {}) {
+  let sources = availableRunReferenceSources(state.workspace);
+  let selection = initialRunReferenceSelection(payload, sources);
+  let uploading = false;
+  let extraHost = null;
+
+  const render = () => {
+    if (!extraHost) {
+      return;
+    }
+    extraHost.innerHTML = renderRunReferenceSelector({
+      command,
+      payload,
+      selection,
+      sources,
+      uploading
+    });
+    const sourceByKey = new Map(sources.map((source) => [source.key, source]));
+    extraHost.querySelector("[data-run-reference-add]")?.addEventListener("click", () => {
+      const select = extraHost.querySelector("[data-run-reference-source]");
+      const source = sourceByKey.get(select?.value);
+      if (!source || selection.length >= 4) {
+        return;
+      }
+      selection = [...selection, {
+        localId: `ref_${Date.now()}_${selection.length}`,
+        key: source.key,
+        label: source.label,
+        path: source.path,
+        url: source.url,
+        role: source.defaultRole || "style_reference",
+        targetPage: 0,
+        userDetails: "",
+        source: source.source || null
+      }];
+      render();
+    });
+    extraHost.querySelector("[data-run-reference-upload]")?.addEventListener("click", () => {
+      extraHost.querySelector("[data-run-reference-file-input]")?.click();
+    });
+    extraHost.querySelector("[data-run-reference-file-input]")?.addEventListener("change", async (event) => {
+      uploading = true;
+      render();
+      try {
+        const uploaded = await uploadRunReferenceFiles(event.currentTarget.files);
+        sources = [...availableRunReferenceSources(state.workspace), ...uploaded]
+          .filter((source, index, list) => list.findIndex((entry) => entry.path === source.path) === index);
+        const additions = uploaded
+          .filter((source) => !selection.some((reference) => reference.path === source.path))
+          .slice(0, Math.max(0, 4 - selection.length))
+          .map((source) => ({
+            localId: `ref_upload_${Date.now()}_${source.key}`,
+            key: source.key,
+            label: source.label,
+            path: source.path,
+            url: source.url,
+            role: source.defaultRole || "material_image",
+            targetPage: 0,
+            userDetails: "",
+            source: source.source || null
+          }));
+        selection = [...selection, ...additions].slice(0, 4);
+      } catch (error) {
+        showToast(error.message, "error");
+      } finally {
+        uploading = false;
+        render();
+      }
+    });
+    extraHost.querySelectorAll("[data-run-reference-remove]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const index = Number(button.dataset.runReferenceRemove);
+        selection = selection.filter((_, itemIndex) => itemIndex !== index);
+        render();
+      });
+    });
+    extraHost.querySelectorAll("[data-run-reference-role]").forEach((select) => {
+      select.addEventListener("change", () => {
+        const index = Number(select.dataset.runReferenceRole);
+        selection = selection.map((reference, itemIndex) => itemIndex === index
+          ? { ...reference, role: select.value || "style_reference" }
+          : reference);
+        render();
+      });
+    });
+    extraHost.querySelectorAll("[data-run-reference-page]").forEach((select) => {
+      select.addEventListener("change", () => {
+        const index = Number(select.dataset.runReferencePage);
+        selection = selection.map((reference, itemIndex) => itemIndex === index
+          ? { ...reference, targetPage: Number(select.value || 0) || 0 }
+          : reference);
+      });
+    });
+    extraHost.querySelectorAll("[data-run-reference-details]").forEach((textarea) => {
+      textarea.addEventListener("input", () => {
+        const index = Number(textarea.dataset.runReferenceDetails);
+        selection = selection.map((reference, itemIndex) => itemIndex === index
+          ? { ...reference, userDetails: textarea.value }
+          : reference);
+      });
+    });
+  };
+
+  return requestConfirmation({
+    eyebrow: "Entwurf",
+    title: "Entwurf erstellen",
+    message: "Optional Referenzen festlegen.",
+    acceptLabel: "Entwurf erstellen",
+    compact: true,
+    extraHtml: "<div></div>",
+    onRender: (host) => {
+      extraHost = host;
+      render();
+    },
+    onAccept: () => {
+      if (uploading) {
+        showToast("Bitte warte, bis das Referenzbild gespeichert ist.", "info");
+        return false;
+      }
+      return {
+        payload: {
+          referenceImages: runReferenceSelectionToPayload(selection)
+        }
+      };
+    }
+  });
+}
+
 function requestConfirmation(options = {}) {
   return new Promise((resolve) => {
     const modal = elements.confirmationModal;
+    const card = modal?.querySelector(".confirmation-card");
     const eyebrow = elements.confirmationEyebrow;
     const title = elements.confirmationTitle;
     const message = elements.confirmationMessage;
+    const extra = elements.confirmationExtra;
     const accept = elements.confirmationAcceptButton;
     const cancel = elements.confirmationCancelButton;
     if (!modal || !title || !message || !accept || !cancel) {
@@ -6843,8 +8145,16 @@ function requestConfirmation(options = {}) {
     if (eyebrow) {
       eyebrow.textContent = options.eyebrow || "Bestätigung";
     }
+    card?.classList.toggle("confirmation-card-compact", Boolean(options.compact));
     title.textContent = options.title || "Aktion bestätigen?";
     message.textContent = options.message || "Diese Aktion kann nicht automatisch rückgängig gemacht werden.";
+    if (extra) {
+      extra.innerHTML = options.extraHtml || "";
+      extra.classList.toggle("hidden", !options.extraHtml);
+      if (options.extraHtml && typeof options.onRender === "function") {
+        options.onRender(extra);
+      }
+    }
     accept.textContent = options.acceptLabel || "Bestätigen";
     cancel.textContent = options.cancelLabel || "Abbrechen";
     accept.classList.toggle("danger-button", Boolean(options.danger));
@@ -6853,7 +8163,12 @@ function requestConfirmation(options = {}) {
 
     const cleanup = (value) => {
       modal.classList.add("hidden");
+      card?.classList.remove("confirmation-card-compact");
       accept.classList.remove("danger-button");
+      if (extra) {
+        extra.innerHTML = "";
+        extra.classList.add("hidden");
+      }
       cancel.textContent = "Abbrechen";
       accept.removeEventListener("click", onAccept);
       cancel.removeEventListener("click", onCancel);
@@ -6861,7 +8176,13 @@ function requestConfirmation(options = {}) {
       document.removeEventListener("keydown", onKeydown);
       resolve(value);
     };
-    const onAccept = () => cleanup(true);
+    const onAccept = () => {
+      const value = typeof options.onAccept === "function" ? options.onAccept(extra) : true;
+      if (value === false) {
+        return;
+      }
+      cleanup(value || true);
+    };
     const onCancel = () => cleanup(false);
     const onBackdrop = (event) => {
       if (event.target === modal) {
@@ -6908,21 +8229,8 @@ function requestCommandConfirmation(command = {}, payload = {}) {
       acceptLabel: `Seite ${page} mit OpenAI API erzeugen`
     });
   }
-  if (commandUsesImageProvider(command) && payload.imageProvider === "codex_cli") {
-    return requestConfirmation({
-      eyebrow: "Usage-Verbrauch",
-      title: command.id === "generate_image_candidate" ? "Entwurf mit Codex Usage erstellen?" : "Bildschritt mit Codex Usage ausführen?",
-      message: "Dieser Schritt nutzt deinen lokalen Codex-Login und verbraucht Codex/ChatGPT-Kontingent. Es entstehen keine OpenAI-API-Kosten über deinen API-Key. SheetifyIMG importiert das Bild danach als normalen Entwurf und prüft die Datei.",
-      acceptLabel: "Mit Codex Usage erzeugen"
-    });
-  }
   if (commandUsesImageProvider(command)) {
-    return requestConfirmation({
-      eyebrow: "API-Kosten",
-      title: command.id === "generate_image_candidate" ? "Entwurf mit OpenAI API erstellen?" : "Bildschritt mit OpenAI API ausführen?",
-      message: "Dieser Schritt nutzt den hinterlegten OpenAI API-Key und kann API-Kosten verursachen. SheetifyIMG importiert das Bild danach als normalen Entwurf und prüft die Datei.",
-      acceptLabel: "Mit OpenAI API erzeugen"
-    });
+    return requestImageGenerationConfirmation(command, payload);
   }
   return requestConfirmation({
     eyebrow: command.confirmationKind === "paid_image_generation" ? "API-Kosten" : "Bestätigung",
@@ -6946,28 +8254,12 @@ function pendingCommandMessage(commandId, command = {}, payload = {}) {
     return `Entwurf wird${providerText} gerendert. Das kann einen Moment dauern.`;
   }
   if (commandId === "generate_lessonbrief_proposal" || commandId === "generate_content_mirror_proposal") {
-    return "Konzept-Vorschlag wird vorbereitet.";
+    return "Arbeitsblatt-Konzept wird vorbereitet.";
   }
   if (commandId === "deposit_worksheet") {
     return "Arbeitsblatt wird in der Ablage gespeichert.";
   }
   return `${command?.label || "Aktion"} wird ausgeführt.`;
-}
-
-function successToastMessageForCommand(commandId, response = {}) {
-  if (commandId === "generate_image_candidate" && response.result?.queued) {
-    return "Bildgenerierung läuft jetzt im Hintergrund.";
-  }
-  const messages = {
-    generate_lessonbrief_proposal: "Erste Konzeptfassung ist vorbereitet.",
-    adopt_lessonbrief_proposal: "Konzeptfassung ist jetzt die Basis.",
-    generate_content_mirror_proposal: "Arbeitsblatt-Konzept ist ausformuliert.",
-    adopt_content_mirror_proposal: "Arbeitsblatt-Konzept ist übernommen und freigegeben.",
-    activate_content_mirror_version: "Konzeptversion ist jetzt die aktuelle Basis.",
-    approve_current_content: "Arbeitsblatt-Konzept ist freigegeben.",
-    generate_image_candidate: "Entwurf ist bereit."
-  };
-  return messages[commandId] || "Schritt erledigt.";
 }
 
 function pendingChatForWorkspace(workspace) {
@@ -7206,7 +8498,7 @@ function renderChat(workspace) {
       }
       return command.id !== "deposit_worksheet";
     });
-  elements.chatTimeline.innerHTML = `
+  setCustomScrollContent(elements.chatTimeline, `
     ${renderChatRuntime(workspace.chat)}
     ${messages.length ? messages.map((message, index) => renderChatMessage(
       message,
@@ -7217,12 +8509,13 @@ function renderChat(workspace) {
       messages,
       index
     )).join("") : renderChatIntro(workspace)}
-  `;
+  `);
   bindCommandButtons(elements.chatTimeline);
   bindCanvasModeButtons(elements.chatTimeline);
   bindConceptCopyActions(elements.chatTimeline);
   bindPreviewCardActions(elements.chatTimeline);
-  elements.chatTimeline.scrollTop = elements.chatTimeline.scrollHeight;
+  const chatScrollElement = customScrollElement(elements.chatTimeline);
+  chatScrollElement.scrollTop = chatScrollElement.scrollHeight;
   updateComposerState();
 }
 
@@ -7230,7 +8523,7 @@ function renderChatRuntime(chat = {}) {
   const status = chat.status || chat.mode || "missing_key";
   const modeClass = status === "ready" ? "openai" : "error";
   const label = chat.mode === "openai" && status === "ready"
-    ? `OpenAI aktiv · ${chat.textModel || "Textmodell"}`
+    ? "KI bereit"
     : status === "missing_key"
       ? "OpenAI-Key fehlt"
       : "OpenAI nicht bereit";
@@ -7278,6 +8571,57 @@ function teachingContextNote(context = {}) {
   return context.nextQuestion || "Ich kläre kurz, wofür das Arbeitsblatt im Unterricht funktionieren soll.";
 }
 
+function teachingContextStatusLabel(readiness = {}) {
+  if (readiness.conceptAllowed) {
+    return "bereit";
+  }
+  if (readiness.forcedWithAssumptions) {
+    return "mit Annahmen";
+  }
+  return "wird geklärt";
+}
+
+function teachingContextStatusTone(readiness = {}) {
+  if (readiness.conceptAllowed) {
+    return "ready";
+  }
+  if (readiness.forcedWithAssumptions) {
+    return "assumed";
+  }
+  return "pending";
+}
+
+function teachingContextPanelProjectId(workspace = {}) {
+  return workspace.project?.projectId || currentProjectId() || "__current";
+}
+
+function teachingContextPanelCollapsed(workspace = {}, context = {}) {
+  const projectId = teachingContextPanelProjectId(workspace);
+  const saved = state.teachingContextPanel.collapsedByProjectId[projectId];
+  if (typeof saved === "boolean") {
+    return saved;
+  }
+  return Boolean(context.readiness?.conceptAllowed);
+}
+
+function setTeachingContextPanelCollapsed(workspace = {}, collapsed) {
+  const projectId = teachingContextPanelProjectId(workspace);
+  state.teachingContextPanel.collapsedByProjectId[projectId] = Boolean(collapsed);
+}
+
+function renderTeachingContextChip(readiness = {}) {
+  const statusLabel = teachingContextStatusLabel(readiness);
+  const statusTone = teachingContextStatusTone(readiness);
+  return `
+    <button class="teaching-context-chip" type="button" data-teaching-context-toggle data-status="${escapeHtml(statusTone)}" aria-expanded="false" aria-label="Unterrichtsrahmen öffnen" title="Unterrichtsrahmen öffnen">
+      ${renderIcon("notebook-text", "teaching-context-chip-icon")}
+      <span>Unterrichtsrahmen</span>
+      <strong>${escapeHtml(statusLabel)}</strong>
+      ${renderIcon("chevron-down", "teaching-context-chip-chevron")}
+    </button>
+  `;
+}
+
 function renderTeachingContextPanel(workspace = {}) {
   const panel = elements.teachingContextPanel;
   if (!panel) {
@@ -7285,30 +8629,45 @@ function renderTeachingContextPanel(workspace = {}) {
   }
   if (!teachingContextVisible(workspace)) {
     panel.classList.add("hidden");
+    panel.classList.remove("collapsed");
+    panel.removeAttribute("aria-expanded");
     panel.innerHTML = "";
     return;
   }
   const context = workspace.teachingContext || {};
   const readiness = context.readiness || {};
+  const collapsed = teachingContextPanelCollapsed(workspace, context);
   panel.classList.remove("hidden");
-  panel.innerHTML = `
-    <div class="teaching-context-header">
-      <div>
-        <p>Unterrichtsrahmen</p>
-        <strong>${escapeHtml(readiness.conceptAllowed ? "bereit" : "wird geklärt")}</strong>
+  panel.classList.toggle("collapsed", collapsed);
+  panel.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  panel.innerHTML = collapsed
+    ? renderTeachingContextChip(readiness)
+    : `
+      <div class="teaching-context-header">
+        <div>
+          <p>Unterrichtsrahmen</p>
+          <strong>${escapeHtml(teachingContextStatusLabel(readiness))}</strong>
+        </div>
+        <button class="teaching-context-minimize-button" type="button" data-teaching-context-toggle aria-expanded="true" aria-label="Unterrichtsrahmen einklappen" title="Unterrichtsrahmen einklappen">
+          ${renderIcon("chevron-down", "teaching-context-minimize-icon")}
+        </button>
       </div>
-    </div>
-    <ul>${teachingContextFieldRows(context)}</ul>
-    <div class="teaching-context-next">
-      <span>Nächste Klärung</span>
-      <p>${escapeHtml(teachingContextNote(context))}</p>
-    </div>
-    ${readiness.conceptAllowed ? "" : `
-      <button class="secondary-button mini-button teaching-context-force" type="button" data-teaching-context-force>
-        Trotzdem Vorschlag machen
-      </button>
-    `}
-  `;
+      <ul>${teachingContextFieldRows(context)}</ul>
+      <div class="teaching-context-next">
+        <span>Nächste Klärung</span>
+        <p>${escapeHtml(teachingContextNote(context))}</p>
+      </div>
+      ${readiness.conceptAllowed ? "" : `
+        <button class="secondary-button mini-button teaching-context-force" type="button" data-teaching-context-force>
+          Trotzdem Vorschlag machen
+        </button>
+      `}
+    `;
+  panel.querySelector("[data-teaching-context-toggle]")?.addEventListener("click", () => {
+    const currentWorkspace = state.workspace?.project?.projectId === workspace.project?.projectId ? state.workspace : workspace;
+    setTeachingContextPanelCollapsed(currentWorkspace, !collapsed);
+    renderTeachingContextPanel(currentWorkspace);
+  });
   panel.querySelector("[data-teaching-context-force]")?.addEventListener("click", () => {
     sendChatMessage("Mach trotzdem einen ersten Vorschlag mit Annahmen.", {
       uiEvent: "teaching_context_force"
@@ -7359,109 +8718,46 @@ function renderActionButtons(actions = []) {
   }
   return `
     <div class="message-actions">${buttonActions.map((action) => `
-      <button class="secondary-button mini-button" type="button" data-command="${escapeHtml(action.id || action.command)}" data-payload="${escapeHtml(JSON.stringify(action.payload || {}))}"${action.reason ? ` title="${escapeHtml(normalizeVisibleProductTerminology(action.reason))}"` : ""}${action.disabled ? " disabled" : ""}>
-        ${escapeHtml(normalizeVisibleProductTerminology(action.label || decisionButtonLabel({ id: action.id || action.command })))}
-      </button>
+      <span class="message-action-wrap">
+        <button class="secondary-button mini-button" type="button" data-command="${escapeHtml(action.id || action.command)}" data-payload="${escapeHtml(JSON.stringify(action.payload || {}))}"${action.reason ? ` title="${escapeHtml(normalizeVisibleProductTerminology(action.reason))}"` : ""}${action.disabled ? " disabled" : ""}>
+          ${escapeHtml(normalizeVisibleProductTerminology(action.label || decisionButtonLabel({ id: action.id || action.command })))}
+        </button>
+        ${renderActionReferenceHint(action)}
+      </span>
     `).join("")}</div>
     ${disabledStatus.length ? `<div class="message-action-status">${escapeHtml(disabledStatus.join(" "))}</div>` : ""}
   `;
+}
+
+function actionReferenceImages(action = {}) {
+  return (Array.isArray(action.payload?.referenceImages) ? action.payload.referenceImages : [])
+    .filter((reference) => reference?.path)
+    .slice(0, 4);
+}
+
+function renderActionReferenceHint(action = {}) {
+  const references = actionReferenceImages(action);
+  if (!references.length) {
+    return "";
+  }
+  const label = `${references.length} Referenz${references.length === 1 ? "" : "en"} beigelegt`;
+  return `<span class="message-action-reference-pill" title="${escapeHtml(label)}">${escapeHtml(label)}</span>`;
 }
 
 function actionLabel(action = {}) {
   return normalizeVisibleProductTerminology(action.label || decisionButtonLabel({ id: action.id || action.command }) || action.command || action.id || "Aktion");
 }
 
-function actionHistoryLabel(action = {}) {
-  const commandId = action.id || action.command || "";
-  const label = actionLabel(action);
-  const normalized = label.toLowerCase();
-  if (commandId === "generate_lessonbrief_proposal" || normalized.includes("konzept vorschlagen")) {
-    return "Konzeptvorschlag";
-  }
-  if (commandId === "generate_content_mirror_proposal" || normalized.includes("konzept überarbeiten")) {
-    return "Konzeptüberarbeitung";
-  }
-  if (normalized.includes("konzept aktualisieren")) {
-    return "Konzeptaktualisierung";
-  }
-  if (commandId === "adopt_content_mirror_proposal" || commandId === "adopt_lessonbrief_proposal" || normalized.includes("konzept übernehmen")) {
-    return "Konzeptübernahme";
-  }
-  if (commandId === "generate_image_candidate" || normalized.includes("entwurf erstellen") || normalized.includes("kandidat erzeugen") || normalized.includes("variante erzeugen") || normalized.includes("variante erstellen")) {
-    return "Entwurfserstellung";
-  }
-  if (commandId === "prepare_image_spec" || normalized.includes("entwürfe vorbereiten") || normalized.includes("kandidaten vorbereiten")) {
-    return "Entwurfsvorbereitung";
-  }
-  if (commandId === "prepare_reference_asset" || normalized.includes("referenz vorbereiten")) {
-    return "Referenzvorbereitung";
-  }
-  if (commandId === "prepare_web_reference_asset" || normalized.includes("webreferenz suchen")) {
-    return "Webreferenzsuche";
-  }
-  return label;
+function sentenceCaseLabel(label = "") {
+  const value = String(label || "").trim();
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
 }
 
-function actionHistoryResultLabel(action = {}) {
-  const commandId = action.id || action.command || "";
-  const label = actionLabel(action);
-  const normalized = label.toLowerCase();
-  if (commandId === "generate_lessonbrief_proposal" || normalized.includes("konzept vorschlagen")) {
-    return "Konzeptvorschlag wurde erstellt";
-  }
-  if (commandId === "create_brief_draft") {
-    return "Erstes Konzept wurde angelegt";
-  }
-  if (commandId === "generate_content_mirror_proposal" || normalized.includes("konzept überarbeiten")) {
-    if (normalized.includes("überarbeiten")) {
-      return "Konzept wurde überarbeitet";
-    }
-    if (normalized.includes("aktualisieren")) {
-      return "Konzept wurde aktualisiert";
-    }
-    return "Konzept wurde ausformuliert";
-  }
-  if (commandId === "create_content_draft") {
-    return "Konzept wurde direkt angelegt";
-  }
-  if (normalized.includes("konzept aktualisieren")) {
-    return "Konzept wurde aktualisiert";
-  }
-  if (commandId === "adopt_lessonbrief_proposal") {
-    return "Konzeptvorschlag wurde übernommen";
-  }
-  if (commandId === "adopt_content_mirror_proposal" || normalized.includes("konzept übernehmen")) {
-    return "Konzept wurde übernommen";
-  }
-  if (commandId === "approve_current_content") {
-    return "Konzept wurde freigegeben";
-  }
-  if (commandId === "generate_image_candidate" || normalized.includes("entwurf erstellen") || normalized.includes("kandidat erzeugen") || normalized.includes("variante erzeugen") || normalized.includes("variante erstellen")) {
-    if (/(mehrseitig\w* entwurf|kandidatenreihe)/i.test(label)) {
-      return /weitere/i.test(label) ? "Weiterer Entwurf wurde erstellt" : "Entwurf wurde erstellt";
-    }
-    return hasCandidateHistoryLabel(label) ? "Weiterer Entwurf wurde erstellt" : "Entwurf wurde erstellt";
-  }
-  if (commandId === "prepare_image_spec" || normalized.includes("entwürfe vorbereiten") || normalized.includes("kandidaten vorbereiten")) {
-    return "Entwurfsvorbereitung wurde erstellt";
-  }
-  if (commandId === "prepare_reference_asset" || normalized.includes("referenz vorbereiten")) {
-    return "Referenz wurde vorbereitet";
-  }
-  if (commandId === "prepare_web_reference_asset" || normalized.includes("webreferenz suchen")) {
-    return "Webreferenz wurde vorbereitet";
-  }
-  if (commandId === "adopt_image_spec") {
-    return "Entwurfsvorbereitung wurde übernommen";
-  }
-  if (commandId === "deposit_worksheet") {
-    return /arbeitsblätter ablegen/i.test(label) ? "Arbeitsblätter abgelegt" : "Arbeitsblatt abgelegt";
-  }
-  return `${label} wurde ausgeführt`;
-}
-
-function hasCandidateHistoryLabel(label = "") {
-  return /weiter\w*\s+(entwurf|mehrseitig\w* entwurf|kandidatenreihe)/i.test(String(label || ""));
+function completedActionLabel(action = {}) {
+  const label = normalizeVisibleProductTerminology(actionLabel(action))
+    .replace(/^ja,\s*/i, "")
+    .trim();
+  return sentenceCaseLabel(label || "Aktion ausführen");
 }
 
 function comparablePayloadValue(value) {
@@ -7471,7 +8767,7 @@ function comparablePayloadValue(value) {
 function actionPayloadMatchesCommand(action = {}, command = {}) {
   const expected = commandPayload(command);
   const actual = action.payload || {};
-  const sensitiveKeys = ["proposalId", "runId", "candidateId", "imageSpecProposalId", "contentMirrorId", "conceptVersion"];
+  const sensitiveKeys = ["proposalId", "basisProposalId", "runId", "candidateId", "imageSpecProposalId", "contentMirrorId", "conceptVersion", "pageCount"];
   if (command.id === "select_candidate" && expected.runId && !actual.runId) {
     return false;
   }
@@ -7481,11 +8777,18 @@ function actionPayloadMatchesCommand(action = {}, command = {}) {
     if (actualValue && expectedValue && actualValue !== expectedValue) {
       return false;
     }
-    if (actualValue && !expectedValue && (key === "proposalId" || key === "imageSpecProposalId")) {
+    if (actualValue && !expectedValue && (key === "proposalId" || key === "basisProposalId" || key === "imageSpecProposalId")) {
       return false;
     }
   }
   return true;
+}
+
+const chatAuthoringActionCommandIds = new Set(["generate_content_mirror_proposal"]);
+
+function isAllowedCurrentChatAction(commandId, command = null, visibleCommandIds = new Set()) {
+  return visibleCommandIds.has(commandId)
+    || (chatAuthoringActionCommandIds.has(commandId) && command?.enabled);
 }
 
 function actionState(action = {}, workspace = {}, isActionHost = false, visibleCommandIds = new Set()) {
@@ -7500,7 +8803,13 @@ function actionState(action = {}, workspace = {}, isActionHost = false, visibleC
     }
     return { current: true, reason: null };
   }
-  if (!command || !command.enabled || !visibleCommandIds.has(commandId)) {
+  if (commandId === "generate_image_candidate" && command?.enabled) {
+    if (!actionPayloadMatchesCommand(action, command)) {
+      return { current: false, reason: "outdated" };
+    }
+    return { current: true, reason: null };
+  }
+  if (!command || !command.enabled || !isAllowedCurrentChatAction(commandId, command, visibleCommandIds)) {
     return { current: false, reason: "unavailable" };
   }
   if (!actionPayloadMatchesCommand(action, command)) {
@@ -7526,7 +8835,7 @@ function nextMessageResolvesAction(messages = [], index = -1, action = {}) {
     return nextMessage.productionCard?.kind === "candidate" || /\b(?:kandidat|entwurf)\b.*\bfertig\b/i.test(content);
   }
   if (/adopt_.*proposal|approve_current_content|activate_content_mirror_version/.test(commandId)) {
-    return /übernommen|freigegeben|aktuelle basis|aktuell/i.test(content);
+    return /weitergearbeitet|gespeichert|arbeitsbasis|arbeitsstand|nächste[nr]?\s+schritte|naechste[nr]?\s+schritte/i.test(content);
   }
   if (/generate_.*proposal|create_.*draft|prepare_/.test(commandId)) {
     return /erstellt|angelegt|vorbereitet|ausformuliert|vorschlag/i.test(content);
@@ -7534,35 +8843,60 @@ function nextMessageResolvesAction(messages = [], index = -1, action = {}) {
   return false;
 }
 
-function renderActionHistory(actions = [], context = {}) {
-  if (!actions.length) {
+function renderCompletedActionButtons(actions = [], context = {}) {
+  const completed = actions
+    .filter(({ action }) => nextMessageResolvesAction(context.messages || [], context.index ?? -1, action))
+    .map(({ action }) => completedActionLabel(action))
+    .filter(Boolean);
+  const labels = [...new Set(completed)];
+  if (!labels.length) {
     return "";
   }
-  const texts = [...new Set(actions.map(({ action }) => {
-    const resolved = nextMessageResolvesAction(context.messages || [], context.index ?? -1, action);
-    return resolved ? actionHistoryResultLabel(action) : actionHistoryLabel(action);
-  }))];
-  const resolved = actions.every(({ action }) => nextMessageResolvesAction(context.messages || [], context.index ?? -1, action));
-  const text = resolved
-    ? `${texts.join(" · ")}.`
-    : `Vorgeschlagener Schritt: ${texts.join(", ")}.`;
-  return `<div class="message-action-history">${escapeHtml(text)}</div>`;
+  return `
+    <div class="message-actions message-actions-completed">${labels.map((label) => `
+      <button class="secondary-button mini-button message-action-completed-button" type="button" disabled>
+        ${escapeHtml(`Ausgeführt: ${label}`)}
+      </button>
+    `).join("")}</div>
+  `;
 }
 
 function renderChatAttachments(attachments = []) {
   const visualAttachments = attachments.filter((attachment) => attachment.kind === "visual_feedback");
-  if (!visualAttachments.length) {
+  const inputUploads = attachments.filter((attachment) => attachment.kind === "input_upload");
+  if (!visualAttachments.length && !inputUploads.length) {
     return "";
   }
-  return `<div class="message-attachments">${visualAttachments.map((attachment) => `
-    <figure class="message-attachment">
+  const renderInputUpload = (attachment) => {
+    const uploadPath = attachment.path || attachment.source?.path || "";
+    const label = attachment.label || attachment.originalName || fileName(uploadPath) || "Datei";
+    const mimeType = attachment.mimeType || attachment.source?.mimeType || "";
+    const imageUrl = isPreviewableImageType(mimeType) ? sourceFileUrl(currentProjectId(), { path: uploadPath }) : null;
+    const typeLabel = imageUrl ? "Bild" : "Angehängte Datei";
+    return `
+    <figure class="message-attachment input-upload">
+      ${imageUrl
+    ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(label)}" loading="lazy">`
+    : `<div class="message-attachment-file-thumb">${icon("file", "icon icon-small")}</div>`}
+      <figcaption>
+        <span>${escapeHtml(label)}</span>
+        <small>${escapeHtml([typeLabel, attachment.size ? fileSizeLabel(attachment.size) : ""].filter(Boolean).join(" · "))}</small>
+      </figcaption>
+    </figure>
+  `;
+  };
+  return `<div class="message-attachments">${[
+    ...visualAttachments.map((attachment) => `
+    <figure class="message-attachment visual-feedback">
       <img src="${escapeHtml(attachment.url || attachment.previewUrl || attachment.dataUrl || "")}" alt="${escapeHtml(attachment.label || "Screenshot-Ausschnitt")}">
       <figcaption>
         <span>${escapeHtml(attachment.label || "Ausschnitt")}</span>
         <small>${escapeHtml(attachment.source?.candidateId ? `Visuelle Rückmeldung zu ${draftDisplayLabel({ id: attachment.source.candidateId })}` : "Visuelle Rückmeldung")}</small>
       </figcaption>
     </figure>
-  `).join("")}</div>`;
+  `),
+    ...inputUploads.map(renderInputUpload)
+  ].join("")}</div>`;
 }
 
 function findCandidateForCard(card = {}, workspace = state.workspace) {
@@ -7634,6 +8968,23 @@ function renderCandidateChatCard(card = {}, workspace) {
   const pageCount = pages.length || Number(candidate.generation?.generatedPageCount || candidate.generation?.pageCount || 0) || 1;
   const basisLabel = draftChatBasisLabel(displayCandidate);
   const imageDownloads = candidateImageDownloads(pages, draftFilePrefix(displayCandidate));
+  const candidatePreviewActions = `
+    <span class="candidate-chat-preview-actions">
+      <button class="icon-button icon-button-plain concept-chat-action-button" type="button" data-card-action="revise-candidate" data-run-id="${escapeHtml(candidate.runId || "")}" data-candidate-id="${escapeHtml(candidate.id)}" data-display-label="${escapeHtml(displayCandidateId)}" data-page="${escapeHtml(page.page || 1)}" aria-label="Entwurf anpassen" title="Entwurf anpassen">
+        ${icon("square-pen", "icon icon-small")}
+      </button>
+      <button class="icon-button icon-button-plain concept-chat-action-button" type="button" data-canvas-mode="candidates" data-artifact-kind="candidate" data-run-id="${escapeHtml(candidate.runId || "")}" data-candidate-id="${escapeHtml(candidate.id)}" aria-label="Entwurf in der Vorschau öffnen" title="Entwurf in der Vorschau öffnen">
+        ${icon("eye", "icon icon-small")}
+      </button>
+      <button class="candidate-info-button" type="button" data-card-action="candidate-info" data-candidate-id="${escapeHtml(candidate.id)}" data-run-id="${escapeHtml(candidate.runId || "")}" aria-label="Generierungsinfo anzeigen" title="Generierungsinfo anzeigen">
+        ${icon("info", "icon icon-small")}
+      </button>
+      ${renderCandidateImageDownloadButton(imageDownloads)}
+    </span>
+  `;
+  const candidateStoreAction = pageCount
+    ? renderCandidateWorksheetStoreAction(displayCandidate, pageCount, workspace)
+    : "";
   return `
     <figure
       class="chat-result-card candidate-chat-card"
@@ -7646,28 +8997,18 @@ function renderCandidateChatCard(card = {}, workspace) {
       data-source-path="${escapeHtml(page.path || "")}"
       data-source-url="${escapeHtml(page.url)}"
     >
-      <img data-capture-image src="${escapeHtml(page.url)}" alt="${escapeHtml(displayCandidateId)}">
+      <div class="candidate-chat-preview">
+        <img data-capture-image src="${escapeHtml(page.url)}" alt="${escapeHtml(displayCandidateId)}">
+        ${candidatePreviewActions}
+      </div>
       <figcaption>
         <div class="candidate-chat-header">
           <span class="candidate-chat-title">
             <strong>${escapeHtml(`${displayCandidateId} ist fertig`)}</strong>
             ${basisLabel ? `<small>${escapeHtml(basisLabel)}</small>` : ""}
           </span>
-          <span class="candidate-chat-header-actions">
-            <button class="icon-button icon-button-plain concept-chat-action-button" type="button" data-canvas-mode="candidates" data-artifact-kind="candidate" data-run-id="${escapeHtml(candidate.runId || "")}" data-candidate-id="${escapeHtml(candidate.id)}" aria-label="Entwurf in der Vorschau öffnen" title="Entwurf in der Vorschau öffnen">
-              ${icon("eye", "icon icon-small")}
-            </button>
-            <button class="candidate-info-button" type="button" data-card-action="candidate-info" data-candidate-id="${escapeHtml(candidate.id)}" data-run-id="${escapeHtml(candidate.runId || "")}" aria-label="Generierungsinfo anzeigen" title="Generierungsinfo anzeigen">
-              ${icon("info", "icon icon-small")}
-            </button>
-            ${renderCandidateImageDownloadButton(imageDownloads)}
-          </span>
         </div>
-        ${pageCount ? `
-          <div class="candidate-chat-actions">
-            ${renderCandidateWorksheetStoreAction(candidate, pageCount, workspace)}
-          </div>
-        ` : ""}
+        ${candidateStoreAction ? `<div class="candidate-chat-actions">${candidateStoreAction}</div>` : ""}
       </figcaption>
     </figure>
   `;
@@ -7695,36 +9036,7 @@ function suppressDuplicateCardActions(actions = [], message = {}) {
 function conceptPreviewFromMessage(message = {}, workspace = {}) {
   const proposal = message.proposal || null;
   if (proposal?.kind === "lessonbrief") {
-    const brief = proposal.data || {};
-    const sections = conceptSectionsFromContent({}, {
-      brief,
-      project: workspace.project || {},
-      teachingContext: workspace.teachingContext || {}
-    });
-    return {
-      title: brief.topic || proposal.title || "Konzept-Vorschlag",
-      eyebrow: "Konzept-Vorschlag",
-      canvasMode: "lessonbrief_proposal",
-      proposalRef: {
-        proposalId: proposal.proposalId || null,
-        kind: proposal.kind
-      },
-      summary: "Rahmen steht. Prüfe, ob Ziel, Zielgruppe und Format passen.",
-      rows: [
-        ["Fach", brief.subject],
-        ["Zielgruppe", brief.targetGroup],
-        ["Layout", brief.outputPreference?.layout]
-      ],
-      sections,
-      copyContext: {
-        project: workspace.project || {},
-        brief,
-        content: {},
-        teachingContext: workspace.teachingContext || {},
-        statusLabel: statusWord(proposal.status),
-        eyebrow: "Konzept-Vorschlag"
-      }
-    };
+    return null;
   }
   if (proposal?.kind === "content_mirror") {
     const content = proposal.data || {};
@@ -7732,15 +9044,16 @@ function conceptPreviewFromMessage(message = {}, workspace = {}) {
     const tasks = content.tasks || [];
     const imageMaterials = content.imageMaterials || [];
     const brief = workspace.documents?.brief?.data || workspace.proposals?.latestLessonBrief?.data || {};
+    const proposalState = conceptProposalDisplayState(proposal);
     return {
       title: content.title || proposal.title || "Arbeitsblatt-Konzept",
-      eyebrow: "Arbeitsblatt-Konzept",
+      eyebrow: proposalState.eyebrow,
       canvasMode: "content_proposal",
       proposalRef: {
         proposalId: proposal.proposalId || null,
         kind: proposal.kind
       },
-      summary: "Prüfe Rahmen, Blattaufbau, Aufgabenlogik, sichtbaren Inhalt und Bild/Layout.",
+      summary: proposalState.summary,
       rows: [
         ["Texte", readingTexts.length],
         ["Aufgaben", tasks.length],
@@ -7758,7 +9071,7 @@ function conceptPreviewFromMessage(message = {}, workspace = {}) {
         content,
         teachingContext: workspace.teachingContext || {},
         statusLabel: statusWord(proposal.status),
-        eyebrow: "Konzept-Vorschlag"
+        eyebrow: "Arbeitsblatt-Konzept"
       }
     };
   }
@@ -7767,8 +9080,8 @@ function conceptPreviewFromMessage(message = {}, workspace = {}) {
     const policy = spec.referencePolicy || {};
     const references = spec.referenceImages || [];
     return {
-      title: normalizeVisibleProductTerminology(spec.purpose || proposal.title || "Entwurfsvorbereitung"),
-      eyebrow: "Entwurfsvorbereitung",
+      title: normalizeVisibleProductTerminology(spec.purpose || proposal.title || "Referenzbedarf"),
+      eyebrow: "Referenz/Vorlage",
       canvasMode: "image_spec_proposal",
       proposalRef: {
         proposalId: proposal.proposalId || null,
@@ -7783,7 +9096,7 @@ function conceptPreviewFromMessage(message = {}, workspace = {}) {
       sections: [
         {
           title: "Warum",
-          items: [normalizeVisibleProductTerminology(policy.reason || "Keine besondere Referenzentscheidung nötig.")]
+          items: [normalizeVisibleProductTerminology(policy.reason || "Keine besondere Referenz oder Vorlage nötig.")]
         },
         {
           title: "Nächster Schritt",
@@ -7799,7 +9112,7 @@ function conceptPreviewFromMessage(message = {}, workspace = {}) {
       title: content.title || workspace.project?.title || "Arbeitsblatt-Konzept",
       eyebrow: "Arbeitsblatt-Konzept",
       canvasMode: "content",
-      summary: workspace.approval?.canGenerate ? "Freigegeben für Entwürfe." : "Als Entwurf angelegt.",
+      summary: workspace.approval?.canGenerate ? "Bereit für Entwürfe." : "Als Entwurf angelegt.",
       rows: [
         ["Texte", content.readingTexts?.length],
         ["Aufgaben", content.tasks?.length],
@@ -7852,16 +9165,53 @@ function conceptPreviewFromMessage(message = {}, workspace = {}) {
   return null;
 }
 
+function conceptProposalDisplayState(proposal = {}) {
+  if (proposal.status === "adopted") {
+    return {
+      eyebrow: "Arbeitsblatt-Konzept",
+      summary: "Gespeicherte Fassung: Rahmen, Blattaufbau, Aufgabenlogik, sichtbaren Inhalt und Bild/Layout prüfen."
+    };
+  }
+  const revisionMode = proposal.source?.revisionMode || "";
+  if (revisionMode === "followup_concept" || revisionMode === "new_concept_from_context") {
+    return {
+      eyebrow: "Arbeitsblatt-Konzept",
+      summary: revisionMode === "followup_concept"
+        ? "Neue Fassung für den Folgebogen prüfen; daraus kann direkt ein Entwurf entstehen."
+        : "Neue Fassung aus dem bisherigen Kontext prüfen; daraus kann direkt ein Entwurf entstehen."
+    };
+  }
+  if (revisionMode || proposal.source?.currentContentMirrorId) {
+    return {
+      eyebrow: "Arbeitsblatt-Konzept",
+      summary: "Angepasste Fassung prüfen; daraus kann direkt ein Entwurf entstehen."
+    };
+  }
+  return {
+    eyebrow: "Arbeitsblatt-Konzept",
+    summary: "Prüfe Rahmen, Blattaufbau, Aufgabenlogik, sichtbaren Inhalt und Bild/Layout."
+  };
+}
+
 function renderConceptChatCard(message = {}, workspace = {}) {
   const preview = conceptPreviewFromMessage(message, workspace);
   if (!preview) {
     return "";
   }
+  const currentConcept = currentConceptArtifact(workspace);
+  const conceptVersion = currentConcept?.version || workspace.artifacts?.currentContent?.version || "";
+  const contentMirrorId = currentConcept?.id || workspace.artifacts?.currentContent?.id || "";
+  const proposalId = preview.proposalRef?.kind === "content_mirror"
+    ? preview.proposalRef?.proposalId || ""
+    : "";
   return `
     <article class="chat-result-card concept-chat-card">
       <div class="chat-result-card-header">
         <span>${escapeHtml(preview.eyebrow)}</span>
         <div class="chat-result-card-actions">
+          <button class="icon-button icon-button-plain concept-chat-action-button" type="button" data-revise-concept data-proposal-id="${escapeHtml(proposalId)}" data-content-mirror-id="${escapeHtml(contentMirrorId)}" data-concept-version="${escapeHtml(conceptVersion)}" aria-label="Konzept überarbeiten" title="Konzept überarbeiten">
+            ${icon("square-pen", "icon icon-small")}
+          </button>
           ${preview.copyContext ? renderConceptCopyButton(preview.copyContext) : ""}
           ${renderConceptPreviewButton(preview)}
         </div>
@@ -7896,9 +9246,7 @@ function isConceptNarrationMessage(message = {}) {
 }
 
 function renderConceptNarrationCopy(message = {}) {
-  const feedbackLabel = message.proposal?.status === "adopted"
-    ? "Einschätzung zum Konzept"
-    : "Feedback zum Vorschlag";
+  const feedbackLabel = "Einschätzung zum Konzept";
   return `
     <section class="concept-feedback-panel">
       <div class="concept-feedback-header">
@@ -7923,16 +9271,43 @@ function renderProductionCard(message = {}, workspace = {}) {
   return "";
 }
 
+function candidateMessageDisplayContent(message = {}, workspace = {}) {
+  const card = message.productionCard || null;
+  if (card?.kind !== "candidate") {
+    return null;
+  }
+  const candidate = findCandidateForCard(card, workspace);
+  const displayCandidate = candidate
+    ? candidateForDisplay(candidate, workspace)
+    : {
+      id: card.candidateId,
+      displayLabel: card.displayLabel
+    };
+  const displayLabel = draftDisplayLabel(displayCandidate);
+  const pageCount = candidate
+    ? (candidate.pages || []).filter((page) => page.url).length
+      || Number(candidate.generation?.generatedPageCount || candidate.generation?.pageCount || 0)
+      || 0
+    : Number(card.pageCount || 0) || 0;
+  const pageLabel = pageCount ? `${pageCount} Seite${pageCount === 1 ? "" : "n"}.` : "";
+  return `${displayLabel} ist fertig.${pageLabel ? ` ${pageLabel}` : ""}`;
+}
+
+function messageDisplayContent(message = {}, workspace = {}) {
+  return candidateMessageDisplayContent(message, workspace) || message.content || "";
+}
+
 const hiddenLegacyCommandIds = new Set(["select_candidate", "prepare_export"]);
 
 function isVisibleSuggestedAction(action = {}) {
   return !hiddenLegacyCommandIds.has(action.command || action.id);
 }
 
-function renderMessageCopy(message) {
+function renderMessageCopy(message, workspace = {}) {
+  const displayContent = messageDisplayContent(message, workspace);
   const content = message.role === "user"
-    ? message.content || ""
-    : normalizeVisibleProductTerminology(message.content || "");
+    ? displayContent
+    : normalizeVisibleProductTerminology(displayContent);
   if (!message.streaming) {
     return markdownToHtml(content);
   }
@@ -7957,7 +9332,7 @@ function currentSuggestedActionButtons(actionEntries = [], workspace = {}) {
       }
       if (command) {
         return [buttonActionForCommand(command, workspace, {
-          label: action.label || decisionButtonLabel(command),
+          label: suggestedActionButtonLabel(action, command),
           payload: action.payload || commandPayload(command)
         })].filter(Boolean);
       }
@@ -7967,6 +9342,30 @@ function currentSuggestedActionButtons(actionEntries = [], workspace = {}) {
         payload: action.payload || {}
       }];
     });
+}
+
+function suggestedActionButtonLabel(action = {}, command = {}) {
+  if (
+    (action.command || action.id) === "generate_content_mirror_proposal"
+    && action.payload?.revisionMode === "patch"
+  ) {
+    return "Konzept überarbeiten";
+  }
+  return action.label || decisionButtonLabel(command);
+}
+
+function renderChatRevisionTarget(target = null) {
+  const normalized = normalizeRevisionTarget(target);
+  if (!normalized) {
+    return "";
+  }
+  const label = revisionTargetDisplayLabel(normalized);
+  return `
+    <div class="message-revision-target" data-kind="${escapeHtml(normalized.kind)}" title="${escapeHtml(`Bearbeitungsbezug: ${label}`)}">
+      ${icon("square-pen", "icon icon-small")}
+      <span>${escapeHtml(label)}</span>
+    </div>
+  `;
 }
 
 function renderChatMessage(message, visibleCommandIds = new Set(), extraCommands = [], workspace = {}, isActionHost = false, messages = [], messageIndex = -1) {
@@ -7995,8 +9394,8 @@ function renderChatMessage(message, visibleCommandIds = new Set(), extraCommands
         ? " · nicht gesendet"
         : message.createdAt ? ` · ${escapeHtml(timeOnly(message.createdAt))}` : "";
   const hideConceptCopy = isConceptViewerOnlyMessage(message) && !message.streaming && !message.failed;
-  const hasCopy = !hideConceptCopy && (message.content || message.streaming || message.failed);
-  const copyHtml = hasCopy ? `<div class="message-copy">${renderMessageCopy(message)}</div>` : "";
+  const hasCopy = !hideConceptCopy && (messageDisplayContent(message, workspace) || message.streaming || message.failed);
+  const copyHtml = hasCopy ? `<div class="message-copy">${renderMessageCopy(message, workspace)}</div>` : "";
   const copyAfterCard = isConceptNarrationMessage(message) && hasCopy;
   const conceptFeedbackHtml = copyAfterCard ? renderConceptNarrationCopy(message) : "";
   return `
@@ -8004,12 +9403,13 @@ function renderChatMessage(message, visibleCommandIds = new Set(), extraCommands
       ${role === "assistant" ? '<div class="assistant-avatar">AI</div>' : ""}
       <div class="message-bubble">
         <div class="message-meta">${role === "user" ? "Ich" : "SheetifyIMG AI"}${metaSuffix}</div>
+        ${renderChatRevisionTarget(message.revisionTarget)}
         ${copyAfterCard ? "" : copyHtml}
         ${renderChatAttachments(message.attachments || [])}
         ${renderProductionCard(message, workspace)}
         ${copyAfterCard ? conceptFeedbackHtml : ""}
         ${message.streaming ? "" : renderActionButtons(actions)}
-        ${message.streaming ? "" : renderActionHistory(staleActions, { messages, index: messageIndex, workspace })}
+        ${message.streaming ? "" : renderCompletedActionButtons(staleActions, { messages, index: messageIndex, workspace })}
       </div>
     </div>
   `;
@@ -8061,11 +9461,39 @@ function autoOpenConfirmedSuggestedAction(response = {}) {
   }, 80);
 }
 
+function canvasModeForProposalKind(kind = "") {
+  const modes = {
+    lessonbrief: "lessonbrief_proposal",
+    content_mirror: "content_proposal",
+    content_warnings: "warnings_proposal",
+    image_spec: "image_spec_proposal"
+  };
+  return modes[kind] || null;
+}
+
+function applyChatResponseNavigation(response = {}) {
+  const proposal = response.proposal || null;
+  const mode = canvasModeForProposalKind(proposal?.kind);
+  if (!mode) {
+    return;
+  }
+  state.activeCanvasMode = mode;
+  state.activeArtifactSelection = proposal.proposalId
+    ? {
+        kind: "proposal",
+        id: proposal.proposalId,
+        proposalKind: proposal.kind || null
+      }
+    : null;
+  ensureDesktopCanvasVisibleForMode(mode);
+}
+
 function streamAssistantResponse({ pendingChat, response, responseWorkspace }) {
   const fullText = response?.content || "";
   if (!fullText) {
     state.pendingChat = null;
     state.workspace = responseWorkspace;
+    applyChatResponseNavigation(response);
     renderWorkspace();
     autoOpenConfirmedSuggestedAction(response);
     return;
@@ -8097,6 +9525,7 @@ function streamAssistantResponse({ pendingChat, response, responseWorkspace }) {
       window.setTimeout(() => {
         state.pendingChat = null;
         state.workspace = responseWorkspace;
+        applyChatResponseNavigation(response);
         renderWorkspace();
         autoOpenConfirmedSuggestedAction(response);
       }, 140);
@@ -8144,28 +9573,27 @@ function decisionPrompt(command) {
     return "Soll ich einen weiteren mehrseitigen Entwurf mit allen geplanten Seiten erstellen?";
   }
   if (command.id === "generate_image_candidate" && /variante/i.test(command.label || "")) {
-    return "Soll ich einen weiteren Entwurf mit demselben freigegebenen Konzept erzeugen?";
+    return "Soll ich einen weiteren Entwurf mit demselben Arbeitsblatt-Konzept erzeugen?";
   }
   if (command.id === "generate_content_mirror_proposal" && /überarbeiten|ueberarbeiten|aktualisieren/i.test(command.label || "")) {
     return "Soll ich das Arbeitsblatt-Konzept mit deiner Änderung überarbeiten?";
   }
   if (command.id === "adopt_content_mirror_proposal" && /aktualisieren/i.test(command.label || "")) {
-    return "Die Konzept-Aktualisierung liegt vor. Soll ich sie übernehmen? Danach erstellst du den nächsten Entwurf auf dieser neuen Grundlage.";
+    return "Das überarbeitete Arbeitsblatt-Konzept liegt vor. Soll ich daraus den nächsten Entwurf vorbereiten?";
   }
   const prompts = {
     generate_lessonbrief_proposal: "Ich kann daraus ein vollständiges Arbeitsblatt-Konzept mit Text, Aufgaben und Bildidee schreiben. Soll ich das machen?",
     create_brief_draft: "Ich kann daraus direkt ein erstes Arbeitsblatt-Konzept anlegen. Soll ich das machen?",
-    adopt_lessonbrief_proposal: "Der Konzept-Vorschlag liegt vor. Soll ich ihn übernehmen?",
+    adopt_lessonbrief_proposal: "Der interne Konzeptstand liegt vor. Soll ich daraus das vollständige Arbeitsblatt-Konzept ausformulieren?",
     generate_content_mirror_proposal: "Soll ich daraus das vollständige Arbeitsblatt-Konzept ausformulieren?",
     create_content_draft: "Soll ich daraus direkt die Aufgabenstruktur und Materialseite anlegen?",
-    adopt_content_mirror_proposal: "Das Arbeitsblatt-Konzept liegt vor. Wenn es passt, übernehme ich es als Grundlage für Entwürfe.",
-    generate_candidate_from_content_proposal: "Wenn das Konzept passt, kann ich direkt einen Entwurf erstellen. Dafür kommt vorher die Kostenbestätigung.",
-    adopt_content_warnings_proposal: "Die Prüfhinweise sind vorbereitet. Soll ich sie übernehmen?",
-    approve_current_content: "Das Arbeitsblatt-Konzept wirkt bereit. Soll ich es als Grundlage für Entwürfe freigeben?",
-    prepare_image_spec: "Ich kann kurz prüfen, ob die geplante Visualisierung eine Referenz oder Vorlage braucht. Soll ich das vorbereiten?",
-    prepare_reference_asset: "Für diese Visualisierung kann ich jetzt die passende Referenz oder Vorlage vorbereiten. Soll ich das machen?",
-    prepare_web_reference_asset: "Hier ist eine Webreferenz sinnvoll. Soll ich eine passende offene Bildreferenz suchen und für die Generierung anhängen?",
-    adopt_image_spec: "Die Vorbereitung für den nächsten Entwurf liegt vor. Soll ich sie für die Bildgenerierung nutzen?",
+    adopt_content_mirror_proposal: "Das Arbeitsblatt-Konzept liegt vor. Soll ich mit diesem Stand weiterarbeiten?",
+    generate_candidate_from_content_proposal: "Soll ich aus diesem Arbeitsblatt-Konzept einen Entwurf erstellen? Dafür kommt vorher die Kostenbestätigung.",
+    approve_current_content: "Das Arbeitsblatt-Konzept wirkt bereit. Soll ich mit diesem Stand weiterarbeiten?",
+    prepare_image_spec: "Soll ich prüfen, ob der nächste Entwurf eine Referenz oder Vorlage braucht?",
+    prepare_reference_asset: "Für diese Visualisierung kann ich ein hochgeladenes Referenzbild nutzen. Soll ich das machen?",
+    prepare_web_reference_asset: "Hier kann eine offene Bildreferenz helfen. Soll ich eine passende Wikimedia-Bildreferenz suchen und für die Generierung anhängen?",
+    adopt_image_spec: "Soll ich den internen Stand für die Bildgenerierung nutzen?",
     generate_image_candidate: "Soll ich jetzt einen Entwurf erstellen?"
   };
   return prompts[command.id] || "Soll ich mit dem nächsten Schritt weitermachen?";
@@ -8182,28 +9610,27 @@ function decisionButtonLabel(command) {
     return /weitere/i.test(command.label || "") ? "Weiteren mehrseitigen Entwurf erstellen" : "Mehrseitigen Entwurf erstellen";
   }
   if (command.id === "generate_image_candidate" && /variante/i.test(command.label || "")) {
-    return "Weiteren Entwurf erzeugen";
+    return "Weitere Entwurfsvariante erzeugen";
   }
   if (command.id === "generate_content_mirror_proposal" && /überarbeiten|ueberarbeiten|aktualisieren/i.test(command.label || "")) {
     return "Konzept überarbeiten";
   }
   if (command.id === "adopt_content_mirror_proposal" && /aktualisieren/i.test(command.label || "")) {
-    return "Konzept aktualisieren";
+    return "Mit diesem Konzept weiterarbeiten";
   }
   const labels = {
     generate_lessonbrief_proposal: "Ja, Konzept schreiben",
     create_brief_draft: "Ja, direkt anlegen",
-    adopt_lessonbrief_proposal: "Ja, übernehmen",
+    adopt_lessonbrief_proposal: "Ja, Konzept ausformulieren",
     generate_content_mirror_proposal: "Ja, Konzept ausformulieren",
     create_content_draft: "Ja, direkt anlegen",
-    adopt_content_mirror_proposal: "Ja, Konzept passt",
+    adopt_content_mirror_proposal: "Mit diesem Konzept weiterarbeiten",
     generate_candidate_from_content_proposal: "Entwurf erstellen",
-    adopt_content_warnings_proposal: "Ja, übernehmen",
-    approve_current_content: "Ja, freigeben",
-    prepare_image_spec: "Visualisierung prüfen",
-    prepare_reference_asset: "Referenz/Vorlage vorbereiten",
-    prepare_web_reference_asset: "Webreferenz suchen",
-    adopt_image_spec: "Vorbereitung passt",
+    approve_current_content: "Mit diesem Konzept weiterarbeiten",
+    prepare_image_spec: "Referenzbedarf prüfen",
+    prepare_reference_asset: "Referenzbild nutzen",
+    prepare_web_reference_asset: "Bildreferenz suchen",
+    adopt_image_spec: "Internen Stand nutzen",
     generate_image_candidate: "Ja, Entwurf erstellen"
   };
   return labels[command.id] || command.label;
@@ -8270,31 +9697,13 @@ function proposalWorkspaceCards(workspace) {
       || workspace.workspaceEntry?.availability?.hasExport
       || workspace.preview?.pdfs?.length
   );
-  if (proposals.latestLessonBrief && !hasBrief && !hasContent && !hasSelectionOrExport) {
-    cards.push({
-      title: "Konzept-Vorschlag",
-      subtitle: proposals.latestLessonBrief.summary || proposals.latestLessonBrief.title,
-      tag: "AI",
-      mode: "lessonbrief_proposal",
-      actions: commandActions(workspace, ["adopt_lessonbrief_proposal"])
-    });
-  }
   if (proposals.latestContentMirror && !hasContent && !hasSelectionOrExport) {
     cards.push({
-      title: "Konzept-Vorschlag",
+      title: "Arbeitsblatt-Konzept",
       subtitle: proposals.latestContentMirror.summary || proposals.latestContentMirror.title,
       tag: "AI",
       mode: "content_proposal",
       actions: commandActions(workspace, ["adopt_content_mirror_proposal"])
-    });
-  }
-  if (proposals.latestContentWarnings) {
-    cards.push({
-      title: "Prüfvorschlag",
-      subtitle: proposals.latestContentWarnings.summary || proposals.latestContentWarnings.title,
-      tag: "AI",
-      mode: "warnings_proposal",
-      actions: commandActions(workspace, ["adopt_content_warnings_proposal"])
     });
   }
   return cards;
@@ -8331,10 +9740,6 @@ function mobileCommandButton(command, label = null, primary = false, workspace =
 
 function mobileFocusChatButton(label = "Konzept ändern") {
   return mobilePreviewRenderer.mobileFocusChatButton(label);
-}
-
-function mobileMinimizeButton(label = "Kleinmachen") {
-  return mobilePreviewRenderer.mobileMinimizeButton(label);
 }
 
 function mobileCloseButton(label = "Schließen") {
@@ -8383,6 +9788,8 @@ function libraryWorkspaceFromItem(item = {}) {
   return {
     project: item.project || {},
     documents: item.documents || {},
+    inputReadiness: item.inputReadiness || {},
+    chat: item.chat || {},
     proposals: item.proposals || {},
     preview,
     teachingContext: item.teachingContext || {},
@@ -8413,7 +9820,8 @@ function currentMobilePreviewContext() {
 function mobilePreviewUiState() {
   return {
     selectedId: state.selectedId,
-    selectedItem: state.selectedItem
+    selectedItem: state.selectedItem,
+    activeArtifactSelection: state.activeArtifactSelection
   };
 }
 
@@ -8427,16 +9835,16 @@ function mobilePreviewStatusLabel(workspace = {}, mode = "") {
   return mobilePreviewRenderer.mobilePreviewStatusLabel(workspace, mode);
 }
 
-function mobileConceptData(workspace = {}, mode = "") {
-  return mobilePreviewRenderer.mobileConceptData(workspace, mode);
+function mobileConceptData(workspace = {}, mode = "", ui = mobilePreviewUiState()) {
+  return mobilePreviewRenderer.mobileConceptData(workspace, mode, ui);
 }
 
-function renderMobileConceptBody(workspace = {}, mode = "") {
-  return mobilePreviewRenderer.renderMobileConceptBody(workspace, mode);
+function renderMobileConceptBody(workspace = {}, mode = "", ui = mobilePreviewUiState()) {
+  return mobilePreviewRenderer.renderMobileConceptBody(workspace, mode, ui);
 }
 
-function renderMobileConceptFooter(workspace = {}, mode = "") {
-  return mobilePreviewRenderer.renderMobileConceptFooter(workspace, mode);
+function renderMobileConceptFooter(workspace = {}, mode = "", ui = mobilePreviewUiState()) {
+  return mobilePreviewRenderer.renderMobileConceptFooter(workspace, mode, ui);
 }
 
 function firstCandidatePage(candidate = {}) {
@@ -8519,8 +9927,8 @@ function openMobilePreview(mode, options = {}) {
   };
   elements.mobilePreviewLayer.classList.remove("hidden", "is-minimized");
   elements.mobilePreviewLayer.setAttribute("aria-hidden", "false");
+  elements.mobilePreviewMini?.classList.add("hidden");
   renderMobilePreview();
-  window.setTimeout(() => elements.mobilePreviewCloseButton?.focus(), 0);
 }
 
 function renderMobilePreview() {
@@ -8536,17 +9944,159 @@ function renderMobilePreview() {
   elements.mobilePreviewEyebrow.textContent = copy.eyebrow;
   elements.mobilePreviewTitle.textContent = copy.title;
   elements.mobilePreviewSubtitle.textContent = copy.subtitle || "";
-  elements.mobilePreviewMiniLabel.textContent = copy.title;
-  elements.mobilePreviewBody.innerHTML = renderMobilePreviewBodyForMode(context, mode);
+  if (elements.mobilePreviewMiniLabel) {
+    elements.mobilePreviewMiniLabel.textContent = copy.title || "Vorschau";
+  }
+  setCustomScrollContent(elements.mobilePreviewBody, renderMobilePreviewBodyForMode(context, mode));
   elements.mobilePreviewFooter.innerHTML = renderMobilePreviewFooter(context, mode);
   elements.mobilePreviewLayer.classList.toggle("is-minimized", Boolean(state.mobilePreview.minimized));
-  elements.mobilePreviewMini.classList.toggle("hidden", !state.mobilePreview.minimized);
-  const hasFooterCloseAction = Boolean(elements.mobilePreviewFooter?.querySelector("[data-mobile-close]"));
-  const showHeaderClose = !hasFooterCloseAction;
-  elements.mobilePreviewCloseButton?.classList.toggle("hidden", !showHeaderClose);
-  elements.mobilePreviewMinimizeButton?.classList.toggle("hidden", false);
+  elements.mobilePreviewMini?.classList.toggle("hidden", !state.mobilePreview.minimized);
   elements.mobilePreviewFooter?.classList.toggle("hidden", !elements.mobilePreviewFooter.innerHTML.trim());
   bindMobilePreviewActions();
+}
+
+function resetMobilePreviewSwipeState() {
+  state.mobilePreviewSwipe = {
+    active: false,
+    dragging: false,
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    lastY: 0,
+    startTime: 0,
+    lastTime: 0,
+    source: ""
+  };
+}
+
+function clearMobilePreviewSwipeVisuals({ animate = false } = {}) {
+  const sheet = elements.mobilePreviewSheet;
+  if (!sheet) {
+    return;
+  }
+  const backdrop = elements.mobilePreviewBackdrop;
+  sheet.classList.remove("is-dragging");
+  if (animate) {
+    sheet.style.transition = "transform 160ms ease-out";
+    if (backdrop) {
+      backdrop.style.transition = "opacity 160ms ease-out";
+    }
+    requestAnimationFrame(() => {
+      sheet.style.transform = "";
+      if (backdrop) {
+        backdrop.style.opacity = "";
+      }
+    });
+    window.setTimeout(() => {
+      sheet.style.transition = "";
+      if (backdrop) {
+        backdrop.style.transition = "";
+      }
+    }, 180);
+    return;
+  }
+  sheet.style.transition = "";
+  sheet.style.transform = "";
+  if (backdrop) {
+    backdrop.style.transition = "";
+    backdrop.style.opacity = "";
+  }
+}
+
+function mobilePreviewSwipeStartSource(target) {
+  if (!target || typeof target.closest !== "function") {
+    return "";
+  }
+  if (target.closest("button, a, input, textarea, select, summary, [data-command], [data-mobile-open-url], [data-mobile-download-url]")) {
+    return "";
+  }
+  if (target.closest(".mobile-preview-header") || target.closest(".mobile-preview-grip")) {
+    return "header";
+  }
+  return "";
+}
+
+function startMobilePreviewSwipe(event) {
+  if (!isMobileViewport()
+    || !elements.mobilePreviewLayer
+    || elements.mobilePreviewLayer.classList.contains("hidden")
+    || !state.mobilePreview.mode
+    || (event.button !== undefined && event.button !== 0)) {
+    return;
+  }
+  const source = mobilePreviewSwipeStartSource(event.target);
+  if (!source) {
+    return;
+  }
+  state.mobilePreviewSwipe = {
+    active: true,
+    dragging: false,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    lastY: event.clientY,
+    startTime: event.timeStamp || performance.now(),
+    lastTime: event.timeStamp || performance.now(),
+    source
+  };
+}
+
+function moveMobilePreviewSwipe(event) {
+  const swipe = state.mobilePreviewSwipe;
+  if (!swipe.active || event.pointerId !== swipe.pointerId || !elements.mobilePreviewSheet) {
+    return;
+  }
+  const deltaX = event.clientX - swipe.startX;
+  const deltaY = event.clientY - swipe.startY;
+  const absX = Math.abs(deltaX);
+  if (!swipe.dragging) {
+    if (deltaY < 10 && absX < 10) {
+      return;
+    }
+    if (deltaY <= 10 || deltaY < absX * 1.2) {
+      resetMobilePreviewSwipeState();
+      return;
+    }
+    swipe.dragging = true;
+    elements.mobilePreviewSheet.classList.add("is-dragging");
+    elements.mobilePreviewSheet.setPointerCapture?.(event.pointerId);
+  }
+  const dragY = Math.max(0, deltaY);
+  swipe.lastY = event.clientY;
+  swipe.lastTime = event.timeStamp || performance.now();
+  elements.mobilePreviewSheet.style.transform = `translateY(${Math.min(dragY, window.innerHeight)}px)`;
+  if (elements.mobilePreviewBackdrop) {
+    elements.mobilePreviewBackdrop.style.opacity = String(Math.max(0.16, 1 - dragY / 280));
+  }
+  event.preventDefault();
+}
+
+function endMobilePreviewSwipe(event) {
+  const swipe = state.mobilePreviewSwipe;
+  if (!swipe.active || event.pointerId !== swipe.pointerId) {
+    return;
+  }
+  elements.mobilePreviewSheet?.releasePointerCapture?.(event.pointerId);
+  const deltaY = event.clientY - swipe.startY;
+  const elapsed = Math.max(1, (event.timeStamp || performance.now()) - swipe.startTime);
+  const velocity = deltaY / elapsed;
+  const shouldMinimize = swipe.dragging && (deltaY > 96 || (deltaY > 44 && velocity > 0.45));
+  resetMobilePreviewSwipeState();
+  if (shouldMinimize) {
+    clearMobilePreviewSwipeVisuals();
+    minimizeMobilePreview();
+    return;
+  }
+  clearMobilePreviewSwipeVisuals({ animate: true });
+}
+
+function cancelMobilePreviewSwipe(event) {
+  const swipe = state.mobilePreviewSwipe;
+  if (!swipe.active || (event?.pointerId !== undefined && event.pointerId !== swipe.pointerId)) {
+    return;
+  }
+  resetMobilePreviewSwipeState();
+  clearMobilePreviewSwipeVisuals({ animate: true });
 }
 
 function minimizeMobilePreview() {
@@ -8554,8 +10104,11 @@ function minimizeMobilePreview() {
     return;
   }
   state.mobilePreview.minimized = true;
+  clearMobilePreviewSwipeVisuals();
   elements.mobilePreviewLayer.classList.add("is-minimized");
-  elements.mobilePreviewMini.classList.remove("hidden");
+  elements.mobilePreviewLayer.setAttribute("aria-hidden", "true");
+  elements.mobilePreviewMini?.classList.remove("hidden");
+  elements.mobilePreviewMini?.focus?.();
 }
 
 function restoreMobilePreview() {
@@ -8563,8 +10116,9 @@ function restoreMobilePreview() {
     return;
   }
   state.mobilePreview.minimized = false;
-  elements.mobilePreviewLayer.classList.remove("is-minimized");
-  elements.mobilePreviewMini.classList.add("hidden");
+  elements.mobilePreviewLayer.classList.remove("hidden", "is-minimized");
+  elements.mobilePreviewLayer.setAttribute("aria-hidden", "false");
+  elements.mobilePreviewMini?.classList.add("hidden");
   renderMobilePreview();
 }
 
@@ -8572,12 +10126,14 @@ function closeMobilePreview() {
   if (!elements.mobilePreviewLayer || elements.mobilePreviewLayer.classList.contains("hidden")) {
     return;
   }
+  resetMobilePreviewSwipeState();
+  clearMobilePreviewSwipeVisuals();
   elements.mobilePreviewLayer.classList.add("hidden");
   elements.mobilePreviewLayer.classList.remove("is-minimized");
   elements.mobilePreviewLayer.setAttribute("aria-hidden", "true");
-  elements.mobilePreviewBody.innerHTML = "";
+  setCustomScrollContent(elements.mobilePreviewBody, "");
   elements.mobilePreviewFooter.innerHTML = "";
-  elements.mobilePreviewMini.classList.add("hidden");
+  elements.mobilePreviewMini?.classList.add("hidden");
   const lastFocusedElement = state.mobilePreview.lastFocusedElement;
   state.mobilePreview = {
     mode: null,
@@ -8595,12 +10151,32 @@ function bindMobilePreviewActions() {
   bindCommandButtons(elements.mobilePreviewLayer);
   elements.mobilePreviewLayer.querySelectorAll("[data-mobile-focus-chat]").forEach((button) => {
     button.addEventListener("click", () => {
-      minimizeMobilePreview();
+      closeMobilePreview();
       elements.chatInput?.focus();
     });
   });
-  elements.mobilePreviewLayer.querySelectorAll("[data-mobile-minimize]").forEach((button) => {
-    button.addEventListener("click", minimizeMobilePreview);
+  elements.mobilePreviewLayer.querySelectorAll("[data-mobile-revise-concept]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const updated = startConceptRevisionFromButton(button);
+      if (updated) {
+        closeMobilePreview();
+        elements.chatInput?.focus();
+      }
+    });
+  });
+  elements.mobilePreviewLayer.querySelectorAll("[data-mobile-revise-draft]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const row = button.closest("[data-capture-kind='candidate']");
+      const updated = startDraftRevisionFromElement(row || button);
+      if (updated) {
+        closeMobilePreview();
+        elements.chatInput?.focus();
+      }
+    });
   });
   elements.mobilePreviewLayer.querySelectorAll("[data-mobile-close]").forEach((button) => {
     button.addEventListener("click", closeMobilePreview);
@@ -8608,6 +10184,21 @@ function bindMobilePreviewActions() {
   elements.mobilePreviewLayer.querySelectorAll("[data-mobile-open-preview]").forEach((button) => {
     button.addEventListener("click", () => {
       openMobilePreviewMode(button.dataset.mobileOpenPreview);
+    });
+  });
+  elements.mobilePreviewLayer.querySelectorAll("[data-mobile-concept-version]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const selection = artifactSelectionFromButton(button);
+      if (!selection) {
+        return;
+      }
+      triggerArtifactRelationPulse(selection);
+      state.activeCanvasMode = "content";
+      state.activeArtifactSelection = selection;
+      state.mobilePreview.mode = "content";
+      renderMobilePreview();
     });
   });
   elements.mobilePreviewLayer.querySelectorAll("[data-mobile-open-workspace]").forEach((button) => {
@@ -8626,10 +10217,36 @@ function bindMobilePreviewActions() {
       openUrl(button.dataset.mobileOpenUrl);
     });
   });
-  elements.mobilePreviewLayer.querySelectorAll("[data-mobile-download-url]").forEach((button) => {
+  elements.mobilePreviewLayer.querySelectorAll("[data-mobile-share-url]").forEach((button) => {
+    const prepareShareFile = () => prepareWorksheetShareFile({
+      url: button.dataset.mobileShareUrl,
+      fileNameHint: button.dataset.mobileShareName
+    })?.catch(() => {});
+    prepareShareFile();
+    button.addEventListener("pointerdown", prepareShareFile, { passive: true });
+    button.addEventListener("touchstart", prepareShareFile, { passive: true });
     button.addEventListener("click", (event) => {
       event.preventDefault();
-      downloadUrl(button.dataset.mobileDownloadUrl, button.dataset.mobileDownloadName);
+      event.stopPropagation();
+      shareWorksheetPdf({
+        url: button.dataset.mobileShareUrl,
+        title: button.dataset.mobileShareTitle,
+        fileNameHint: button.dataset.mobileShareName
+      });
+    });
+  });
+  elements.mobilePreviewLayer.querySelectorAll("[data-mobile-download-url]").forEach((button) => {
+    prepareWorksheetShareFile({
+      url: button.dataset.mobileDownloadUrl,
+      fileNameHint: button.dataset.mobileDownloadName
+    })?.catch(() => {});
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      downloadPreparedWorksheetPdf({
+        url: button.dataset.mobileDownloadUrl,
+        fileNameHint: button.dataset.mobileDownloadName
+      });
     });
   });
   elements.mobilePreviewLayer.querySelectorAll("[data-mobile-open-candidate]").forEach((button) => {
@@ -8650,6 +10267,7 @@ function setCanvasMode(mode, artifactSelection = null) {
   triggerArtifactRelationPulse(artifactSelection);
   state.activeCanvasMode = mode || "content";
   state.activeArtifactSelection = artifactSelection;
+  ensureDesktopCanvasVisibleForMode(state.activeCanvasMode);
   renderWorkspace();
 }
 
@@ -8677,9 +10295,7 @@ function canvasModeAfterCommand(commandId) {
 }
 
 function shouldRevealCanvasAfterCommand(commandId) {
-  return new Set([
-    "generate_image_candidate"
-  ]).has(commandId);
+  return shouldAutoRevealDesktopCanvasMode(canvasModeAfterCommand(commandId));
 }
 
 function applyCommandNavigation(commandId, response = {}) {
@@ -8691,8 +10307,8 @@ function applyCommandNavigation(commandId, response = {}) {
   if (commandId === "generate_image_candidate") {
     state.focusCandidateId = response.result?.candidate?.id || null;
   }
-  if (shouldRevealCanvasAfterCommand(commandId) && state.canvasLayout.collapsed) {
-    expandCanvas();
+  if (shouldRevealCanvasAfterCommand(commandId)) {
+    ensureDesktopCanvasVisibleForMode(state.activeCanvasMode);
   }
 }
 
@@ -8727,7 +10343,7 @@ function renderCanvas(workspace, mode) {
   } else if (mode === "lessonbrief_proposal" || mode === "content_proposal" || mode === "warnings_proposal" || mode === "image_spec_proposal") {
     renderCanvasProposal(workspace, mode);
   } else {
-    elements.canvasBody.innerHTML = '<div class="no-preview">Keine Canvas-Ansicht verfuegbar.</div>';
+    setCustomScrollContent(elements.canvasBody, '<div class="no-preview">Keine Canvas-Ansicht verfuegbar.</div>');
   }
 }
 
@@ -8736,17 +10352,17 @@ function firstCanvasAsset(workspace, mode) {
 }
 
 function renderCanvasAssignment(workspace) {
-  elements.canvasBody.innerHTML = canvasRenderer.renderCanvasAssignment(workspace);
+  setCustomScrollContent(elements.canvasBody, canvasRenderer.renderCanvasAssignment(workspace));
   bindPreviewCardActions(elements.canvasBody);
 }
 
 function renderCanvasBrief(workspace) {
-  elements.canvasBody.innerHTML = canvasRenderer.renderCanvasBrief(workspace);
+  setCustomScrollContent(elements.canvasBody, canvasRenderer.renderCanvasBrief(workspace));
   bindConceptCopyActions(elements.canvasBody);
 }
 
 function renderCanvasContent(workspace) {
-  elements.canvasBody.innerHTML = canvasRenderer.renderCanvasContent(workspace, canvasUiState());
+  setCustomScrollContent(elements.canvasBody, canvasRenderer.renderCanvasContent(workspace, canvasUiState()));
   bindConceptCopyActions(elements.canvasBody);
 }
 
@@ -8755,11 +10371,11 @@ function selectedConceptArtifact(workspace = {}) {
 }
 
 function renderCanvasWarnings(workspace) {
-  elements.canvasBody.innerHTML = canvasRenderer.renderCanvasWarnings(workspace);
+  setCustomScrollContent(elements.canvasBody, canvasRenderer.renderCanvasWarnings(workspace));
 }
 
 function renderCanvasCandidates(workspace) {
-  elements.canvasBody.innerHTML = canvasRenderer.renderCanvasCandidates(workspace, canvasUiState());
+  setCustomScrollContent(elements.canvasBody, canvasRenderer.renderCanvasCandidates(workspace, canvasUiState()));
   bindPreviewCardActions(elements.canvasBody);
   focusNewCandidateCard();
   requestCanvasCandidateSheetWidthSync();
@@ -8789,7 +10405,7 @@ function focusNewCandidateCard() {
 }
 
 function renderCanvasPages(pages, emptyText) {
-  elements.canvasBody.innerHTML = canvasRenderer.renderCanvasPages(pages, emptyText);
+  setCustomScrollContent(elements.canvasBody, canvasRenderer.renderCanvasPages(pages, emptyText));
   bindPreviewCardActions(elements.canvasBody);
 }
 
@@ -8893,10 +10509,10 @@ function proposalForMode(workspace, mode) {
 function renderCanvasProposal(workspace, mode) {
   const proposal = proposalForMode(workspace, mode);
   if (!proposal?.data) {
-    elements.canvasBody.innerHTML = '<div class="no-preview">Kein offener Vorschlag vorhanden.</div>';
+    setCustomScrollContent(elements.canvasBody, '<div class="no-preview">Kein offener Vorschlag vorhanden.</div>');
     return;
   }
-  if (proposal.status === "adopted" && (mode === "lessonbrief_proposal" || mode === "content_proposal")) {
+  if (mode === "content_proposal" || (proposal.status === "adopted" && mode === "lessonbrief_proposal")) {
     elements.canvasTitle.textContent = "Arbeitsblatt-Konzept";
   }
   if (mode === "lessonbrief_proposal") {
@@ -8934,22 +10550,22 @@ function renderLessonBriefProposal(proposal, workspace = {}) {
     project: workspace.project || {},
     teachingContext: workspace.teachingContext || {}
   });
-  elements.canvasBody.innerHTML = `
+  setCustomScrollContent(elements.canvasBody, `
     <article class="canvas-document">
       ${renderConceptDocumentHeader({
         project: workspace.project || {},
         brief,
         content: {},
         teachingContext: workspace.teachingContext || {},
-        label: adopted ? "Arbeitsblatt-Konzept" : "AI-Vorschlag",
+        label: "Arbeitsblatt-Konzept",
         titleTag: "h3",
         statusLabel: statusWord(proposal.status),
-        eyebrow: adopted ? "Arbeitsblatt-Konzept" : "Konzept-Vorschlag"
+        eyebrow: "Arbeitsblatt-Konzept"
       })}
       ${proposalMeta(proposal)}
       ${renderConceptSections(sections, { compact: false })}
     </article>
-  `;
+  `);
   bindConceptCopyActions(elements.canvasBody);
 }
 
@@ -8962,32 +10578,32 @@ function renderContentProposal(proposal, workspace = {}) {
     project: workspace.project || {},
     teachingContext: workspace.teachingContext || {}
   });
-  elements.canvasBody.innerHTML = `
+  setCustomScrollContent(elements.canvasBody, `
     <article class="canvas-document">
       ${renderConceptDocumentHeader({
         project: workspace.project || {},
         brief,
         content,
         teachingContext: workspace.teachingContext || {},
-        label: adopted ? "Arbeitsblatt-Konzept" : "AI-Vorschlag",
+        label: "Arbeitsblatt-Konzept",
         titleTag: "h3",
         statusLabel: statusWord(proposal.status),
-        eyebrow: adopted ? "Arbeitsblatt-Konzept" : "Konzept-Vorschlag"
+        eyebrow: "Arbeitsblatt-Konzept"
       })}
       ${proposalMeta(proposal)}
       ${renderConceptSections(sections, { compact: false })}
     </article>
-  `;
+  `);
   bindConceptCopyActions(elements.canvasBody);
 }
 
 function renderWarningsProposal(proposal) {
   const warningState = proposal.data || {};
   const warnings = warningState.warnings || [];
-  elements.canvasBody.innerHTML = `
+  setCustomScrollContent(elements.canvasBody, `
     <article class="canvas-document">
-      <p class="detail-label">AI-Prüfvorschlag</p>
-      <h3>${escapeHtml(warningState.summary || proposal.title || "Prüfhinweise")}</h3>
+      <p class="detail-label">Konzept-Feedback</p>
+      <h3>${escapeHtml(warningState.summary || proposal.title || "Konzept-Feedback")}</h3>
       ${proposalMeta(proposal)}
       <section class="detail-section">
         <p class="detail-label">Hinweise</p>
@@ -8996,7 +10612,7 @@ function renderWarningsProposal(proposal) {
         `).join("")}</ul>` : '<p class="detail-muted">Keine Hinweise vorgeschlagen.</p>'}
       </section>
     </article>
-  `;
+  `);
 }
 
 function renderImageSpecProposal(proposal) {
@@ -9005,10 +10621,10 @@ function renderImageSpecProposal(proposal) {
   const referenceImages = spec.referenceImages || [];
   const pagePlan = Array.isArray(spec.pagePlan) ? spec.pagePlan : [];
   const promptPreview = spec.promptPreview || spec.finalPrompt || "";
-  elements.canvasBody.innerHTML = `
+  setCustomScrollContent(elements.canvasBody, `
     <article class="canvas-document">
-      <p class="detail-label">Entwurfsvorbereitung</p>
-      <h3>${escapeHtml(spec.purpose || proposal.title || "Entwurfsvorbereitung")}</h3>
+      <p class="detail-label">Referenz/Vorlage</p>
+      <h3>${escapeHtml(spec.purpose || proposal.title || "Referenzbedarf")}</h3>
       ${proposalMeta(proposal)}
       ${pagePlan.length ? `
         <section class="detail-section">
@@ -9043,7 +10659,7 @@ function renderImageSpecProposal(proposal) {
       </section>
       ${referencePolicy ? `
         <section class="detail-section">
-          <p class="detail-label">Referenzentscheidung</p>
+          <p class="detail-label">Referenz/Vorlage</p>
           <p><strong>${escapeHtml(referencePolicyLabel(referencePolicy))}</strong></p>
           <p>${escapeHtml(referencePolicySummary(referencePolicy))}</p>
           ${referenceImages.length ? `<p class="detail-muted">${escapeHtml(referenceImages.length)} Referenz${referenceImages.length === 1 ? "" : "en"} vorhanden.</p>` : ""}
@@ -9062,7 +10678,7 @@ function renderImageSpecProposal(proposal) {
         <p>${escapeHtml(promptPreview)}</p>
       </section>
     </article>
-  `;
+  `);
 }
 
 async function executeCommand(commandId, payload = {}) {
@@ -9101,11 +10717,14 @@ async function executeCommand(commandId, payload = {}) {
     ? "confirmPaidRun"
     : "confirmedCommand";
   if (command?.requiresConfirmation && !nextPayload[confirmationFlag]) {
-    const confirmed = await requestCommandConfirmation(command, nextPayload);
-    if (!confirmed) {
+    const confirmationResult = await requestCommandConfirmation(command, nextPayload);
+    if (!confirmationResult) {
       return;
     }
-    nextPayload = { ...nextPayload, [confirmationFlag]: true };
+    const confirmationPayload = typeof confirmationResult === "object"
+      ? confirmationResult.payload || {}
+      : {};
+    nextPayload = { ...nextPayload, ...confirmationPayload, [confirmationFlag]: true };
   }
   state.pendingCommand = {
     projectId,
@@ -9139,7 +10758,6 @@ async function executeCommand(commandId, payload = {}) {
       showToast(worksheetDepositToastMessage(response.result), "success");
       return;
     }
-    showToast(successToastMessageForCommand(commandId, response), "success");
     if (state.mode === "workspace" && state.workspace?.project?.projectId === projectId) {
       renderWorkspace();
     } else {
@@ -9178,10 +10796,14 @@ async function sendChatMessage(message, context = {}) {
   }
   state.commandError = null;
   const attachments = context.attachments || [];
+  const revisionTarget = revisionTargetForRequest(context.revisionTarget || null);
+  const voiceInput = context.voiceInput || null;
   const pendingChat = {
     projectId,
     message,
     attachments,
+    revisionTarget,
+    voiceInput,
     createdAt: new Date().toISOString(),
     status: "sending"
   };
@@ -9197,6 +10819,8 @@ async function sendChatMessage(message, context = {}) {
           mode: state.activeCanvasMode,
           ...(context.canvasFocus || {})
         },
+        revisionTarget,
+        voiceInput,
         attachments: attachmentsForRequest(attachments)
       })
     });
@@ -9245,8 +10869,8 @@ function renderInputUploadReceipt(receipt) {
         <span>${escapeHtml(receipt.label || "Datei")}</span>
         <small>${escapeHtml(statusText)}</small>
       </figcaption>
-      <button class="icon-button icon-button-plain" type="button" data-remove-upload-receipt="${escapeHtml(receipt.id)}" aria-label="Hinweis ausblenden" title="Hinweis ausblenden">
-        ${icon("plus", "icon icon-small")}
+      <button class="icon-button icon-button-plain" type="button" data-remove-upload-receipt="${escapeHtml(receipt.id)}" aria-label="Anhang entfernen" title="Anhang entfernen">
+        ${icon("x", "icon icon-small")}
       </button>
     </figure>
   `;
@@ -9261,7 +10885,7 @@ function renderVisualComposerAttachment(attachment) {
         <small>mit Nachricht senden</small>
       </figcaption>
       <button class="icon-button icon-button-plain" type="button" data-remove-attachment="${escapeHtml(attachment.id)}" aria-label="Anhang entfernen" title="Anhang entfernen">
-        ${icon("plus", "icon icon-small")}
+        ${icon("x", "icon icon-small")}
       </button>
     </figure>
   `;
@@ -9304,44 +10928,81 @@ function renderComposerAttachments() {
 function updateComposerState() {
   const busy = isChatBusy();
   elements.chatInput.disabled = busy;
-  elements.chatAttachmentButton.disabled = busy;
-  elements.chatSendButton.disabled = busy;
+  const voiceBusy = state.voiceInput.recording || state.voiceInput.transcribing || state.voiceInput.starting;
+  elements.chatAttachmentButton.disabled = busy || voiceBusy;
+  elements.chatSendButton.disabled = busy || voiceBusy;
   updateVoiceButton();
+  renderRevisionTargetPill();
   renderComposerAttachments();
+  syncVoiceTranscriptReviewButton();
 }
 
 function submitComposerMessage() {
   if (isChatBusy()) {
     return;
   }
+  if (state.voiceInput.recording || state.voiceInput.starting || state.voiceInput.transcribing) {
+    showToast(state.voiceInput.transcribing ? "Sprache wird noch transkribiert." : "Bitte Aufnahme zuerst stoppen.", "info");
+    return;
+  }
   const message = elements.chatInput.value.trim();
+  const uploadingReceipts = state.inputUploadReceipts.filter((receipt) => receipt.status === "uploading");
+  if (uploadingReceipts.length) {
+    showToast(uploadingReceipts.length === 1 ? "Die Datei wird noch gespeichert." : "Die Dateien werden noch gespeichert.", "info");
+    return;
+  }
+  const failedReceipts = state.inputUploadReceipts.filter((receipt) => receipt.status === "error");
+  if (failedReceipts.length) {
+    showToast("Bitte entferne fehlgeschlagene Anhänge vor dem Senden.", "error");
+    return;
+  }
+  const inputUploads = inputUploadAttachmentsForRequest();
   if (state.composerAttachments.length && !message) {
     showToast("Bitte kurz beschreiben, was am Ausschnitt geändert werden soll.", "error");
     elements.chatInput.focus();
     return;
   }
-  if (!message) {
+  if (!message && !inputUploads.length) {
     return;
   }
   stopVoiceInput();
-  const attachments = [...state.composerAttachments];
-  elements.chatInput.value = "";
+  const effectiveMessage = message || (inputUploads.length === 1
+    ? `Bitte berücksichtige die angehängte Datei: ${inputUploads[0].label}.`
+    : "Bitte berücksichtige die angehängten Dateien.");
+  const attachments = [
+    ...state.composerAttachments,
+    ...inputUploads
+  ];
+  const revisionTarget = revisionTargetForRequest(state.revisionTarget);
+  const voiceInput = state.voiceDraft;
+  state.voiceDraft = null;
+  setChatInputValue("");
   state.composerAttachments = [];
+  clearInputUploadReceipts();
+  clearRevisionTarget();
   elements.chatInput.placeholder = "Nachricht an SheetifyIMG AI...";
   renderComposerAttachments();
-  sendChatMessage(message, attachments.length
-    ? {
-      uiEvent: "visual_feedback",
-      attachments,
-      canvasFocus: visualFeedbackCanvasFocus(attachments)
-    }
-    : {});
+  sendChatMessage(effectiveMessage, {
+    ...(attachments.length
+      ? {
+        uiEvent: chatUiEventForAttachments(attachments),
+        attachments,
+        canvasFocus: visualFeedbackCanvasFocus(attachments)
+      }
+      : {}),
+    revisionTarget,
+    voiceInput
+  });
 }
 
-async function uploadInputFiles(fileList) {
+async function uploadInputFiles(fileList, options = {}) {
   const projectId = currentProjectId();
   const files = Array.from(fileList || []).filter(Boolean);
-  if (!projectId || !files.length) {
+  if (!files.length) {
+    return;
+  }
+  if (!projectId) {
+    showToast("Öffne zuerst ein Projekt, um Dateien hinzuzufügen.", "error");
     return;
   }
   const receipts = createInputUploadReceipts(files);
@@ -9354,23 +11015,19 @@ async function uploadInputFiles(fileList) {
     for (const [index, file] of files.entries()) {
       const formData = new FormData();
       formData.append("file", file);
+      formData.append("deferChatReceipt", "true");
       try {
         const response = await fetchJson(`/api/workspace/${encodeURIComponent(projectId)}/input-upload`, {
           method: "POST",
           body: formData
         });
         latestWorkspace = response.workspace;
+        state.workspace = latestWorkspace;
         state.inputUploadReceipts = state.inputUploadReceipts.map((receipt) => receipt.id === receipts[index].id
-          ? {
-            ...receipt,
-            status: "saved",
-            uploadedFile: response.upload?.file || null,
-            label: response.upload?.file?.originalName || receipt.label,
-            mimeType: response.upload?.file?.mimeType || receipt.mimeType,
-            size: response.upload?.file?.size || receipt.size
-          }
+          ? { ...receipt, status: "saved", uploadedFile: response.upload?.file || null }
           : receipt);
         renderComposerAttachments();
+        renderWorkspace();
       } catch (error) {
         state.inputUploadReceipts = state.inputUploadReceipts.map((receipt) => receipt.id === receipts[index].id
           ? { ...receipt, status: "error", errorMessage: error.message }
@@ -9382,13 +11039,21 @@ async function uploadInputFiles(fileList) {
     state.workspace = latestWorkspace;
     renderWorkspace();
     await loadTree({ keepSelection: true, selectAfterLoad: false });
-    showToast(files.length === 1 ? "Input hinzugefügt" : `${files.length} Dateien hinzugefügt`, "success");
   } catch (error) {
     showToast(error.message, "error");
   } finally {
     elements.chatAttachmentButton.disabled = false;
     elements.chatAttachmentInput.value = "";
   }
+}
+
+function handleChatPaste(event) {
+  const imageFiles = imageFilesFromPasteEvent(event);
+  if (!imageFiles.length) {
+    return;
+  }
+  event.preventDefault();
+  uploadInputFiles(imageFiles, { source: "clipboard" });
 }
 
 function setNewWorksheetFormVisible(visible) {
@@ -9443,8 +11108,12 @@ async function createNewWorksheetFromLibrary() {
     state.collapsedFolders.delete("folder:projects");
     resetNewWorksheetForm();
     setNewWorksheetFormVisible(false);
-    await loadTree({ keepSelection: true, selectAfterLoad: true });
-    showToast("Projekt angelegt", "success");
+    await loadTree({
+      keepSelection: true,
+      selectAfterLoad: true,
+      revealSelected: Boolean(projectId),
+      openSelectedMobileSheet: Boolean(projectId)
+    });
   } catch (error) {
     elements.createNewWorksheetButton.disabled = false;
     elements.createNewWorksheetButton.textContent = "Anlegen";
@@ -9536,7 +11205,16 @@ elements.chatInput.addEventListener("keydown", (event) => {
   event.preventDefault();
   submitComposerMessage();
 });
+elements.chatInput.addEventListener("input", () => {
+  syncVoiceTranscriptReviewButton();
+});
+elements.chatInput.addEventListener("paste", handleChatPaste);
 elements.chatVoiceButton?.addEventListener("click", toggleVoiceInput);
+elements.voiceTranscriptReviewButton?.addEventListener("click", openVoiceTranscriptReview);
+elements.voiceTranscriptBackdrop?.addEventListener("click", () => closeVoiceTranscriptReview());
+elements.voiceTranscriptCloseButton?.addEventListener("click", () => closeVoiceTranscriptReview());
+elements.voiceTranscriptSaveButton?.addEventListener("click", saveVoiceTranscriptReview);
+elements.revisionTargetClearButton?.addEventListener("click", () => clearRevisionTarget({ focus: true }));
 elements.chatAttachmentButton.addEventListener("click", () => {
   elements.chatAttachmentInput.click();
 });
@@ -9594,8 +11272,8 @@ elements.candidateInfoModal?.addEventListener("click", (event) => {
 });
 elements.candidateInfoCloseButton?.addEventListener("click", closeCandidateInfo);
 elements.mobilePreviewBackdrop?.addEventListener("click", closeMobilePreview);
-elements.mobilePreviewCloseButton?.addEventListener("click", closeMobilePreview);
-elements.mobilePreviewMinimizeButton?.addEventListener("click", minimizeMobilePreview);
+elements.mobilePreviewCloseIconButton?.addEventListener("click", closeMobilePreview);
+elements.mobilePreviewSheet?.addEventListener("pointerdown", startMobilePreviewSwipe);
 elements.mobilePreviewMini?.addEventListener("click", restoreMobilePreview);
 elements.canvasBody.addEventListener("pointerdown", startCanvasCapture);
 elements.canvasBody.addEventListener("pointermove", moveCanvasCapture);
@@ -9635,16 +11313,22 @@ window.addEventListener("pointercancel", endProjectSplitResize);
 window.addEventListener("pointermove", moveCanvasResize);
 window.addEventListener("pointerup", endCanvasResize);
 window.addEventListener("pointercancel", endCanvasResize);
+window.addEventListener("pointermove", moveMobilePreviewSwipe, { passive: false });
+window.addEventListener("pointerup", endMobilePreviewSwipe);
+window.addEventListener("pointercancel", cancelMobilePreviewSwipe);
 window.addEventListener("resize", () => {
   if (!elements.projectView.classList.contains("hidden")) {
     applyProjectSplitLayout();
   }
   if (state.mode === "workspace") {
     applyCanvasLayout();
-    renderMobileStatusStrip(state.workspace || {});
   }
+  syncVoiceTranscriptReviewButton();
   if (!isMobileViewport() && state.mobilePreview.mode) {
     closeMobilePreview();
+  }
+  if (!isMobileViewport() && isVoiceTranscriptReviewOpen()) {
+    closeVoiceTranscriptReview({ restoreFocus: false });
   }
 });
 document.addEventListener("click", (event) => {
@@ -9674,6 +11358,13 @@ document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       event.preventDefault();
       closeManualCopy();
+      return;
+    }
+  }
+  if (isVoiceTranscriptReviewOpen()) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeVoiceTranscriptReview();
       return;
     }
   }
@@ -9716,5 +11407,6 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+initializeCustomScrollbars();
 updateVoiceButton();
 loadTree();

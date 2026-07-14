@@ -19,33 +19,22 @@
     const draftFilePrefix = requiredFunction(dependencies, "draftFilePrefix");
     const draftMetaLabel = requiredFunction(dependencies, "draftMetaLabel");
 
-    function renderCandidateGenerationPreviewCard(candidateGeneration = {}, options = {}) {
-      const activeJob = candidateGeneration.activeJob || {};
-      const pageCount = Number(activeJob.pageCount || 0) || 1;
-      const series = pageCount > 1;
-      const compact = options.compact === true;
-      return `
-        <article class="candidate-loading-card${compact ? " compact" : ""}">
-          <div class="candidate-loading-dot" aria-hidden="true"></div>
-          <div>
-            <strong>${escapeHtml(series ? "Mehrseitiger Entwurf wird im Hintergrund erstellt" : "Entwurf wird im Hintergrund erstellt")}</strong>
-            <p>${escapeHtml(activeJob.message || (series
-              ? `Die ${pageCount} Seiten erscheinen automatisch, sobald das Rendering fertig ist.`
-              : "Der neue Entwurf erscheint automatisch, sobald das Rendering fertig ist."))}</p>
-          </div>
-        </article>
-      `;
-    }
-
     function renderCandidateLineageBadges(candidate = {}, options = {}) {
       const showConceptTag = options.showConceptTag !== false;
       const badges = [showConceptTag ? candidate.conceptDisplayLabel : null].filter(Boolean);
-      if (!badges.length) {
+      const referenceCount = Array.isArray(candidate.generation?.referenceImages)
+        ? candidate.generation.referenceImages.length
+        : 0;
+      const referenceBadge = referenceCount
+        ? `${referenceCount} Referenz${referenceCount === 1 ? "" : "en"}`
+        : null;
+      const allBadges = [...badges, referenceBadge].filter(Boolean);
+      if (!allBadges.length) {
         return "";
       }
       return `
         <span class="candidate-lineage-badges">
-          ${badges.map((badge) => `<span class="candidate-lineage-badge">${escapeHtml(badge)}</span>`).join("")}
+          ${allBadges.map((badge) => `<span class="candidate-lineage-badge">${escapeHtml(badge)}</span>`).join("")}
         </span>
       `;
     }
@@ -111,6 +100,27 @@
         : "Arbeitsblatt wurde bereits abgelegt.";
     }
 
+    function scopedWorksheetActionLabel(baseLabel = "", candidate = {}) {
+      const displayLabel = draftDisplayLabel(candidate);
+      if (!displayLabel) {
+        return baseLabel;
+      }
+      return String(baseLabel || "").replace(/\s+ablegen$/i, ` für ${displayLabel} ablegen`);
+    }
+
+    function candidateActionAttributes(candidate = {}) {
+      const runId = String(candidate.runId || "").trim();
+      const candidateId = String(candidate.id || "").trim();
+      const displayLabel = draftDisplayLabel(candidate);
+      const actionKey = candidateWorksheetDepositKey(runId, candidateId);
+      return [
+        `data-run-id="${escapeHtml(runId)}"`,
+        `data-candidate-id="${escapeHtml(candidateId)}"`,
+        `data-display-label="${escapeHtml(displayLabel)}"`,
+        actionKey ? `data-card-action-key="${escapeHtml(actionKey)}"` : ""
+      ].filter(Boolean).join(" ");
+    }
+
     function renderCandidateWorksheetStoreAction(candidate = {}, pageCount = 1, workspace = {}) {
       if (!pageCount) {
         return "";
@@ -125,11 +135,13 @@
       const deposits = candidateWorksheetDeposits(candidate, workspace);
       if (candidate.worksheetDeposited === true || deposits.length) {
         const worksheetId = deposits[0]?.worksheetId || "";
+        const displayLabel = draftDisplayLabel(candidate);
+        const openLabel = displayLabel ? `Zum Arbeitsblatt von ${displayLabel}` : "Zum Arbeitsblatt";
         return `
           <div class="candidate-deposit-status">
             <span>${escapeHtml(candidateWorksheetDepositStatusLabel(pageCount))}</span>
             ${worksheetId ? `
-              <button class="secondary-button mini-button worksheet-open-button" type="button" data-card-action="open-deposited-worksheet" data-worksheet-id="${escapeHtml(worksheetId)}" aria-label="Zum Arbeitsblatt" title="Zum Arbeitsblatt">
+              <button class="secondary-button mini-button worksheet-open-button" type="button" data-card-action="open-deposited-worksheet" data-worksheet-id="${escapeHtml(worksheetId)}" ${candidateActionAttributes(candidate)} aria-label="${escapeHtml(openLabel)}" title="${escapeHtml(openLabel)}">
                 ${icon("file-text", "icon icon-small")}
                 <span>Zum Arbeitsblatt</span>
               </button>
@@ -138,8 +150,9 @@
         `;
       }
       const depositLabel = worksheetDepositActionLabel(pageCount);
+      const scopedLabel = scopedWorksheetActionLabel(depositLabel, candidate);
       return `
-        <button class="secondary-button mini-button worksheet-store-button" type="button" data-card-action="deposit-candidate-worksheet" data-run-id="${escapeHtml(candidate.runId || "")}" data-candidate-id="${escapeHtml(candidate.id)}" aria-label="${escapeHtml(depositLabel)}" title="${escapeHtml(depositLabel)}">
+        <button class="secondary-button mini-button worksheet-store-button" type="button" data-card-action="deposit-candidate-worksheet" ${candidateActionAttributes(candidate)} aria-label="${escapeHtml(scopedLabel)}" title="${escapeHtml(scopedLabel)}">
           ${icon("file-text", "icon icon-small")}
           <span>${escapeHtml(depositLabel)}</span>
         </button>
@@ -213,7 +226,6 @@
       candidateWorksheetDeposits,
       candidateHasWorksheetDeposit,
       renderCandidateCard,
-      renderCandidateGenerationPreviewCard,
       renderCandidateImageDownloadButton,
       renderCandidateWorksheetStoreAction
     };

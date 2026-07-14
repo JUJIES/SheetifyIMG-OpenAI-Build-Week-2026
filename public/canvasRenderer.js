@@ -22,8 +22,6 @@
     const currentConceptArtifact = requiredFunction(dependencies, "currentConceptArtifact");
     const annotateCandidateDisplayList = requiredFunction(dependencies, "annotateCandidateDisplayList");
     const workspaceCandidateHistory = requiredFunction(dependencies, "workspaceCandidateHistory");
-    const candidateGenerationStateForWorkspace = requiredFunction(dependencies, "candidateGenerationStateForWorkspace");
-    const renderCandidateGenerationPreviewCard = requiredFunction(dependencies, "renderCandidateGenerationPreviewCard");
     const renderCandidateCard = requiredFunction(dependencies, "renderCandidateCard");
     const renderPageCard = requiredFunction(dependencies, "renderPageCard");
 
@@ -146,7 +144,7 @@
           <div class="detail-grid">
             <div><span>Version</span><strong>${escapeHtml(versionLabel)}</strong></div>
             <div><span>Status</span><strong>${escapeHtml(statusLabel || "offen")}</strong></div>
-            <div><span>Generation</span><strong>${workspace.approval?.canGenerate ? "freigegeben" : "gesperrt"}</strong></div>
+            <div><span>Konzept</span><strong>${workspace.approval?.canGenerate ? "übernommen" : "offen"}</strong></div>
             <div><span>Texte</span><strong>${escapeHtml(content.readingTexts?.length || 0)}</strong></div>
             <div><span>Aufgaben</span><strong>${escapeHtml(content.tasks?.length || 0)}</strong></div>
             <div><span>Bildmaterial</span><strong>${escapeHtml(content.imageMaterials?.length || 0)}</strong></div>
@@ -169,11 +167,7 @@
 
     function renderCanvasCandidates(workspace = {}, ui = {}) {
       const candidates = selectedCanvasCandidates(workspace, ui);
-      const candidateGeneration = candidateGenerationStateForWorkspace(workspace);
-      const cards = [
-        ...(candidateGeneration?.isRunning ? [renderCandidateGenerationPreviewCard(candidateGeneration, { compact: true })] : []),
-        ...candidates.map((candidate) => renderCandidateCard(candidate, workspace, { showConceptTag: false }))
-      ];
+      const cards = candidates.map((candidate) => renderCandidateCard(candidate, workspace, { showConceptTag: false }));
       return cards.length
         ? `<div class="canvas-candidate-grid">${cards.join("")}</div>`
         : '<div class="no-preview">Noch keine Entwürfe vorhanden.</div>';
@@ -194,7 +188,7 @@
       const promptPreview = spec.promptPreview || spec.finalPrompt || "";
       return `
         <details class="internal-spec-details">
-          <summary>Entwurfsvorbereitung ansehen</summary>
+          <summary>Interne Bildplanung ansehen</summary>
           <article class="canvas-document compact">
             <div class="detail-grid">
               <div><span>ID</span><strong>${escapeHtml(imageSpec.proposalId)}</strong></div>

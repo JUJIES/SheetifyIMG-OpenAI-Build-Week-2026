@@ -1,18 +1,28 @@
 "use strict";
 
-const CACHE_NAME = "sheetifyimg-app-shell-v43";
+const CACHE_NAME = "sheetifyimg-app-shell-v55";
 const APP_SHELL_URLS = [
   "/",
   "/index.html",
-  "/styles.css?v=94",
-  "/app.js?v=152",
+  "/vendor/simplebar/simplebar.min.css?v=1",
+  "/styles.css?v=111",
+  "/vendor/simplebar/simplebar.min.js?v=1",
+  "/app.js?v=183",
   "/pwa.js?v=1",
+  "/candidateCards.js?v=2",
+  "/actionBindings.js?v=1",
+  "/mobilePreviewRenderer.js?v=7",
+  "/canvasRenderer.js?v=1",
   "/manifest.webmanifest",
-  "/icons/app-icon.svg",
+  "/icons/favicon.ico",
+  "/icons/favicon-16x16.png",
+  "/icons/favicon-32x32.png",
   "/icons/app-icon-180.png",
   "/icons/app-icon-192.png",
   "/icons/app-icon-512.png",
-  "/icons/lucide-sprite.svg?v=15"
+  "/icons/app-icon-maskable-512.png",
+  "/icons/sheetifyimg-header-logo.png",
+  "/icons/lucide-sprite.svg?v=16"
 ];
 
 self.addEventListener("install", (event) => {

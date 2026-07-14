@@ -3,8 +3,14 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { PRODUCTION_SCHEMA_VERSION } = require("../contracts");
+const { candidateDisplayLabelMap, listProjectCandidates } = require("../candidateDisplay");
 const { readEvents } = require("../eventLog");
 const { readJsonFileIfExists, writeJsonFile } = require("../jsonFile");
+const { buildPagePlans, pageCountFromContent } = require("../pagePlanManager");
+const { splitTaskPromptUnits } = require("../contentReadiness");
+
+const DEFAULT_REPO_ROOT = path.resolve(__dirname, "..", "..");
+const DEFAULT_WORKSHEETS_DIR = path.join(DEFAULT_REPO_ROOT, "worksheets");
 
 async function pathExists(filePath) {
   try {
@@ -32,6 +38,17 @@ async function writeText(filePath, value) {
   await fs.writeFile(filePath, value, "utf8");
 }
 
+async function listDirs(dirPath) {
+  if (!(await pathExists(dirPath))) {
+    return [];
+  }
+  const entries = await fs.readdir(dirPath, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort((left, right) => left.localeCompare(right));
+}
+
 function rel(projectDir, filePath) {
   return path.relative(projectDir, filePath).split(path.sep).join("/");
 }
@@ -46,6 +63,80 @@ function pageAssetPath(page = {}) {
     return null;
   }
   return page.path.replace(/\.(png|jpe?g|webp)$/i, ".asset.json");
+}
+
+function candidateKey(runId = "", candidateId = "") {
+  const normalizedRunId = String(runId || "").trim();
+  const normalizedCandidateId = String(candidateId || "").trim();
+  return normalizedRunId && normalizedCandidateId ? `${normalizedRunId}::${normalizedCandidateId}` : "";
+}
+
+async function worksheetManifests(worksheetsDir = DEFAULT_WORKSHEETS_DIR) {
+  const itemsDir = path.join(worksheetsDir, "items");
+  const manifests = [];
+  for (const worksheetId of await listDirs(itemsDir)) {
+    const manifest = await readJsonIfExists(path.join(itemsDir, worksheetId, "worksheet-manifest.json"));
+    if (manifest?.worksheetId) {
+      manifests.push({
+        ...manifest,
+        _manifestPath: path.join("items", worksheetId, "worksheet-manifest.json")
+      });
+    }
+  }
+  return manifests.sort((left, right) => {
+    return String(left.createdAt || "").localeCompare(String(right.createdAt || ""))
+      || String(left.worksheetId || "").localeCompare(String(right.worksheetId || ""));
+  });
+}
+
+async function worksheetDepositsForProject(projectId, options = {}) {
+  const worksheetsDir = options.worksheetsDir || DEFAULT_WORKSHEETS_DIR;
+  const targetProjectId = String(projectId || "").trim();
+  if (!targetProjectId) {
+    return new Map();
+  }
+  const byCandidate = new Map();
+  const manifests = await worksheetManifests(worksheetsDir);
+  for (const manifest of manifests) {
+    if (String(manifest.source?.projectId || "").trim() !== targetProjectId) {
+      continue;
+    }
+    const sourceRunId = manifest.source?.runId || null;
+    const sourceCandidateIds = new Set([
+      manifest.source?.candidateId,
+      ...(manifest.source?.candidateIds || []),
+      ...(manifest.pages || []).map((page) => page.sourceCandidateId)
+    ].filter(Boolean));
+    for (const sourceCandidateId of sourceCandidateIds) {
+      const key = candidateKey(sourceRunId, sourceCandidateId);
+      if (!key) {
+        continue;
+      }
+      if (!byCandidate.has(key)) {
+        byCandidate.set(key, []);
+      }
+      byCandidate.get(key).push({
+        worksheetId: manifest.worksheetId,
+        title: manifest.title || null,
+        kind: manifest.kind || null,
+        status: manifest.status || null,
+        pageCount: Number(manifest.pageCount || manifest.pages?.length || 0),
+        createdAt: manifest.createdAt || null,
+        manifestPath: manifest._manifestPath || null,
+        pdfPath: manifest.pdf?.path ? path.join("items", manifest.worksheetId, manifest.pdf.path).split(path.sep).join("/") : null,
+        pages: (manifest.pages || [])
+          .filter((page) => !page.sourceCandidateId || page.sourceCandidateId === sourceCandidateId)
+          .map((page) => ({
+            page: page.page || null,
+            sourcePage: page.sourcePage || null,
+            role: page.role || null,
+            sourcePath: page.sourcePath || null,
+            path: page.path ? path.join("items", manifest.worksheetId, page.path).split(path.sep).join("/") : null
+          }))
+      });
+    }
+  }
+  return byCandidate;
 }
 
 async function candidatePageSummary(runDir, page = {}) {
@@ -80,14 +171,19 @@ async function candidatePageSummary(runDir, page = {}) {
   };
 }
 
-async function candidateSummary(runDir, candidate = {}) {
+async function candidateSummary(runDir, candidate = {}, context = {}) {
   const qcPath = `qc/${candidate.id}.technical-qc.json`;
   const qc = await readJsonIfExists(path.join(runDir, qcPath));
+  const key = candidateKey(candidate.runId || context.runId, candidate.id);
+  const worksheetDeposits = context.worksheetDepositsByCandidate?.get(key) || [];
   return {
     id: candidate.id || null,
+    displayLabel: context.displayLabels?.[`${candidate.runId || context.runId || ""}:${candidate.id || ""}`] || null,
     status: candidate.status || null,
     createdAt: candidate.createdAt || null,
     concept: candidate.concept || null,
+    basedOnConceptId: candidate.basedOnConceptId || candidate.concept?.conceptId || null,
+    basedOnConceptVersion: candidate.basedOnConceptVersion || candidate.concept?.conceptVersion || null,
     generation: candidate.generation ? {
       provider: candidate.generation.provider || null,
       model: candidate.generation.model || null,
@@ -113,7 +209,8 @@ async function candidateSummary(runDir, candidate = {}) {
     } : {
       path: qcPath,
       status: "missing"
-    }
+    },
+    worksheetDeposits
   };
 }
 
@@ -239,6 +336,380 @@ function sourceContentSummary(imageSheetBrief = {}) {
   };
 }
 
+function requestedPageCount(imageSheetBrief = {}) {
+  const brief = imageSheetBrief.lessonBrief || {};
+  const content = imageSheetBrief.contentMirror || {};
+  const explicit = Number(content.outputPreference?.pages || brief.outputPreference?.pages || 0);
+  if (explicit) {
+    return explicit;
+  }
+  return pageCountFromContent(content, null, brief);
+}
+
+function activeOutputPreference(content = {}, brief = {}) {
+  return content.outputPreference || brief.outputPreference || null;
+}
+
+function sourceIntent(imageSheetBrief = {}) {
+  const brief = imageSheetBrief.lessonBrief || {};
+  const content = imageSheetBrief.contentMirror || {};
+  const outputPreference = activeOutputPreference(content, brief);
+  const pageCount = requestedPageCount(imageSheetBrief);
+  const taskUnits = (content.tasks || []).reduce((total, task) => {
+    return total + Math.max(1, splitTaskPromptUnits(task.prompt || task.text || "").length);
+  }, 0);
+  return {
+    title: content.title || brief.topic || null,
+    subject: brief.subject || null,
+    targetGroup: brief.targetGroup || null,
+    goal: brief.goal || null,
+    requestedPages: pageCount || null,
+    outputPreference,
+    contentCounts: {
+      readingTexts: Array.isArray(content.readingTexts) ? content.readingTexts.length : 0,
+      tasks: Array.isArray(content.tasks) ? content.tasks.length : 0,
+      visibleTaskUnits: taskUnits,
+      imageMaterials: Array.isArray(content.imageMaterials) ? content.imageMaterials.length : 0
+    },
+    mustHave: [
+      content.title ? `Title: ${content.title}` : null,
+      pageCount ? `${pageCount} DIN-A4 page${pageCount === 1 ? "" : "s"}` : null,
+      taskUnits ? `${taskUnits} visible task/prompt unit${taskUnits === 1 ? "" : "s"}` : null,
+      Array.isArray(content.readingTexts) && content.readingTexts.length ? `${content.readingTexts.length} reading text${content.readingTexts.length === 1 ? "" : "s"}` : null,
+      Array.isArray(content.imageMaterials) && content.imageMaterials.length ? `${content.imageMaterials.length} image material cue${content.imageMaterials.length === 1 ? "" : "s"}` : null,
+      outputPreference?.layout ? `Layout: ${outputPreference.layout}` : null
+    ].filter(Boolean),
+    tasks: (content.tasks || []).map((task, index) => ({
+      id: task.id || `task_${index + 1}`,
+      visiblePromptUnits: Math.max(1, splitTaskPromptUnits(task.prompt || task.text || "").length),
+      promptExcerpt: truncate(task.prompt || task.text || "", 360)
+    }))
+  };
+}
+
+function expectedPageContract(imageSheetBrief = {}) {
+  const brief = imageSheetBrief.lessonBrief || {};
+  const content = imageSheetBrief.contentMirror || {};
+  const pageCount = requestedPageCount(imageSheetBrief);
+  const plans = buildPagePlans(content, brief, pageCount || 1, null);
+  const imageMaterialsById = new Map((content.imageMaterials || []).map((material) => [material.id, material]));
+  return plans.map((plan) => ({
+    page: plan.pageNumber || null,
+    role: plan.role || null,
+    title: plan.title || null,
+    sourceTaskIds: plan.summary?.sourceTaskIds || (plan.tasks || []).map((task) => task.id).filter(Boolean),
+    sourceTextIds: plan.summary?.sourceTextIds || (plan.readingTexts || []).map((text) => text.id).filter(Boolean),
+    imageMaterialIds: plan.imageMaterialIds || [],
+    expectedUnits: [
+      ...(plan.readingTexts || []).map((text, index) => ({
+        type: "reading_text",
+        id: text.id || `reading_${index + 1}`,
+        title: text.title || null,
+        excerpt: truncate(text.body || "", 260)
+      })),
+      ...(plan.tasks || []).map((task, index) => ({
+        type: "task",
+        id: task.id || `task_${index + 1}`,
+        visiblePromptUnits: Math.max(1, splitTaskPromptUnits(task.prompt || task.text || "").length),
+        promptExcerpt: truncate(task.prompt || task.text || "", 300)
+      })),
+      ...(plan.imageMaterialIds || []).map((id) => {
+        const material = imageMaterialsById.get(id) || {};
+        return {
+          type: "image_material",
+          id,
+          purpose: material.purpose || null,
+          promptExcerpt: truncate(material.prompt || material.description || "", 220)
+        };
+      })
+    ]
+  }));
+}
+
+function conceptVersionFromId(value = "") {
+  const match = String(value || "").match(/(?:content_mirror|concept)_v0*(\d+)/i);
+  return match ? Number(match[1]) : null;
+}
+
+function conceptLineage(projectDir, report = {}) {
+  const indexPath = path.join(projectDir, "artifact-index.json");
+  return readJsonIfExists(indexPath).then((index) => {
+    const concepts = (index?.artifacts || [])
+      .filter((artifact) => artifact.type === "content_mirror")
+      .map((artifact) => ({
+        id: artifact.id || null,
+        version: artifact.version || conceptVersionFromId(artifact.id),
+        status: artifact.status || null,
+        path: artifact.path || null,
+        createdAt: artifact.createdAt || null,
+        createdFrom: artifact.createdFrom || []
+      }))
+      .sort((left, right) => Number(left.version || 0) - Number(right.version || 0));
+    const activeConceptId = report.run?.sourceArtifacts?.contentMirrorId || report.run?.concept?.contentMirrorId || null;
+    return {
+      activeConceptId,
+      activeConceptVersion: report.run?.concept?.conceptVersion || conceptVersionFromId(activeConceptId),
+      activationMode: "approved_content_mirror_for_run",
+      concepts,
+      previousVersions: concepts
+        .filter((concept) => concept.id !== activeConceptId)
+        .map((concept) => concept.version)
+        .filter(Boolean)
+    };
+  });
+}
+
+function worksheetDepositStatus(candidate = {}) {
+  const deposits = candidate.worksheetDeposits || [];
+  if (!deposits.length) {
+    return {
+      status: "not_deposited",
+      deposits: []
+    };
+  }
+  return {
+    status: "deposited",
+    worksheetId: deposits[deposits.length - 1]?.worksheetId || null,
+    deposits
+  };
+}
+
+function evaluationReferenceImage(reference = {}) {
+  return {
+    id: reference.id || null,
+    role: reference.role || "style_reference",
+    path: reference.path || null,
+    purpose: reference.purpose || null,
+    sourceLabel: reference.sourceLabel || reference.label || null,
+    targetPage: Number(reference.targetPage || reference.page || 0) || null,
+    userDetails: reference.userDetails || reference.details || null,
+    scope: reference.scope || null,
+    sourceKind: reference.source?.kind || null,
+    source: reference.source || null
+  };
+}
+
+function formatReferenceMarkdown(reference = {}) {
+  const targetPage = Number(reference.targetPage || reference.page || 0) || null;
+  return [
+    reference.role || "reference",
+    reference.sourceLabel || reference.path || "unknown",
+    targetPage ? `page ${targetPage}` : "all pages",
+    reference.userDetails || reference.purpose || null
+  ].filter(Boolean).join(" / ");
+}
+
+function evaluationCandidates(report = {}) {
+  return (report.candidates || []).map((candidate) => ({
+    displayLabel: candidate.displayLabel || candidate.id || "Entwurf",
+    runId: report.run?.runId || null,
+    candidateId: candidate.id || null,
+    candidateKey: candidateKey(report.run?.runId, candidate.id),
+    status: candidate.status || null,
+    createdAt: candidate.createdAt || null,
+    basedOnConceptId: candidate.basedOnConceptId || candidate.concept?.conceptId || null,
+    basedOnConceptVersion: candidate.basedOnConceptVersion || candidate.concept?.conceptVersion || null,
+    pageCount: (candidate.pages || []).length,
+    generation: candidate.generation ? {
+      provider: candidate.generation.provider || null,
+      model: candidate.generation.model || null,
+      imageSpecProposalId: candidate.generation.imageSpecProposalId || null,
+      plannedPageCount: candidate.generation.plannedPageCount || null,
+      generatedPageCount: candidate.generation.generatedPageCount || null,
+      qualityPreset: candidate.generation.qualityPreset || null,
+      referencePolicy: candidate.generation.referencePolicy ? {
+        level: candidate.generation.referencePolicy.level || null,
+        label: candidate.generation.referencePolicy.label || null,
+        isSatisfied: candidate.generation.referencePolicy.isSatisfied ?? null,
+        canProceedWithoutReference: candidate.generation.referencePolicy.canProceedWithoutReference ?? null
+      } : null,
+      referenceImages: (candidate.generation.referenceImages || []).map(evaluationReferenceImage)
+    } : null,
+    technicalQc: {
+      status: candidate.qc?.status || "missing",
+      errorCount: candidate.qc?.errorCount || 0,
+      warningCount: candidate.qc?.warningCount || 0,
+      path: candidate.qc?.path || null
+    },
+    pages: (candidate.pages || []).map((page) => ({
+      page: page.page || null,
+      role: page.role || null,
+      path: page.path || null,
+      exists: page.exists === true,
+      assetPath: page.asset?.path || null,
+      assetExists: page.asset?.exists === true,
+      referenceImages: (page.asset?.metadata?.referenceImages || []).map(evaluationReferenceImage)
+    })),
+    worksheetDeposit: worksheetDepositStatus(candidate)
+  }));
+}
+
+function bestCandidate(candidates = []) {
+  const deposited = candidates
+    .filter((candidate) => candidate.worksheetDeposit?.status === "deposited")
+    .sort((left, right) => {
+      const leftAt = left.worksheetDeposit.deposits?.at(-1)?.createdAt || "";
+      const rightAt = right.worksheetDeposit.deposits?.at(-1)?.createdAt || "";
+      return String(rightAt).localeCompare(String(leftAt));
+    })[0];
+  if (deposited) {
+    return {
+      displayLabel: deposited.displayLabel,
+      runId: deposited.runId,
+      candidateId: deposited.candidateId,
+      basis: "latest_deposited"
+    };
+  }
+  const latest = candidates[candidates.length - 1] || null;
+  return latest ? {
+    displayLabel: latest.displayLabel,
+    runId: latest.runId,
+    candidateId: latest.candidateId,
+    basis: "latest_candidate"
+  } : null;
+}
+
+function findingFromDiagnostic(kind, entry = {}) {
+  const categoryByCode = {
+    partial_candidate_generation: "page_contract",
+    reference_policy_without_reference_images: "reference_policy",
+    candidate_page_missing: "artifact_integrity",
+    candidate_asset_metadata_missing: "artifact_integrity",
+    technical_qc_missing: "technical_qc",
+    technical_qc_error: "technical_qc",
+    technical_qc_warning: "technical_qc"
+  };
+  return {
+    category: categoryByCode[entry.code] || "run_diagnostics",
+    severity: kind === "error" ? "high" : kind === "warning" ? "medium" : "info",
+    code: entry.code || null,
+    candidateId: entry.candidateId || null,
+    page: entry.page || null,
+    summary: entry.message || entry.code || "Run diagnostic"
+  };
+}
+
+function evaluationFindings(report = {}, candidates = []) {
+  const diagnostics = report.diagnostics || {};
+  const findings = [
+    ...(diagnostics.errors || []).map((entry) => findingFromDiagnostic("error", entry)),
+    ...(diagnostics.warnings || []).map((entry) => findingFromDiagnostic("warning", entry))
+  ];
+  for (const candidate of candidates) {
+    if (candidate.worksheetDeposit?.status !== "deposited") {
+      findings.push({
+        category: "archive_mapping",
+        severity: "info",
+        code: "worksheet_not_deposited",
+        candidateId: candidate.candidateId,
+        summary: `${candidate.displayLabel} is an Entwurf only; it has not been stored as an Arbeitsblatt snapshot.`
+      });
+    }
+  }
+  return findings;
+}
+
+async function buildRunEvaluation(projectDir, report = {}, imageSheetBrief = {}) {
+  const lineage = await conceptLineage(projectDir, report);
+  const candidates = evaluationCandidates(report);
+  const findings = evaluationFindings(report, candidates);
+  return {
+    schemaVersion: PRODUCTION_SCHEMA_VERSION,
+    reportKind: "run_evaluation_bundle",
+    generatedAt: report.generatedAt,
+    project: report.project,
+    run: report.run,
+    sourceIntent: sourceIntent(imageSheetBrief || {}),
+    conceptLineage: lineage,
+    expectedPageContract: expectedPageContract(imageSheetBrief || {}),
+    candidates,
+    bestCurrentCandidate: bestCandidate(candidates),
+    knownFindings: findings,
+    readOrder: [
+      "analysis/run-evaluation.md",
+      "analysis/run-evaluation.json",
+      "analysis/run-summary.md",
+      "analysis/run-debug.json",
+      "brief.imagesheet.json",
+      "run-manifest.json",
+      "candidate PNGs"
+    ]
+  };
+}
+
+function formatCandidateRef(candidate = {}) {
+  return `${candidate.displayLabel || candidate.candidateId || "Entwurf"} (${candidate.runId || "-"} / ${candidate.candidateId || "-"})`;
+}
+
+function renderExpectedPageContractMarkdown(contract = []) {
+  if (!contract.length) {
+    return "- none";
+  }
+  return contract.map((page) => {
+    const units = (page.expectedUnits || []).map((unit) => {
+      if (unit.type === "task") {
+        return `task ${unit.id}: ${unit.visiblePromptUnits} prompt unit${unit.visiblePromptUnits === 1 ? "" : "s"}`;
+      }
+      if (unit.type === "reading_text") {
+        return `reading ${unit.id}${unit.title ? ` (${unit.title})` : ""}`;
+      }
+      return `image ${unit.id}`;
+    }).join(", ") || "no units";
+    return `- page ${page.page} / ${page.role || "page"}: ${page.title || "untitled"}; ${units}`;
+  }).join("\n");
+}
+
+function renderEvaluationMarkdown(evaluation = {}) {
+  const intent = evaluation.sourceIntent || {};
+  const candidates = (evaluation.candidates || []).map((candidate) => {
+    const deposit = candidate.worksheetDeposit?.status === "deposited"
+      ? `deposited as ${(candidate.worksheetDeposit.deposits || []).map((entry) => entry.worksheetId).join(", ")}`
+      : "not deposited";
+    return [
+      `## ${formatCandidateRef(candidate)}`,
+      `- concept: v${candidate.basedOnConceptVersion || "?"} / ${candidate.basedOnConceptId || "unknown"}`,
+      `- pages: ${candidate.pageCount}; qc: ${candidate.technicalQc?.status || "missing"}`,
+      `- references: ${(candidate.generation?.referenceImages || []).map(formatReferenceMarkdown).join("; ") || "none"}`,
+      `- archive: ${deposit}`
+    ].join("\n");
+  }).join("\n\n");
+  const findings = (evaluation.knownFindings || []).map((finding) => {
+    return `- ${finding.severity || "info"} ${finding.category || "finding"}${finding.candidateId ? ` / ${finding.candidateId}` : ""}: ${finding.summary}`;
+  });
+  return [
+    `# Run Evaluation: ${evaluation.project?.title || evaluation.project?.projectId || "Project"} / ${evaluation.run?.runId || "run"}`,
+    "",
+    `Generated: ${evaluation.generatedAt}`,
+    "",
+    "## Intended Outcome",
+    `- title: ${intent.title || "unknown"}`,
+    `- subject/target: ${[intent.subject, intent.targetGroup].filter(Boolean).join(" / ") || "unknown"}`,
+    `- goal: ${intent.goal || "unknown"}`,
+    `- pages: ${intent.requestedPages || "unknown"}`,
+    `- must-have: ${(intent.mustHave || []).join("; ") || "unknown"}`,
+    "",
+    "## Concept Lineage",
+    `- active: ${evaluation.conceptLineage?.activeConceptId || "unknown"} / v${evaluation.conceptLineage?.activeConceptVersion || "?"}`,
+    `- activation: ${evaluation.conceptLineage?.activationMode || "unknown"}`,
+    `- versions: ${(evaluation.conceptLineage?.concepts || []).map((concept) => `${concept.id}:${concept.status}`).join(", ") || "unknown"}`,
+    "",
+    "## Expected Page Contract",
+    renderExpectedPageContractMarkdown(evaluation.expectedPageContract || []),
+    "",
+    "## Candidate Mapping",
+    candidates || "- none",
+    "",
+    "## Best Current Candidate",
+    evaluation.bestCurrentCandidate ? `- ${formatCandidateRef(evaluation.bestCurrentCandidate)} (${evaluation.bestCurrentCandidate.basis})` : "- none",
+    "",
+    "## Findings",
+    findings.length ? findings.join("\n") : "- none",
+    "",
+    "## Codex Use",
+    "Use this file for comparison across real runs. Use `run-debug.json` for raw paths and metadata, then inspect candidate PNGs for visual quality and text fidelity."
+  ].join("\n");
+}
+
 function markdownList(items, fallback = "- none") {
   return items.length ? items.map((item) => `- ${item}`).join("\n") : fallback;
 }
@@ -302,7 +773,16 @@ async function updateRunAnalysisReport(projectDir, runId, options = {}) {
   const manifest = await readJson(manifestPath);
   const imageSheetBrief = await readJsonIfExists(path.join(runDir, "brief.imagesheet.json"));
   const events = await readEvents(projectDir);
-  const candidates = await Promise.all((manifest.candidates || []).map((candidate) => candidateSummary(runDir, candidate)));
+  const projectCandidates = await listProjectCandidates(projectDir);
+  const displayLabels = candidateDisplayLabelMap(projectCandidates);
+  const worksheetDepositsByCandidate = await worksheetDepositsForProject(project.projectId || path.basename(projectDir), {
+    worksheetsDir: options.worksheetsDir || DEFAULT_WORKSHEETS_DIR
+  });
+  const candidates = await Promise.all((manifest.candidates || []).map((candidate) => candidateSummary(runDir, candidate, {
+    runId,
+    displayLabels,
+    worksheetDepositsByCandidate
+  })));
 
   const report = {
     schemaVersion: PRODUCTION_SCHEMA_VERSION,
@@ -330,10 +810,14 @@ async function updateRunAnalysisReport(projectDir, runId, options = {}) {
       imageSheetBrief: "runs/" + runId + "/brief.imagesheet.json",
       summary: "runs/" + runId + "/analysis/run-summary.md",
       debugJson: "runs/" + runId + "/analysis/run-debug.json",
+      evaluationJson: "runs/" + runId + "/analysis/run-evaluation.json",
+      evaluationMarkdown: "runs/" + runId + "/analysis/run-evaluation.md",
       history: "history/worksheet-history.jsonl",
       modelRuns: "history/model-runs.jsonl"
     },
     readOrder: [
+      "analysis/run-evaluation.md",
+      "analysis/run-evaluation.json",
       "analysis/run-summary.md",
       "analysis/run-debug.json",
       "brief.imagesheet.json",
@@ -354,10 +838,13 @@ async function updateRunAnalysisReport(projectDir, runId, options = {}) {
     ]
   };
   report.diagnostics = collectDiagnostics(report);
+  const evaluation = await buildRunEvaluation(projectDir, report, imageSheetBrief || {});
 
   const analysisDir = path.join(runDir, "analysis");
   await writeJson(path.join(analysisDir, "run-debug.json"), report);
   await writeText(path.join(analysisDir, "run-summary.md"), `${renderSummaryMarkdown(report)}\n`);
+  await writeJson(path.join(analysisDir, "run-evaluation.json"), evaluation);
+  await writeText(path.join(analysisDir, "run-evaluation.md"), `${renderEvaluationMarkdown(evaluation)}\n`);
 
   const nextManifest = {
     ...manifest,
@@ -366,6 +853,8 @@ async function updateRunAnalysisReport(projectDir, runId, options = {}) {
       analysis: {
         summary: "analysis/run-summary.md",
         debugJson: "analysis/run-debug.json",
+        evaluationJson: "analysis/run-evaluation.json",
+        evaluationMarkdown: "analysis/run-evaluation.md",
         updatedAt: now
       }
     }

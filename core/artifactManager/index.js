@@ -83,7 +83,8 @@ function artifactPrefix(type) {
     [ARTIFACT_TYPES.EXPORT]: "export",
     [ARTIFACT_TYPES.PDF]: "pdf",
     [ARTIFACT_TYPES.SCREENSHOT]: "screenshot",
-    [ARTIFACT_TYPES.INPUT_BATCH]: "input_batch"
+    [ARTIFACT_TYPES.INPUT_BATCH]: "input_batch",
+    [ARTIFACT_TYPES.VOICE_INPUT]: "voice_input"
   };
   return prefixes[type] || String(type || "artifact");
 }

@@ -134,7 +134,8 @@ function defaultContentDraft(project, payload = {}, brief = {}, events = []) {
     title: payload.title || project.title,
     readingTexts: payload.readingTexts || [{
       id: "text_1",
-      title: readingWorksheet ? "Lesetext" : "Material",
+      role: readingWorksheet ? "reading_text" : "source_text",
+      title: topic,
       body: brief.goal || (readingWorksheet ? defaultReadingText(topic, brief) : `Kurzer Materialimpuls zu ${topic}.`)
     }],
     tasks: payload.tasks || tasks,
@@ -144,7 +145,7 @@ function defaultContentDraft(project, payload = {}, brief = {}, events = []) {
         ? `Freundliche, motivierende Bilder zu ${topic}, passend zu einem kindgerechten Leseblatt.`
         : `Sachliche, ruhige A4-Arbeitsblatt-Abbildung zu ${topic}, passend zum bestaetigten Arbeitsblatt-Konzept.`,
       purpose: readingWorksheet ? "Bilder motivieren zum Lesen und unterstützen das Textverständnis." : "Material fuer die Aufgaben",
-      placement: readingWorksheet ? "auf der Leseseite und dezent auf der Aufgabenseite" : "zentral auf der Arbeitsblattseite"
+      placement: readingWorksheet ? "bei Lesetext und Aufgaben dezent unterstuetzend" : "zentral auf der Arbeitsblattseite"
     }],
     solutionNotes: payload.solutionNotes || (constraints.requiresSolution || constraints.mentionsAfb
       ? tasks.map((task) => `${task.id}: ${task.expectedAnswer}`)

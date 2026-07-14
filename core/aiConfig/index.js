@@ -1,12 +1,15 @@
 "use strict";
 
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
-const DEFAULT_TEXT_MODEL = "gpt-5.4-mini";
-const DEFAULT_REASONING_MODEL = "gpt-5.5";
+const DEFAULT_TEXT_MODEL = "gpt-5.6-luna";
+const DEFAULT_REASONING_MODEL = "gpt-5.6-sol";
 const DEFAULT_IMAGE_MODEL = "gpt-image-2";
 const DEFAULT_CODEX_IMAGE_MODEL = "gpt-5.4";
+const DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
+const DEFAULT_TRANSCRIPTION_LANGUAGE = "de";
 const DEFAULT_TIMEOUT_MS = 120000;
 const DEFAULT_IMAGE_TIMEOUT_MS = 180000;
+const DEFAULT_TRANSCRIPTION_TIMEOUT_MS = 60000;
 const DEFAULT_CODEX_IMAGE_TIMEOUT_MS = 300000;
 const DEFAULT_REASONING_EFFORT = "low";
 const DEFAULT_CODEX_REASONING_EFFORT = "low";
@@ -168,6 +171,28 @@ function getOpenAiRequestConfig(env = process.env) {
   };
 }
 
+function getTranscriptionRuntimeStatus(env = process.env) {
+  const apiKeyConfigured = Boolean(nonEmpty(env.OPENAI_API_KEY));
+  return {
+    provider: "openai",
+    mode: "openai",
+    status: apiKeyConfigured ? "ready" : "missing_key",
+    apiKeyConfigured,
+    model: nonEmpty(env.SHEETIFYIMG_TRANSCRIPTION_MODEL) || DEFAULT_TRANSCRIPTION_MODEL,
+    language: nonEmpty(env.SHEETIFYIMG_TRANSCRIPTION_LANGUAGE) || DEFAULT_TRANSCRIPTION_LANGUAGE,
+    fallbackReason: apiKeyConfigured ? null : "OPENAI_API_KEY is missing."
+  };
+}
+
+function getTranscriptionRequestConfig(env = process.env) {
+  return {
+    ...getTranscriptionRuntimeStatus(env),
+    apiKey: nonEmpty(env.OPENAI_API_KEY),
+    baseUrl: nonEmpty(env.OPENAI_BASE_URL) || DEFAULT_BASE_URL,
+    timeoutMs: numberFromEnv(env.SHEETIFYIMG_TRANSCRIPTION_TIMEOUT_MS, DEFAULT_TRANSCRIPTION_TIMEOUT_MS)
+  };
+}
+
 function getImageRuntimeStatus(env = process.env, overrides = {}) {
   const imageProvider = preferredImageProvider(env, overrides);
   const configuredMode = imageProvider;
@@ -238,5 +263,7 @@ module.exports = {
   getImageRequestConfig,
   getImageRuntimeStatus,
   getOpenAiRequestConfig,
+  getTranscriptionRequestConfig,
+  getTranscriptionRuntimeStatus,
   normalizedImageProvider
 };

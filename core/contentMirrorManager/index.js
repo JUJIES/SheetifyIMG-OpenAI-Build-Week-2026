@@ -19,6 +19,7 @@ const {
 } = require("../artifactManager");
 const { appendEvent, readEvents } = require("../eventLog");
 const { appendHistoryEvent } = require("../historyManager");
+const { normalizeContentSolutionAnchors } = require("../solutionAnchorManager");
 const {
   contentReadinessForGeneration,
   contentReadinessMessage
@@ -75,19 +76,27 @@ async function createContentMirrorVersion(projectDir, data = {}, options = {}) {
   const artifactId = artifactIdFor(ARTIFACT_TYPES.CONTENT_MIRROR, version);
   const fileName = `content-mirror.${formatVersion(version)}.json`;
   const relativePath = `content/${fileName}`;
+  const normalizedData = normalizeContentSolutionAnchors(data);
+  const lineage = {
+    parentContentMirrorId: options.parentContentMirrorId || null,
+    revisionKind: options.revisionKind || "full_snapshot",
+    changeSummary: options.changeSummary || null,
+    imageSpecStrategy: options.imageSpecStrategy || "regenerate"
+  };
   const contentMirror = {
-    ...data,
-    schemaVersion: data.schemaVersion || PRODUCTION_SCHEMA_VERSION,
+    ...normalizedData,
+    schemaVersion: normalizedData.schemaVersion || PRODUCTION_SCHEMA_VERSION,
     artifactId,
     version,
     status: ARTIFACT_STATUSES.DRAFT,
     approval: {
-      ...(data.approval || {}),
+      ...(normalizedData.approval || {}),
       status: ARTIFACT_STATUSES.DRAFT,
       approvedAt: null
     },
-    createdAt: data.createdAt || now,
-    updatedAt: now
+    createdAt: normalizedData.createdAt || now,
+    updatedAt: now,
+    lineage
   };
 
   await writeJson(path.join(projectDir, relativePath), contentMirror);
@@ -100,7 +109,8 @@ async function createContentMirrorVersion(projectDir, data = {}, options = {}) {
     status: ARTIFACT_STATUSES.DRAFT,
     step: "content",
     createdAt: now,
-    createdFrom: options.createdFrom || []
+    createdFrom: options.createdFrom || [],
+    lineage
   }, { now });
 
   const outdated = await markArtifactsOutdated(
@@ -132,6 +142,7 @@ async function createContentMirrorVersion(projectDir, data = {}, options = {}) {
     payload: {
       type: ARTIFACT_TYPES.CONTENT_MIRROR,
       version,
+      lineage,
       outdatedArtifacts: outdated.map((artifact) => artifact.id)
     }
   });
@@ -140,6 +151,7 @@ async function createContentMirrorVersion(projectDir, data = {}, options = {}) {
     createdAt: now,
     artifactId,
     version,
+    lineage,
     outdatedArtifactCount: outdated.length
   });
 

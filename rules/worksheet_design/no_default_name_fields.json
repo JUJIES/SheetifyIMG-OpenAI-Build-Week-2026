@@ -17,5 +17,8 @@
   ],
   "imageSpecInstructions": [
     "Rendere keine Kopfzeile mit Name/Klasse/Datum/Punkte/Note, wenn diese Felder nicht im freigegebenen Text stehen."
+  ],
+  "imagePromptInstructions": [
+    "Keine nicht angeforderten Kopfzeilen-, Bewertungs- oder Verwaltungsfelder erfinden."
   ]
 }

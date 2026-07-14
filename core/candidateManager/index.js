@@ -10,10 +10,12 @@ const {
 const { appendEvent } = require("../eventLog");
 const { appendHistoryEvent } = require("../historyManager");
 const { registerArtifact } = require("../artifactManager");
+const { candidateDisplayLabelForProject } = require("../candidateDisplay");
 const {
   createdFromWithConcept,
   normalizeConceptReference
 } = require("../conceptReference");
+const { presentWorkflowEvent } = require("../chatEventPresenter");
 const { updateRunAnalysisReport } = require("../runAnalysisManager");
 const { writeJsonFile } = require("../jsonFile");
 
@@ -105,6 +107,16 @@ async function registerCandidate(projectDir, runId, candidate, options = {}) {
     thumbnailPath: pages[0]?.path ? `runs/${runId}/${pages[0].path}` : null
   }, { now });
 
+  const displayLabel = await candidateDisplayLabelForProject(projectDir, runId, candidateId);
+  const visibleMessage = presentWorkflowEvent({
+    kind: "candidate_created",
+    candidate: {
+      id: candidateId,
+      displayLabel,
+      pageCount: pages.length
+    }
+  });
+
   await appendEvent(projectDir, {
     type: EVENT_TYPES.CANDIDATE_CREATED,
     createdAt: now,
@@ -118,7 +130,8 @@ async function registerCandidate(projectDir, runId, candidate, options = {}) {
       concept,
       basedOnConceptId: concept.conceptId,
       basedOnConceptVersion: concept.conceptVersion,
-      message: candidate.chatMessage || null
+      displayLabel,
+      message: visibleMessage || candidate.chatMessage || null
     }
   });
   await appendHistoryEvent(projectDir, {
@@ -130,7 +143,8 @@ async function registerCandidate(projectDir, runId, candidate, options = {}) {
     status,
     concept,
     basedOnConceptId: concept.conceptId,
-    basedOnConceptVersion: concept.conceptVersion
+    basedOnConceptVersion: concept.conceptVersion,
+    displayLabel
   });
   await updateRunAnalysisReport(projectDir, runId, { now });
 

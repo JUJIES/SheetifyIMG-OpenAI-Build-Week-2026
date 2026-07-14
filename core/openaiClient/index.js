@@ -165,6 +165,52 @@ async function createImageEdit(body, requestConfig) {
   }
 }
 
+async function createAudioTranscription(body, requestConfig) {
+  if (!requestConfig?.apiKey) {
+    throw new Error("OPENAI_API_KEY is missing.");
+  }
+  if (!body?.file?.bytes?.length) {
+    throw new Error("Audio transcription requires an audio file.");
+  }
+
+  const form = new FormData();
+  appendFormField(form, "model", body.model);
+  appendFormField(form, "language", body.language);
+  appendFormField(form, "prompt", body.prompt);
+  appendFormField(form, "response_format", body.response_format || "json");
+  const blob = new Blob([body.file.bytes], {
+    type: body.file.mimeType || "application/octet-stream"
+  });
+  form.append("file", blob, body.file.fileName || "audio.webm");
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), requestConfig.timeoutMs || 60000);
+
+  try {
+    const response = await fetch(`${requestConfig.baseUrl.replace(/\/$/, "")}/audio/transcriptions`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${requestConfig.apiKey}`
+      },
+      body: form,
+      signal: controller.signal
+    });
+
+    const payload = await readJsonSafe(response);
+    if (!response.ok) {
+      throw new Error(openAiErrorMessage(payload, response.status));
+    }
+    return payload;
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error("OpenAI transcription request timed out.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function textFromContentItem(item) {
   if (!item) {
     return "";
@@ -233,6 +279,7 @@ function extractToolCalls(response) {
 }
 
 module.exports = {
+  createAudioTranscription,
   createImageEdit,
   createImageGeneration,
   createResponse,

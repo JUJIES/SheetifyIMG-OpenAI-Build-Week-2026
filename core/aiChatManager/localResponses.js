@@ -10,13 +10,7 @@ const { localActionOfferFallback } = require("../chatPersonaManager");
 const { buildWorkspace } = require("../workspaceManager");
 
 function shouldUseLegacyChatFallback(intent = {}) {
-  if ([INTENTS.SELECTION, INTENTS.PDF_EXPORT].includes(intent?.intent)) {
-    return false;
-  }
-  return !intent
-    || intent.confidence === "low"
-    || intent.intent === INTENTS.NONE
-    || ![INTENTS.QUESTION, INTENTS.BRAINSTORM].includes(intent.intent);
+  return false;
 }
 
 function directQuestionMessage(message = "") {
@@ -71,19 +65,6 @@ function shouldOfferStarterIdeas(workspace = {}, intent = {}, message = "") {
     && !(workspace.documents?.brief?.data || workspace.documents?.content?.data);
 }
 
-function starterIdeasFallbackMessage(workspace = {}) {
-  const context = starterProjectContext(workspace);
-  const topic = context.topic || context.title || "das Thema";
-  const target = context.targetGroup ? ` für ${context.targetGroup}` : "";
-  return [
-    `Hey! Für ${topic}${target} sehe ich direkt ein paar passende Richtungen:`,
-    "- Zuordnungsblatt: Bild, Begriffe und einfache Aussagen verbinden.",
-    "- Leseblatt: kurze Sachinfos mit starkem Bildbezug.",
-    "- Übungsblatt: Eigenschaften erkennen, ankreuzen oder sortieren.",
-    "Soll es eher in eine dieser Richtungen gehen oder ganz anders?"
-  ].join("\n");
-}
-
 function manualCandidateFlowMessage(intent = {}) {
   if (intent?.intent === INTENTS.PDF_EXPORT) {
     return "PDFs entstehen jetzt über abgelegte Arbeitsblätter. Wenn dir ein Entwurf gefällt, lege ihn in der Entwurfsansicht in den Arbeitsblättern ab; dort ist der Stand dann als fester PDF-Snapshot verfügbar.";
@@ -136,7 +117,8 @@ async function appendLocalActionOfferResponse(projectId, projectDir, actionOffer
     requiresPaidConfirmation: suggestedActions.some((action) => action.requiresConfirmation === true)
   }, {
     now: options.now,
-    uiEvent: input.uiEvent || "chat_message"
+    uiEvent: input.uiEvent || "chat_message",
+    usageAttribution: options.usageAttribution
   });
   return appendAssistantResponse(projectId, projectDir, {
     mode: "local_action_offer",
@@ -157,14 +139,6 @@ async function appendManualCandidateFlowResponse(projectId, projectDir, intent =
   }, options);
 }
 
-async function appendStarterIdeasResponse(projectId, projectDir, workspace = {}, options = {}) {
-  return appendAssistantResponse(projectId, projectDir, {
-    mode: "local_starter_ideas",
-    message: starterIdeasFallbackMessage(workspace),
-    suggestedActions: []
-  }, options);
-}
-
 async function appendInputGateResponse(projectId, projectDir, options = {}) {
   return appendAssistantResponse(projectId, projectDir, {
     mode: "local_input_gate",
@@ -177,7 +151,6 @@ module.exports = {
   appendInputGateResponse,
   appendLocalActionOfferResponse,
   appendManualCandidateFlowResponse,
-  appendStarterIdeasResponse,
   manualCandidateFlowMessage,
   shouldOfferStarterIdeas,
   shouldUseConciseBrainstormRoute,

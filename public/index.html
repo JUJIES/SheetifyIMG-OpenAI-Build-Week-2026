@@ -11,14 +11,20 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="theme-color" content="#1f63d6">
     <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="icon" type="image/svg+xml" href="/icons/app-icon.svg">
-    <link rel="apple-touch-icon" href="/icons/app-icon-180.png">
-    <link rel="stylesheet" href="/styles.css?v=99">
+    <link rel="icon" href="/icons/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/app-icon-180.png">
+    <link rel="stylesheet" href="/vendor/simplebar/simplebar.min.css?v=1">
+    <link rel="stylesheet" href="/styles.css?v=111">
   </head>
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <div class="brand">SheetifyIMG</div>
+        <div class="brand" aria-label="SheetifyIMG">
+          <img class="brand-logo" src="/icons/sheetifyimg-header-logo.png" alt="" width="1200" height="382" decoding="async">
+          <span class="sr-only">SheetifyIMG</span>
+        </div>
         <div class="topbar-project hidden" id="topbarProject">
           <div class="topbar-project-title">
             <button class="icon-button icon-button-plain" type="button" id="backToLibraryButton" title="Zur Projektübersicht" aria-label="Zur Projektübersicht">
@@ -41,6 +47,11 @@
           <button class="icon-button icon-button-plain" type="button" id="shareButton" data-share-button aria-label="QR-Link anzeigen" title="QR-Link anzeigen" aria-haspopup="dialog" aria-expanded="false">
             <svg class="icon icon-small" aria-hidden="true">
               <use href="/icons/lucide-sprite.svg?v=13#qr-code"></use>
+            </svg>
+          </button>
+          <button class="icon-button icon-button-plain" type="button" id="settingsButton" aria-label="Einstellungen" title="Einstellungen">
+            <svg class="icon icon-small" aria-hidden="true">
+              <use href="/icons/lucide-sprite.svg?v=7#settings"></use>
             </svg>
           </button>
         </div>
@@ -127,14 +138,6 @@
             </div>
           </div>
 
-          <div class="sidebar-footer">
-            <button class="settings-button" type="button" id="settingsButton">
-              <svg class="icon icon-small" aria-hidden="true">
-                <use href="/icons/lucide-sprite.svg?v=7#settings"></use>
-              </svg>
-              <span>Einstellungen</span>
-            </button>
-          </div>
         </aside>
 
         <section class="viewer" aria-live="polite">
@@ -234,8 +237,6 @@
                 </div>
               </header>
 
-              <div class="mobile-status-strip" id="mobileStatusStrip" aria-label="Schnellzugriff Arbeitsstand"></div>
-
               <aside class="teaching-context-panel hidden" id="teachingContextPanel" aria-label="Unterrichtsrahmen"></aside>
 
               <div class="chat-timeline" id="chatTimeline" aria-label="Produktionsverlauf"></div>
@@ -250,7 +251,23 @@
                 <div class="chat-input-shell" id="chatInputShell">
                   <label class="sr-only" for="chatInput">Nachricht an SheetifyIMG AI</label>
                   <div class="chat-input-row">
+                    <span class="revision-target-pill hidden" id="revisionTargetPill">
+                      <svg class="icon icon-small" aria-hidden="true">
+                        <use href="/icons/lucide-sprite.svg?v=9#square-pen"></use>
+                      </svg>
+                      <span id="revisionTargetLabel">Entwurf</span>
+                      <button type="button" id="revisionTargetClearButton" aria-label="Bearbeitungsbezug entfernen" title="Bearbeitungsbezug entfernen">
+                        <svg class="icon icon-small" aria-hidden="true">
+                          <use href="/icons/lucide-sprite.svg?v=15#x"></use>
+                        </svg>
+                      </button>
+                    </span>
                     <textarea id="chatInput" rows="1" placeholder="Nachricht an SheetifyIMG AI..."></textarea>
+                    <button class="chat-transcript-review-button hidden" type="button" id="voiceTranscriptReviewButton" aria-label="Transkript ansehen" title="Transkript ansehen" aria-controls="voiceTranscriptLayer" aria-expanded="false">
+                      <svg class="icon icon-small" aria-hidden="true">
+                        <use href="/icons/lucide-sprite.svg?v=16#eye"></use>
+                      </svg>
+                    </button>
                     <button class="chat-voice-button" type="button" id="chatVoiceButton" aria-label="Spracheingabe starten" title="Spracheingabe starten" aria-pressed="false">
                       <svg class="icon icon-small" aria-hidden="true">
                         <use href="/icons/lucide-sprite.svg?v=12#mic"></use>
@@ -338,6 +355,7 @@
         <p class="eyebrow" id="confirmationEyebrow">Bestätigung</p>
         <h2 id="confirmationTitle">Entwurf erstellen?</h2>
         <p id="confirmationMessage">Dieser Schritt kann Kosten verursachen.</p>
+        <div class="confirmation-extra hidden" id="confirmationExtra"></div>
         <div class="confirmation-actions">
           <button class="secondary-button" type="button" id="confirmationCancelButton">Abbrechen</button>
           <button class="primary-button" type="button" id="confirmationAcceptButton">Entwurf erstellen</button>
@@ -415,34 +433,52 @@
             <h2 id="mobilePreviewTitle">Arbeitsblatt-Konzept</h2>
             <p id="mobilePreviewSubtitle"></p>
           </div>
-          <div class="mobile-preview-controls">
-            <button class="icon-button mobile-preview-minimize-button" type="button" id="mobilePreviewMinimizeButton" aria-label="Vorschau kleinmachen" title="Vorschau kleinmachen">
-              <svg class="icon icon-small" aria-hidden="true">
-                <use href="/icons/lucide-sprite.svg?v=11#chevron-down"></use>
-              </svg>
-            </button>
-            <button class="icon-button mobile-preview-close-button" type="button" id="mobilePreviewCloseButton" aria-label="Vorschau schließen" title="Vorschau schließen">
-              <svg class="icon icon-small" aria-hidden="true">
-                <use href="/icons/lucide-sprite.svg?v=11#x"></use>
-              </svg>
-            </button>
-          </div>
+          <button class="mobile-preview-icon-button mobile-preview-close-icon-button" type="button" id="mobilePreviewCloseIconButton" aria-label="Vorschau schließen" title="Vorschau schließen">
+            <svg class="icon icon-small" aria-hidden="true">
+              <use href="/icons/lucide-sprite.svg?v=15#x"></use>
+            </svg>
+          </button>
         </header>
         <div class="mobile-preview-body" id="mobilePreviewBody"></div>
         <footer class="mobile-preview-footer" id="mobilePreviewFooter"></footer>
       </section>
-      <button class="mobile-preview-mini hidden" type="button" id="mobilePreviewMini" aria-label="Vorschau wieder öffnen">
-        <span id="mobilePreviewMiniLabel">Vorschau</span>
-        <strong>Öffnen</strong>
-      </button>
+    </div>
+    <button class="mobile-preview-mini hidden" type="button" id="mobilePreviewMini" aria-label="Geöffnete Vorschau wieder öffnen">
+      <span id="mobilePreviewMiniLabel">Vorschau</span>
+    </button>
+
+    <div class="voice-transcript-layer mobile-preview-layer hidden" id="voiceTranscriptLayer" aria-hidden="true">
+      <button class="mobile-preview-backdrop voice-transcript-backdrop" type="button" id="voiceTranscriptBackdrop" aria-label="Transkript schließen"></button>
+      <section class="mobile-preview-sheet voice-transcript-sheet" id="voiceTranscriptSheet" role="dialog" aria-modal="true" aria-labelledby="voiceTranscriptTitle">
+        <div class="mobile-preview-grip" aria-hidden="true"></div>
+        <header class="mobile-preview-header voice-transcript-header">
+          <div>
+            <p class="eyebrow">Transkript</p>
+            <h2 id="voiceTranscriptTitle">Text prüfen</h2>
+          </div>
+          <button class="mobile-preview-icon-button mobile-preview-close-icon-button" type="button" id="voiceTranscriptCloseButton" aria-label="Transkript schließen" title="Schließen">
+            <svg class="icon icon-small" aria-hidden="true">
+              <use href="/icons/lucide-sprite.svg?v=16#x"></use>
+            </svg>
+          </button>
+        </header>
+        <div class="mobile-preview-body voice-transcript-body">
+          <label class="sr-only" for="voiceTranscriptText">Transkript bearbeiten</label>
+          <textarea id="voiceTranscriptText" spellcheck="true" autocomplete="off"></textarea>
+        </div>
+        <footer class="mobile-preview-footer voice-transcript-footer">
+          <button class="primary-button voice-transcript-save-button" type="button" id="voiceTranscriptSaveButton">Speichern</button>
+        </footer>
+      </section>
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="/pwa.js?v=1"></script>
-    <script src="/candidateCards.js?v=1"></script>
+    <script src="/candidateCards.js?v=2"></script>
     <script src="/actionBindings.js?v=1"></script>
-    <script src="/mobilePreviewRenderer.js?v=1"></script>
+    <script src="/mobilePreviewRenderer.js?v=7"></script>
     <script src="/canvasRenderer.js?v=1"></script>
-    <script src="/app.js?v=166"></script>
+    <script src="/vendor/simplebar/simplebar.min.js?v=1"></script>
+    <script src="/app.js?v=183"></script>
   </body>
 </html>

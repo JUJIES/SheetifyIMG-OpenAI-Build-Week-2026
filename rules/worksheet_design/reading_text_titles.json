@@ -1,0 +1,64 @@
+{
+  "id": "worksheet_design.reading_text_titles",
+  "version": 2,
+  "scope": "worksheet_design",
+  "stages": ["content_mirror", "image_spec"],
+  "priority": 87,
+  "title": "Lesetext-Titel fachlich statt technisch",
+  "appliesWhen": {
+    "always": true
+  },
+  "instructions": [
+    "Sichtbare Lesetext- und Infotext-Ueberschriften muessen fachlich oder menschlich benannt sein, nicht nach App- oder Konzeptrollen.",
+    "Nutze generische Rollenlabels wie Material, Lesetext, Kurzinfo, Infotext, Sachtext oder Quelle nur als interne Rolle, nicht automatisch als sichtbare Ueberschrift.",
+    "Kombiniere kein Rollenlabel mit einem eigentlichen Titel wie 'Material: Die Hanse'; der sichtbare Titel ist dann nur 'Die Hanse'.",
+    "Seitenmarker wie 'Seite 1:' oder 'Page 2:' sind Planungsmarker, nicht Teil des sichtbaren Lesetexttitels.",
+    "Der Textkoerper beginnt mit dem eigentlichen Fliesstext und wiederholt die Ueberschrift nicht als Doppelpunkt-Anfang.",
+    "Wenn Arbeitsblatt-Titel und Lesetext-Titel identisch sind, reicht der Arbeitsblatt-Titel; wiederhole ihn nicht direkt als zweite Textueberschrift."
+  ],
+  "contentInstructions": [
+    "Nutze `readingTexts.role` fuer die interne Funktion: `reading_text`, `info_box`, `source_text` oder `work_instruction`.",
+    "`readingTexts.title` ist eine sichtbare fachliche Ueberschrift; wenn keine gute fachliche Ueberschrift passt, nutze einen leeren String statt `Material` oder `Lesetext`.",
+    "Schreibe keine Seitenmarker in `readingTexts.title`; aus `Seite 1: Fortpflanzung und Sozialverhalten` wird `Fortpflanzung und Sozialverhalten`.",
+    "`readingTexts.body` darf nicht mit `Titel: Fliesstext...` beginnen, wenn dieser Titel bereits in `readingTexts.title` steht."
+  ],
+  "imageSpecInstructions": [
+    "Rendere fachliche Lesetexttitel als eigene kleine Ueberschrift oder verzichte auf eine Ueberschrift, wenn kein fachlicher Titel freigegeben ist.",
+    "Rendere keine generischen sichtbaren Texttitel wie `Material:`, `Lesetext:`, `Kurzinfo:` oder `Infotext:`, ausser sie stehen ausdruecklich im freigegebenen sichtbaren Text.",
+    "Rendere keine Seitenmarker als Texttitel; nutze nur den konkreten Titelteil nach dem Marker.",
+    "Setze Lesetexttitel und Fliesstext natuerlich untereinander, nicht als doppelte Doppelpunkt-Zeile.",
+    "Wenn der Lesetexttitel dem Arbeitsblatt-Titel entspricht, starte den Lesetext direkt mit dem Fliesstext."
+  ],
+  "imagePromptInstructions": [
+    "Fachliche Lesetexttitel nutzen; keine generischen Rollenlabels oder Seitenmarker als sichtbare Titel erfinden.",
+    "Titel und Fliesstext natuerlich trennen; keinen Doppelpunktblock aus Titel plus Fliesstext bauen.",
+    "Identische Arbeitsblatt- und Lesetexttitel nicht direkt doppelt wiederholen."
+  ],
+  "examples": [
+    {
+      "bad": "readingTexts.title = \"Material: Die Hanse\"\nreadingTexts.body = \"Im Mittelalter ...\"",
+      "good": "readingTexts.role = \"source_text\"\nreadingTexts.title = \"Die Hanse\"\nreadingTexts.body = \"Im Mittelalter ...\"",
+      "reason": "Material ist die interne Funktion, Die Hanse ist die sichtbare Ueberschrift."
+    },
+    {
+      "bad": "readingTexts.title = \"Material\"\nreadingTexts.body = \"Die Hanse: Im Mittelalter ...\"",
+      "good": "readingTexts.role = \"source_text\"\nreadingTexts.title = \"Die Hanse\"\nreadingTexts.body = \"Im Mittelalter ...\"",
+      "reason": "Die echte Ueberschrift gehoert in den Titel; der Body beginnt mit dem Fliesstext."
+    },
+    {
+      "bad": "Kurzinfo:\nPflanzen koennen sich nicht fortbewegen ...",
+      "good": "Samenverbreitung\nPflanzen koennen sich nicht fortbewegen ...",
+      "reason": "Kurzinfo beschreibt die Rolle, nicht den sichtbaren fachlichen Inhalt."
+    },
+    {
+      "bad": "readingTexts.title = \"Seite 1: Fortpflanzung und Sozialverhalten\"",
+      "good": "readingTexts.title = \"Fortpflanzung und Sozialverhalten\"",
+      "reason": "Die Seite gehoert zur Planung; sichtbar ist nur der fachliche Texttitel."
+    },
+    {
+      "bad": "Die Hanse\nDie Hanse\nIm Mittelalter ...",
+      "good": "Die Hanse\nIm Mittelalter ...",
+      "reason": "Ein identischer Arbeitsblatt- und Lesetexttitel wird nur einmal sichtbar gebraucht."
+    }
+  ]
+}

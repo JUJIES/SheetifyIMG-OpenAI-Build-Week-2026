@@ -131,6 +131,7 @@ function sourceLabel(entry = {}) {
     proposal: "Konzeptvorschlag",
     chat_narration: "Chat-Begleittext",
     semantic_interpreter: "Input-Verstehen",
+    voice_input: "Spracheingabe",
     image_generation: "Bildgenerierung"
   };
   return labels[entry.source] || entry.source || entry.purpose || "OpenAI";

@@ -1,13 +1,17 @@
 "use strict";
 
-const { EXECUTION_POLICIES, INTENTS } = require("../chatIntentInterpreter");
+const { EXECUTION_POLICIES, INTENTS, TARGET_KINDS } = require("../chatIntentInterpreter");
 const {
   adoptionIntent,
+  adviceQuestionIntent,
   affirmativeIntent,
   autopilotIntent,
   brainstormingIntent,
+  candidateCreationHoldIntent,
   candidateGenerationIntent,
+  conceptCreationHoldIntent,
   conceptDesignRevisionIntent,
+  conceptRevisionRecommendationIntent,
   conceptVersionActionIntent,
   conceptVersionTarget,
   contentChangeIntent,
@@ -15,11 +19,14 @@ const {
   explicitWorksheetDepositIntent,
   hasCandidateContext,
   normalizeText,
+  proposalAdoptionHoldIntent,
   proposalIntent,
   questionIntent,
   revisionTerms,
   skipReferenceIntent,
   visualCandidateFeedbackIntent,
+  workflowActionStopIntent,
+  workflowCreationHoldIntent,
   worksheetTextCorrectionIntent
 } = require("../chatIntentSignals");
 const { visibleWorkflowCommands } = require("../workflowPolicy");
@@ -30,8 +37,7 @@ const AUTO_COMMANDS = new Set([
   "generate_content_mirror_proposal",
   "activate_content_mirror_version",
   "adopt_content_mirror_proposal",
-  "approve_current_content",
-  "deposit_worksheet"
+  "approve_current_content"
 ]);
 
 function latestAssistantMessage(messages = []) {
@@ -49,6 +55,9 @@ function isExecutableChatCommand(command = {}) {
 }
 
 function conceptRevisionQuestionIntent(message) {
+  if (adviceQuestionIntent(message)) {
+    return false;
+  }
   const text = normalizeText(message);
   return questionIntent(message)
     && /\b(konzept|arbeitsblatt-konzept|konzeptschritt|aufgabe|aufgaben|text|inhalt|phrase|phrasen|satzstarter|sprachmittel|bildidee)\b/.test(text)
@@ -85,8 +94,176 @@ function conceptRevisionContinuationIntent(workspace = {}, message = "") {
   if (!text || /\b(uebernehmen|ubernehmen|freigeben|freigabe|passt)\b/.test(text)) {
     return false;
   }
+  if (conceptRevisionRecommendationIntent(assistant?.content || "")) {
+    return true;
+  }
   return /\b(konzept|konzeptfassung|arbeitsblatt-konzept|sichtbare konzept)\b/.test(text)
     && /\b(ueberarbeit|uberarbeit|formuliere|formulieren|ausformulier|vollstaendig|vollstandig|saubere fassung|passenden stil|genau diesem stil)\b/.test(text);
+}
+
+function conceptRevisionContinuationMessage(workspace = {}, message = "") {
+  const assistant = latestAssistantMessage(workspace.chat?.messages || []);
+  const assistantText = String(assistant?.content || "").trim();
+  if (!conceptRevisionRecommendationIntent(assistantText)) {
+    return String(message || "").trim();
+  }
+  return [
+    "Setze die direkt vorherige Empfehlung der App als Arbeitsblatt-Konzept-Ueberarbeitung um.",
+    `Direkt vorherige Empfehlung:\n${assistantText}`,
+    `Bestaetigung der Lehrkraft: ${String(message || "").trim()}`
+  ].filter(Boolean).join("\n\n");
+}
+
+function followupWorksheetConceptIntent(workspace = {}, message = "") {
+  const text = normalizeText(message);
+  const asksForConcept = /\b(konzept|arbeitsblatt-konzept|struktur|formuliere|formulieren|ausformulier|erweiter|ausbau|ausarbeiten)\w*\b/.test(text);
+  if (!asksForConcept) {
+    return false;
+  }
+  const recentContext = (workspace.chat?.messages || [])
+    .slice(-6)
+    .map((entry) => normalizeText(entry.content || ""))
+    .join("\n");
+  return /\b(zweiter arbeitsbogen|zweiten arbeitsbogen|zweiter bogen|zweiten bogen|folgebogen|folge-bogen|folgeblatt|folgearbeitsblatt|projektbogen 1|naechster arbeitsbogen|naechsten arbeitsbogen|minecraft-raster|minecraft-abstecken|vom lageplan)\b/.test(recentContext);
+}
+
+function followupConceptMessage(workspace = {}, message = "") {
+  const context = (workspace.chat?.messages || [])
+    .slice(-5)
+    .map((entry) => `${entry.role === "assistant" ? "App" : "Lehrkraft"}: ${String(entry.content || "").trim()}`)
+    .filter((line) => line.replace(/^(App|Lehrkraft):\s*/, ""))
+    .join("\n");
+  return [
+    "Erstelle daraus ein neues Arbeitsblatt-Konzept fuer den Folgebogen.",
+    "Nutze den bisherigen Projektbogen nur als Projektkontext, nicht als zu erhaltenden Titel- oder Aufgabenbestand.",
+    context ? `Unmittelbare Aushandlung:\n${context}` : "",
+    `Aktuelle Lehrkraftnachricht: ${String(message || "").trim()}`
+  ].filter(Boolean).join("\n\n");
+}
+
+function conceptBasisAvailable(workspace = {}) {
+  return Boolean(
+    workspace.proposals?.latestContentMirror
+      || workspace.documents?.content?.data
+      || workspace.artifacts?.currentContent
+      || workspace.documents?.brief?.data
+  );
+}
+
+function intentTargetKind(intent = {}) {
+  return intent.target?.kind || "none";
+}
+
+function intentTargetsOpenProposal(intent = {}) {
+  return intentTargetKind(intent) === TARGET_KINDS.CONTENT_PROPOSAL;
+}
+
+function intentTargetsCurrentConcept(intent = {}) {
+  return intentTargetKind(intent) === TARGET_KINDS.CURRENT_CONCEPT;
+}
+
+function explicitCurrentConceptReference(message = "") {
+  const text = normalizeText(message);
+  return /\b(?:aktuell(?:e|er|es|en)?|bisherig(?:e|er|es|en)?|bestehend(?:e|er|es|en)?|gespeichert(?:e|er|es|en)?|arbeitsstand|konzeptbasis|inhalt\s+gleich)\b.{0,40}\b(?:konzept|basis|fassung|stand|inhalt)\b/.test(text)
+    || /\b(?:aus|mit|von|basierend auf)\s+(?:dem\s+)?(?:aktuellen|bisherigen|bestehenden|gespeicherten)\s+(?:konzept|arbeitsblatt-konzept|stand|arbeitsstand)\b/.test(text);
+}
+
+function intentTargetsConceptVersion(intent = {}) {
+  return intentTargetKind(intent) === TARGET_KINDS.CONCEPT_VERSION;
+}
+
+function intentTargetsDraft(intent = {}) {
+  return intentTargetKind(intent) === TARGET_KINDS.DRAFT;
+}
+
+function intentTargetsLatestOffer(intent = {}) {
+  return intentTargetKind(intent) === TARGET_KINDS.LATEST_OFFER;
+}
+
+function openContentProposalBasisPayload(workspace = {}) {
+  const proposal = workspace.proposals?.latestContentMirror || null;
+  return proposal?.proposalId
+    ? { basisProposalId: proposal.proposalId }
+    : {};
+}
+
+function withoutBasisProposalId(payload = {}) {
+  const next = { ...(payload || {}) };
+  delete next.basisProposalId;
+  return next;
+}
+
+function withoutReferenceImages(payload = {}) {
+  const next = { ...(payload || {}) };
+  delete next.referenceImages;
+  delete next.referencePolicy;
+  return next;
+}
+
+function recentConversationContext(workspace = {}, limit = 8) {
+  return (workspace.chat?.messages || [])
+    .slice(-limit)
+    .map((entry) => `${entry.role === "assistant" ? "App" : "Lehrkraft"}: ${String(entry.content || "").trim()}`)
+    .filter((line) => line.replace(/^(App|Lehrkraft):\s*/, ""))
+    .join("\n");
+}
+
+function newConceptFromContextMessage(workspace = {}, message = "") {
+  const context = recentConversationContext(workspace, 8);
+  return [
+    "Erstelle daraus ein neues vollstaendiges Arbeitsblatt-Konzept aus dem bisherigen Projekt- und Chatkontext.",
+    "Nutze das aktuelle oder offene Arbeitsblatt-Konzept nur als Kontext, Anschlussstelle und Qualitaetsrahmen.",
+    "Erhalte nicht automatisch Titel, Texte, Aufgaben oder Bildmaterialien des bisherigen Konzepts.",
+    "Wenn die Lehrkraft von Konzept v2, v3, v4 usw. spricht, ist das eine interne Konzeptversions- oder Vorschlagsreferenz. Verwende diese Zahl nicht automatisch als sichtbare Arbeitsblatt- oder Projektbogen-Nummer.",
+    "Die neue Fassung soll als eigenstaendiger Konzeptvorschlag pruefbar sein und darf eine neue Unterrichtsrichtung, einen Folgebogen oder eine Konzeptvariante bilden.",
+    context ? `Unmittelbare Aushandlung:\n${context}` : "",
+    `Aktuelle Lehrkraftnachricht: ${String(message || "").trim()}`
+  ].filter(Boolean).join("\n\n");
+}
+
+function newConceptContentRelationship(referenceImages = []) {
+  const designRoles = new Set(["style_reference", "layout_reference", "style_layout_reference"]);
+  return referenceImages.length > 0
+    && referenceImages.every((reference) => designRoles.has(reference.role))
+    ? "independent_design_reference"
+    : "contextual_new_concept";
+}
+
+function resolveNewConceptFromContextCommand(workspace = {}, message = "", source = "new_concept_from_context") {
+  if (!conceptBasisAvailable(workspace)) {
+    const initialCommand = commandById(workspace, "generate_lessonbrief_proposal");
+    if (!isExecutableChatCommand(initialCommand)) {
+      return null;
+    }
+    return {
+      command: initialCommand.id,
+      payload: {
+        ...(initialCommand.defaultPayload || {}),
+        message: String(message || "").trim()
+      },
+      source: `${source}_initial_concept`,
+      autopilot: false
+    };
+  }
+  const command = commandById(workspace, "generate_content_mirror_proposal");
+  if (!isExecutableChatCommand(command)) {
+    return null;
+  }
+  const referenceImages = referenceImagesForVariant(workspace, message);
+  const contentRelationship = newConceptContentRelationship(referenceImages);
+  return {
+    command: command.id,
+    payload: {
+      ...withoutBasisProposalId(command.defaultPayload || {}),
+      message: newConceptFromContextMessage(workspace, message),
+      revisionMode: "new_concept_from_context",
+      contentRelationship,
+      preserveUnmentionedConceptParts: false,
+      ...(referenceImages.length ? { nextCandidateReferenceImages: referenceImages } : {})
+    },
+    source,
+    autopilot: false
+  };
 }
 
 function wantsAction(message) {
@@ -117,6 +294,51 @@ function sortedCandidateTargets(workspace = {}) {
       ...entry.candidate,
       displayNumber: index + 1
     }));
+}
+
+function explicitRevisionTarget(intent = {}) {
+  const target = intent.revisionTarget && typeof intent.revisionTarget === "object"
+    ? intent.revisionTarget
+    : null;
+  return target?.source === "explicit" ? target : null;
+}
+
+function explicitDraftRevisionTarget(intent = {}) {
+  const target = explicitRevisionTarget(intent);
+  return target?.kind === "draft" ? target : null;
+}
+
+function explicitConceptRevisionTarget(intent = {}) {
+  const target = explicitRevisionTarget(intent);
+  return target?.kind === "concept" ? target : null;
+}
+
+function candidateTargetFromRevisionTarget(workspace = {}, target = null) {
+  if (!target || target.kind !== "draft") {
+    return null;
+  }
+  return sortedCandidateTargets(workspace).find((candidate) => {
+    const matchesCandidate = target.candidateId && candidate.id === target.candidateId;
+    const matchesRun = !target.runId || candidate.runId === target.runId;
+    return matchesCandidate && matchesRun;
+  }) || null;
+}
+
+function inferredDraftRevisionTarget(workspace = {}, message = "") {
+  const targetNumber = candidateNumberTarget(message);
+  if (!targetNumber) {
+    return null;
+  }
+  const candidate = sortedCandidateTargets(workspace)
+    .find((entry) => entry.displayNumber === targetNumber) || null;
+  return candidate ? {
+    source: "inferred",
+    kind: "draft",
+    label: `Entwurf ${targetNumber}`,
+    projectId: workspace.project?.projectId || null,
+    runId: candidate.runId || null,
+    candidateId: candidate.id || null
+  } : null;
 }
 
 function candidateNumberTarget(message) {
@@ -207,6 +429,15 @@ function normalizeReferencePath(value) {
   return text ? text.replaceAll("\\", "/").replace(/^\/+/, "") : null;
 }
 
+function normalizeRepoCandidatePath(value) {
+  const text = normalizeReferencePath(value);
+  if (!text) {
+    return null;
+  }
+  const runsIndex = text.indexOf("runs/");
+  return runsIndex >= 0 ? text.slice(runsIndex) : text;
+}
+
 function inferReferenceRole(message) {
   const text = normalizeText(message);
   if (/\b(layout|aufbau|komposition|struktur|anordnung|rand|abstand|weissraum|weißraum)\b/.test(text)) {
@@ -288,6 +519,9 @@ function resolveConceptVersionActivationCommand(workspace = {}, message = "") {
     return null;
   }
   const wantsCandidate = explicitCandidateGenerationIntent(message);
+  const referenceImages = wantsCandidate
+    ? referenceImagesForVariant(workspace, message)
+    : [];
   return {
     command: command.id,
     payload: {
@@ -297,6 +531,12 @@ function resolveConceptVersionActivationCommand(workspace = {}, message = "") {
     },
     source: "concept_version_activation",
     followUpCommand: wantsCandidate ? "generate_image_candidate" : null,
+    followUpPayload: wantsCandidate ? {
+      ...visualOnlyTextLockPayload(),
+      message: String(message || "").trim(),
+      variantInstruction: String(message || "").trim(),
+      ...(referenceImages.length ? { referenceImages } : {})
+    } : null,
     autoOpenConfirmation: wantsCandidate,
     autopilot: false
   };
@@ -320,7 +560,7 @@ function resolveContentProposalCandidateChainCommand(workspace = {}, message = "
     command: command.id,
     payload: command.defaultPayload || {},
     source: "content_proposal_candidate_chain",
-    followUpCommand: "generate_image_candidate",
+    followUpCommand: command.id === "generate_candidate_from_content_proposal" ? null : "generate_image_candidate",
     autoOpenConfirmation: true,
     autopilot: false
   };
@@ -379,6 +619,13 @@ function concreteVisualReferenceIntent(message) {
   return /\b(dieser|dieses|diese|diesen|dem|hier|screenshot|ausschnitt|markierung|crop|referenz|vorlage|wie candidate_\d+|candidate_\d+|aktueller entwurf|aktuellen entwurf|dieser entwurf|diesen entwurf|aktueller kandidat|aktuellen kandidat|dieser kandidat|diesen kandidat|behalten|genau so|gleiches layout|gleichen stil|gleicher stil)\b/.test(text);
 }
 
+function uploadedInputReferenceIntent(message) {
+  const text = normalizeText(message);
+  const uploadSignal = /\b(hochgeladen\w*|upload\w*|angehaengt\w*|angehangt\w*|beigefuegt\w*|beigefugt\w*|datei|bilddatei|stilbild|referenzbild)\b/.test(text);
+  const referenceSignal = /\b(stil|style|look|optik|referenz|vorlage|bild|screenshot|stilbild|referenzbild)\b/.test(text);
+  return uploadSignal && referenceSignal;
+}
+
 function candidateReferenceImages(workspace = {}, message = "") {
   if (!concreteVisualReferenceIntent(message)) {
     return [];
@@ -415,6 +662,35 @@ function candidateReferenceImages(workspace = {}, message = "") {
     .filter(Boolean);
 }
 
+function candidateReferenceImagesFromTarget(workspace = {}, target = null, message = "") {
+  const candidate = candidateTargetFromRevisionTarget(workspace, target);
+  if (!candidate) {
+    return [];
+  }
+  return (candidate.pages || [])
+    .filter((page) => page.path)
+    .slice(0, 2)
+    .map((page, index) => {
+      const pageNumber = Number(page.page || index + 1);
+      const refPath = normalizeRepoCandidatePath(page.path);
+      return refPath ? {
+        id: `ref_${candidate.id || "candidate"}_${pageNumber}`,
+        role: inferReferenceRole(message || target.label || ""),
+        path: refPath,
+        purpose: `Bestehenden ${target.label || candidate.id || "Entwurf"} als visuelle Referenz nutzen: ${String(message || "").trim()}`,
+        scope: referenceScopeForMessage(message),
+        source: {
+          projectId: workspace.project?.projectId || null,
+          runId: candidate.runId || target.runId || null,
+          candidateId: candidate.id || target.candidateId || null,
+          page: pageNumber,
+          role: page.role || null
+        }
+      } : null;
+    })
+    .filter(Boolean);
+}
+
 function persistentReferenceImagesFromLatestCandidate(workspace = {}, message = "") {
   if (concreteVisualReferenceIntent(message)) {
     return [];
@@ -429,11 +705,22 @@ function persistentReferenceImagesFromLatestCandidate(workspace = {}, message = 
     }));
 }
 
-function referenceImagesForVariant(workspace = {}, message = "") {
+function referenceImagesForVariant(workspace = {}, message = "", intent = {}) {
+  if (skipReferenceIntent(message)) {
+    return [];
+  }
+  const explicitTarget = explicitDraftRevisionTarget(intent);
+  const inferredTarget = explicitTarget ? null : inferredDraftRevisionTarget(workspace, message);
+  const hasTargetReference = Boolean(explicitTarget || inferredTarget);
+  const prefersPreparedUploadReference = uploadedInputReferenceIntent(message);
+  const targetReferences = hasTargetReference
+    ? candidateReferenceImagesFromTarget(workspace, explicitTarget || inferredTarget, message)
+    : [];
   const references = [
+    ...targetReferences,
     ...attachmentReferenceImages(workspace, message),
-    ...candidateReferenceImages(workspace, message),
-    ...persistentReferenceImagesFromLatestCandidate(workspace, message)
+    ...(hasTargetReference || prefersPreparedUploadReference ? [] : candidateReferenceImages(workspace, message)),
+    ...(hasTargetReference || prefersPreparedUploadReference ? [] : persistentReferenceImagesFromLatestCandidate(workspace, message))
   ];
   const seen = new Set();
   return references
@@ -460,8 +747,24 @@ function openContentProposalCommand(workspace = {}) {
   if (!hasOpenContentProposal) {
     return null;
   }
-  const command = commandById(workspace, "adopt_content_mirror_proposal");
-  return command?.enabled ? command : null;
+  const candidateCommand = commandById(workspace, "generate_candidate_from_content_proposal");
+  if (candidateCommand?.enabled) {
+    return candidateCommand;
+  }
+  const adoptCommand = commandById(workspace, "adopt_content_mirror_proposal");
+  return adoptCommand?.enabled ? adoptCommand : null;
+}
+
+function contentProposalAdoptionCommand(workspace = {}, wantsCandidate = false) {
+  const hasOpenContentProposal = Boolean(workspace.proposals?.latestContentMirror);
+  if (!hasOpenContentProposal) {
+    return null;
+  }
+  if (wantsCandidate) {
+    return openContentProposalCommand(workspace);
+  }
+  const adoptCommand = commandById(workspace, "adopt_content_mirror_proposal");
+  return adoptCommand?.enabled ? adoptCommand : null;
 }
 
 function openProposalCandidateOrContinuationIntent(message) {
@@ -471,47 +774,72 @@ function openProposalCandidateOrContinuationIntent(message) {
     || /\b(entwurf\w*|variante\w*|kandidat\w*|bildentwurf\w*|bildkandidat\w*|bildgenerier\w*|bildgenerierung|render\w*|direkt weiter|weiter machen|weitermachen|naechster schritt|nächster schritt)\b/.test(text);
 }
 
-function recentAutopilotIntent(workspace = {}) {
-  return (workspace.chat?.messages || [])
-    .filter((message) => message.role === "user")
-    .slice(-4)
-    .some((message) => autopilotIntent(message.content || ""));
-}
-
 function shouldUseAutopilot(workspace, message, commandId) {
-  if (autopilotIntent(message)) {
-    return true;
-  }
-  return commandId === "adopt_lessonbrief_proposal" && recentAutopilotIntent(workspace);
+  return autopilotIntent(message);
 }
 
-function resolveConceptRevisionCommand(workspace = {}, message = "") {
-  if (visualReferenceForCandidateIntent(workspace, message)) {
+function resolveConceptRevisionCommand(workspace = {}, message = "", options = {}) {
+  const trustFinalIntent = options.trustFinalIntent === true;
+  if (!trustFinalIntent && adviceQuestionIntent(message)) {
     return null;
   }
-  if (candidateVariantIntent(workspace, message)) {
+  if (!trustFinalIntent && visualReferenceForCandidateIntent(workspace, message)) {
     return null;
   }
-  const hasConceptBasis = Boolean(
-    workspace.proposals?.latestContentMirror
-      || workspace.documents?.content?.data
-      || workspace.documents?.brief?.data
-  );
-  if (!(conceptRevisionIntent(message) || conceptRevisionContinuationIntent(workspace, message)) || !hasConceptBasis) {
+  if (!trustFinalIntent && candidateVariantIntent(workspace, message)) {
+    return null;
+  }
+  const hasConceptBasis = conceptBasisAvailable(workspace);
+  const continuation = conceptRevisionContinuationIntent(workspace, message);
+  if ((!trustFinalIntent && !(conceptRevisionIntent(message) || continuation)) || !hasConceptBasis) {
     return null;
   }
   const command = commandById(workspace, "generate_content_mirror_proposal");
   if (!isExecutableChatCommand(command)) {
     return null;
   }
+  const followupConcept = followupWorksheetConceptIntent(workspace, message);
+  const commandPayload = command.defaultPayload || {};
+  const basisPayload = followupConcept ? {} : openContentProposalBasisPayload(workspace);
+  const revisionPayload = followupConcept
+    ? {
+        revisionMode: "followup_concept",
+        preserveUnmentionedConceptParts: false
+      }
+    : {
+        revisionMode: "patch",
+        preserveUnmentionedConceptParts: true,
+        ...basisPayload
+      };
   return {
     command: command.id,
     payload: {
-      ...(command.defaultPayload || {}),
-      message: String(message || "").trim()
+      ...(followupConcept ? withoutBasisProposalId(commandPayload) : commandPayload),
+      message: followupConcept
+        ? followupConceptMessage(workspace, message)
+        : continuation
+          ? conceptRevisionContinuationMessage(workspace, message)
+          : String(message || "").trim(),
+      ...revisionPayload
     },
-    source: "concept_revision_feedback",
+    source: followupConcept
+      ? "followup_concept_revision_feedback"
+      : basisPayload.basisProposalId
+        ? "open_content_proposal_revision_feedback"
+        : "concept_revision_feedback",
     autopilot: false
+  };
+}
+
+function conceptRevisionPayload(command = {}, message = "", target = null, extra = {}) {
+  return {
+    ...(command.defaultPayload || {}),
+    message: String(message || "").trim(),
+    revisionMode: "patch",
+    preserveUnmentionedConceptParts: true,
+    ...(target?.proposalId ? { basisProposalId: target.proposalId } : {}),
+    ...(target ? { revisionTarget: target } : {}),
+    ...extra
   };
 }
 
@@ -540,7 +868,57 @@ function intentAllowsActionOffer(intent = {}) {
   ].includes(intent.executionPolicy);
 }
 
+function intentCanProceedDespiteWorkflowHold(intent = {}) {
+  return (intent.intent === INTENTS.CONCEPT_REVISION && intent.wantsContentChange === true)
+    || intentTargetsConceptVersion(intent);
+}
+
+function workflowCreationHoldBlocksIntent(intent = {}, message = "") {
+  if (workflowActionStopIntent(message)) {
+    return true;
+  }
+  if (!workflowCreationHoldIntent(message)) {
+    return false;
+  }
+  return !intentCanProceedDespiteWorkflowHold(intent);
+}
+
+function proposalAdoptionHoldBlocksIntent(intent = {}, message = "") {
+  if (!proposalAdoptionHoldIntent(message)) {
+    return false;
+  }
+  return [
+    INTENTS.CONTENT_PROPOSAL_ADOPTION,
+    INTENTS.CONTENT_PROPOSAL_ADOPTION_CANDIDATE_CHAIN
+  ].includes(intent.intent)
+    || (
+      intent.intent === INTENTS.CANDIDATE_GENERATION
+      && intentTargetsOpenProposal(intent)
+    );
+}
+
+function scopedCreationHoldBlocksIntent(intent = {}, message = "") {
+  if (
+    candidateCreationHoldIntent(message)
+    && (
+      intent.wantsCandidate === true
+      || [
+        INTENTS.CANDIDATE_GENERATION,
+        INTENTS.CONTENT_PROPOSAL_ADOPTION_CANDIDATE_CHAIN,
+        INTENTS.SKIP_REFERENCE
+      ].includes(intent.intent)
+    )
+  ) {
+    return true;
+  }
+  return conceptCreationHoldIntent(message)
+    && intent.intent === INTENTS.CREATE_NEW_CONCEPT_FROM_CONTEXT;
+}
+
 function resolveConceptVersionActivationIntentCommand(workspace = {}, intent = {}) {
+  if (intent.intent !== INTENTS.CONCEPT_VERSION_ACTIVATION && !intentTargetsConceptVersion(intent)) {
+    return null;
+  }
   const version = Number(intent.target?.conceptVersion || 0) || null;
   if (!version) {
     return null;
@@ -554,6 +932,10 @@ function resolveConceptVersionActivationIntentCommand(workspace = {}, intent = {
     return null;
   }
   const wantsCandidate = intent.wantsCandidate === true;
+  const sourceMessage = intentMessage(intent);
+  const referenceImages = wantsCandidate
+    ? referenceImagesForVariant(workspace, sourceMessage, intent)
+    : [];
   return {
     command: command.id,
     payload: {
@@ -563,32 +945,52 @@ function resolveConceptVersionActivationIntentCommand(workspace = {}, intent = {
     },
     source: "chat_intent_concept_version_activation",
     followUpCommand: wantsCandidate ? "generate_image_candidate" : null,
+    followUpPayload: wantsCandidate ? {
+      ...visualOnlyTextLockPayload(),
+      message: sourceMessage,
+      variantInstruction: sourceMessage,
+      ...(intent.revisionTarget ? { revisionTarget: intent.revisionTarget } : {}),
+      ...(referenceImages.length ? { referenceImages } : {})
+    } : null,
     autoOpenConfirmation: wantsCandidate && intent.executionPolicy === EXECUTION_POLICIES.AUTO_EXECUTE_THEN_CONFIRMATION,
     autopilot: false
   };
 }
 
 function resolveContentProposalAdoptionIntentCommand(workspace = {}, intent = {}) {
-  const command = openContentProposalCommand(workspace);
+  const wantsCandidate = intent.intent === INTENTS.CONTENT_PROPOSAL_ADOPTION_CANDIDATE_CHAIN
+    || intent.wantsCandidate === true;
+  const command = contentProposalAdoptionCommand(workspace, wantsCandidate);
   if (!command || !isExecutableChatCommand(command)) {
     return null;
   }
-  const wantsCandidate = intent.intent === INTENTS.CONTENT_PROPOSAL_ADOPTION_CANDIDATE_CHAIN
-    || intent.wantsCandidate === true;
   return {
     command: command.id,
     payload: command.defaultPayload || {},
     source: wantsCandidate
       ? "chat_intent_content_proposal_candidate_chain"
       : "chat_intent_content_proposal_adoption",
-    followUpCommand: wantsCandidate ? "generate_image_candidate" : null,
-    autoOpenConfirmation: wantsCandidate && intent.executionPolicy === EXECUTION_POLICIES.AUTO_EXECUTE_THEN_CONFIRMATION,
+    followUpCommand: wantsCandidate && command.id !== "generate_candidate_from_content_proposal" ? "generate_image_candidate" : null,
+    autoOpenConfirmation: command.id === "generate_candidate_from_content_proposal"
+      ? intent.executionPolicy !== EXECUTION_POLICIES.MANUAL
+      : wantsCandidate && intent.executionPolicy === EXECUTION_POLICIES.AUTO_EXECUTE_THEN_CONFIRMATION,
     autopilot: false
   };
 }
 
 function resolveChatCommandFromIntent(workspace = {}, intent = {}, message = "") {
   const sourceMessage = intentMessage(intent, message);
+  if (workflowCreationHoldBlocksIntent(intent, sourceMessage)) {
+    return null;
+  }
+  if (proposalAdoptionHoldBlocksIntent(intent, sourceMessage)) {
+    return null;
+  }
+  if (scopedCreationHoldBlocksIntent(intent, sourceMessage)) {
+    return null;
+  }
+  const draftRevisionTarget = explicitDraftRevisionTarget(intent);
+  const conceptRevisionTarget = explicitConceptRevisionTarget(intent);
   const deposit = resolveWorksheetDepositCommand(workspace, sourceMessage, "chat_intent_worksheet_deposit");
   if (deposit) {
     return deposit;
@@ -600,18 +1002,44 @@ function resolveChatCommandFromIntent(workspace = {}, intent = {}, message = "")
     return null;
   }
 
+  if (intent.intent === INTENTS.CREATE_NEW_CONCEPT_FROM_CONTEXT) {
+    return resolveNewConceptFromContextCommand(workspace, sourceMessage, "chat_intent_new_concept_from_context");
+  }
+
   if (intent.wantsContentChange === true || intent.intent === INTENTS.CONCEPT_REVISION) {
-    const revision = resolveConceptRevisionCommand(workspace, sourceMessage);
+    if (draftRevisionTarget) {
+      return null;
+    }
+    if (conceptRevisionTarget) {
+      const command = commandById(workspace, "generate_content_mirror_proposal");
+      if (isExecutableChatCommand(command)) {
+        return {
+          command: command.id,
+          payload: conceptRevisionPayload(command, sourceMessage, conceptRevisionTarget),
+          source: "chat_intent_explicit_concept_revision",
+          autopilot: false
+        };
+      }
+    }
+    const revision = resolveConceptRevisionCommand(workspace, sourceMessage, {
+      trustFinalIntent: true
+    });
     if (revision) {
+      const revisionCommand = commandById(workspace, revision.command);
       return {
         ...revision,
-        source: "chat_intent_concept_revision"
+        payload: conceptRevisionPayload(revisionCommand, sourceMessage, conceptRevisionTarget, revision.payload || {}),
+        source: conceptRevisionTarget
+          ? "chat_intent_explicit_concept_revision"
+          : revision.source === "followup_concept_revision_feedback"
+            ? "chat_intent_followup_concept_revision"
+            : "chat_intent_concept_revision"
       };
     }
     return null;
   }
 
-  if (intent.intent === INTENTS.CONCEPT_VERSION_ACTIVATION || intent.target?.conceptVersion) {
+  if (intent.intent === INTENTS.CONCEPT_VERSION_ACTIVATION || intentTargetsConceptVersion(intent)) {
     const activation = resolveConceptVersionActivationIntentCommand(workspace, intent);
     if (activation) {
       return activation;
@@ -628,26 +1056,6 @@ function resolveChatCommandFromIntent(workspace = {}, intent = {}, message = "")
   return null;
 }
 
-function worksheetDepositOfferFromIntent(workspace = {}, intent = {}, message = "") {
-  const command = commandById(workspace, "deposit_worksheet");
-  if (!command?.enabled) {
-    return null;
-  }
-  const payload = worksheetDepositPayload(workspace, intentMessage(intent, message));
-  return {
-    source: "chat_intent_pdf_export_replaced_by_worksheet_deposit",
-    message: "PDF läuft jetzt über die Arbeitsblätter. Ich kann den aktuellen Entwurf als festen Arbeitsblatt-Snapshot ablegen; danach findest du ihn dort zum Prüfen und Herunterladen.",
-    suggestedActions: [{
-      command: command.id,
-      label: command.label || "Arbeitsblatt ablegen",
-      payload,
-      requiresConfirmation: command.requiresConfirmation === true,
-      confirmationKind: command.confirmationKind || null,
-      reason: command.reason || null
-    }]
-  };
-}
-
 function candidateOfferFromIntent(workspace = {}, intent = {}, message = "") {
   const sourceMessage = intentMessage(intent, message);
   const command = commandById(workspace, "generate_image_candidate");
@@ -655,25 +1063,27 @@ function candidateOfferFromIntent(workspace = {}, intent = {}, message = "") {
     return null;
   }
   const feedback = sourceMessage;
-  const referenceImages = referenceImagesForVariant(workspace, sourceMessage);
+  const revisionTarget = intent.revisionTarget || inferredDraftRevisionTarget(workspace, sourceMessage);
+  const referenceImages = referenceImagesForVariant(workspace, sourceMessage, intent);
   const hasExistingCandidate = hasCandidateContext(workspace);
   return {
     source: "chat_intent_candidate_generation_confirmation",
     message: referenceImages.length
       ? hasExistingCandidate
-        ? "Der Wunsch ist klar. Ich kann dafür eine weitere Bildvariante erzeugen und die markierte bzw. vorhandene Bildreferenz als Vorlage mitgeben. Die Bildgenerierung bestätigst du bitte bewusst."
+        ? "Der Wunsch ist klar. Ich kann dafür eine weitere Entwurfsvariante erzeugen und die markierte bzw. vorhandene Bildreferenz als Vorlage mitgeben. Die Bildgenerierung bestätigst du bitte bewusst."
         : "Der Wunsch ist klar. Ich kann dafür einen Entwurf erstellen und die markierte bzw. vorhandene Bildreferenz als Vorlage mitgeben. Die Bildgenerierung bestätigst du bitte bewusst."
       : hasExistingCandidate
-        ? "Der Wunsch ist klar. Ich kann dafür eine weitere Bildvariante erzeugen. Die Bildgenerierung bestätigst du bitte bewusst."
+        ? "Der Wunsch ist klar. Ich kann dafür eine weitere Entwurfsvariante erzeugen. Die Bildgenerierung bestätigst du bitte bewusst."
         : "Der Wunsch ist klar. Ich kann dafür einen Entwurf erstellen. Die Bildgenerierung bestätigst du bitte bewusst.",
     suggestedActions: [{
       command: command.id,
-      label: hasExistingCandidate ? "Weitere Variante erstellen" : command.label,
+      label: hasExistingCandidate ? "Weitere Entwurfsvariante erstellen" : command.label,
       payload: {
         ...(command.defaultPayload || {}),
         ...visualOnlyTextLockPayload(),
         message: feedback,
         variantInstruction: feedback,
+        ...(revisionTarget ? { revisionTarget } : {}),
         ...(referenceImages.length ? { referenceImages } : {})
       },
       requiresConfirmation: true,
@@ -698,7 +1108,7 @@ function skipReferenceOfferFromIntent(workspace = {}, intent = {}, message = "")
     suggestedActions: [{
       command: command.id,
       label: command.label || "Entwurf erstellen",
-      payload: command.defaultPayload || {},
+      payload: withoutReferenceImages(command.defaultPayload || {}),
       requiresConfirmation: command.requiresConfirmation === true,
       confirmationKind: command.confirmationKind || null,
       reason: command.reason || null,
@@ -707,7 +1117,33 @@ function skipReferenceOfferFromIntent(workspace = {}, intent = {}, message = "")
   };
 }
 
+function prepareReferenceAssetOfferFromIntent(workspace = {}, intent = {}, message = "") {
+  const sourceMessage = intentMessage(intent, message);
+  if (!uploadedInputReferenceIntent(sourceMessage)) {
+    return null;
+  }
+  const command = commandById(workspace, "prepare_reference_asset");
+  if (!command?.enabled) {
+    return null;
+  }
+  return {
+    source: "chat_intent_prepare_uploaded_reference",
+    message: "Ich kann das hochgeladene Bild erst als Stilreferenz fuer den naechsten Entwurf vorbereiten. Die Bildgenerierung startet dadurch noch nicht.",
+    suggestedActions: [{
+      command: command.id,
+      label: command.label || "Input als Referenz nutzen",
+      payload: command.defaultPayload || {},
+      requiresConfirmation: command.requiresConfirmation === true,
+      confirmationKind: command.confirmationKind || null,
+      reason: command.reason || null
+    }]
+  };
+}
+
 function conceptVersionActivationOfferFromIntent(workspace = {}, intent = {}) {
+  if (intent.intent !== INTENTS.CONCEPT_VERSION_ACTIVATION && !intentTargetsConceptVersion(intent)) {
+    return null;
+  }
   const version = Number(intent.target?.conceptVersion || 0) || null;
   const concept = conceptByVersion(workspace, version);
   const command = commandById(workspace, "activate_content_mirror_version");
@@ -719,10 +1155,10 @@ function conceptVersionActivationOfferFromIntent(workspace = {}, intent = {}) {
   }
   return {
     source: "chat_intent_concept_version_activation_offer",
-    message: `Ich kann Konzept v${concept.version || version} als aktuelle Basis setzen. Danach kann der Entwurfs-Schritt separat bestätigt werden.`,
+    message: `Ich kann Konzept v${concept.version || version} für den nächsten Schritt nutzen. Danach kann der Entwurfs-Schritt separat bestätigt werden.`,
     suggestedActions: [{
       command: command.id,
-      label: `Konzept v${concept.version || version} als Basis setzen`,
+      label: `Konzept v${concept.version || version} nutzen`,
       payload: {
         contentMirrorId: concept.id,
         conceptVersion: concept.version || version,
@@ -736,20 +1172,80 @@ function conceptVersionActivationOfferFromIntent(workspace = {}, intent = {}) {
 }
 
 function contentProposalAdoptionOfferFromIntent(workspace = {}, intent = {}) {
-  const command = openContentProposalCommand(workspace);
+  const wantsCandidate = intent.chainRequested === true || intent.wantsCandidate === true;
+  const command = contentProposalAdoptionCommand(workspace, wantsCandidate);
   if (!command) {
     return null;
   }
-  const wantsCandidate = intent.chainRequested === true || intent.wantsCandidate === true;
   return {
     source: "chat_intent_content_proposal_adoption_offer",
-    message: wantsCandidate
-      ? "Ich kann zuerst das offene Arbeitsblatt-Konzept übernehmen; danach wird der Entwurfs-Schritt auf genau dieser Basis angeboten."
-      : "Ich kann das offene Arbeitsblatt-Konzept übernehmen und als aktuelle Basis setzen.",
+    message: command.id === "generate_candidate_from_content_proposal"
+      ? "Ich kann aus dem offenen Arbeitsblatt-Konzept direkt einen Entwurf vorbereiten; die Bildgenerierung bestätigst du bewusst."
+      : wantsCandidate
+        ? "Ich kann mit dem offenen Arbeitsblatt-Konzept weiterarbeiten; danach wird der Entwurfs-Schritt angeboten."
+        : "Ich kann mit dem offenen Arbeitsblatt-Konzept weiterarbeiten.",
     suggestedActions: [{
       command: command.id,
-      label: command.label || "Konzept übernehmen",
+      label: command.label || (command.id === "generate_candidate_from_content_proposal" ? "Entwurf erstellen" : "Mit diesem Konzept weiterarbeiten"),
       payload: command.defaultPayload || {},
+      requiresConfirmation: command.requiresConfirmation === true,
+      confirmationKind: command.confirmationKind || null,
+      reason: command.reason || null,
+      autoOpenConfirmation: command.id === "generate_candidate_from_content_proposal" && wantsCandidate
+        ? true
+        : wantsCandidate && intent.executionPolicy === EXECUTION_POLICIES.AUTO_EXECUTE_THEN_CONFIRMATION
+    }]
+  };
+}
+
+function newConceptFromContextOfferFromIntent(workspace = {}, intent = {}, message = "") {
+  const sourceMessage = intentMessage(intent, message);
+  if (!conceptBasisAvailable(workspace)) {
+    const initialCommand = commandById(workspace, "generate_lessonbrief_proposal");
+    if (!initialCommand?.enabled) {
+      return null;
+    }
+    return {
+      source: "chat_intent_new_concept_from_context_initial_offer",
+      message: initialCommand.requiresConfirmation === true
+        ? "Ich kann daraus ein Arbeitsblatt-Konzept mit Annahmen erstellen. Offene Punkte bleiben dabei sichtbar, damit du den Vorschlag direkt prüfen kannst."
+        : "Ich kann daraus jetzt einen Arbeitsblatt-Konzeptvorschlag erstellen.",
+      suggestedActions: [{
+        command: initialCommand.id,
+        label: initialCommand.requiresConfirmation === true
+          ? "Konzept mit Annahmen erstellen"
+          : "Konzeptvorschlag erstellen",
+        payload: {
+          ...(initialCommand.defaultPayload || {}),
+          message: sourceMessage
+        },
+        requiresConfirmation: initialCommand.requiresConfirmation === true,
+        confirmationKind: initialCommand.confirmationKind || null,
+        reason: initialCommand.reason || null,
+        autoOpenConfirmation: initialCommand.requiresConfirmation === true
+      }]
+    };
+  }
+  const command = commandById(workspace, "generate_content_mirror_proposal");
+  if (!command?.enabled) {
+    return null;
+  }
+  const referenceImages = referenceImagesForVariant(workspace, sourceMessage, intent);
+  const contentRelationship = newConceptContentRelationship(referenceImages);
+  return {
+    source: "chat_intent_new_concept_from_context_offer",
+    message: "Ich kann daraus einen neuen Arbeitsblatt-Konzeptvorschlag auf Basis des bisherigen Projektkontexts erstellen. Der Vorschlag bleibt prüfbar und kann danach direkt für einen Entwurf genutzt oder weiter angepasst werden.",
+    suggestedActions: [{
+      command: command.id,
+      label: "Neuen Konzeptvorschlag erstellen",
+      payload: {
+        ...withoutBasisProposalId(command.defaultPayload || {}),
+        message: newConceptFromContextMessage(workspace, sourceMessage),
+        revisionMode: "new_concept_from_context",
+        contentRelationship,
+        preserveUnmentionedConceptParts: false,
+        ...(referenceImages.length ? { nextCandidateReferenceImages: referenceImages } : {})
+      },
       requiresConfirmation: command.requiresConfirmation === true,
       confirmationKind: command.confirmationKind || null,
       reason: command.reason || null
@@ -762,24 +1258,76 @@ function contentProposalBeforeCandidateOfferFromIntent(workspace = {}) {
   if (!contentProposalCommand) {
     return null;
   }
-  const label = contentProposalCommand.label || "Konzept aktualisieren";
+  const label = contentProposalCommand.label || (contentProposalCommand.id === "generate_candidate_from_content_proposal" ? "Entwurf erstellen" : "Mit diesem Konzept weiterarbeiten");
   return {
     source: "chat_intent_content_proposal_before_candidate",
-    message: "Es liegt noch eine offene Konzeptänderung vor. Ich sollte zuerst dieses Konzept aktualisieren; danach wird der nächste Entwurf auf genau dieser neuen Grundlage erzeugt.",
+    message: contentProposalCommand.id === "generate_candidate_from_content_proposal"
+      ? "Es liegt eine offene Konzeptänderung vor. Ich kann daraus direkt den nächsten Entwurf vorbereiten; die Bildgenerierung bestätigst du bewusst."
+      : "Es liegt eine offene Konzeptänderung vor. Ich arbeite zuerst mit diesem Arbeitsblatt-Konzept weiter; danach wird der nächste Entwurf angeboten.",
     suggestedActions: [{
       command: contentProposalCommand.id,
       label,
       payload: contentProposalCommand.defaultPayload || {},
       requiresConfirmation: contentProposalCommand.requiresConfirmation === true,
       confirmationKind: contentProposalCommand.confirmationKind || null,
-      reason: contentProposalCommand.reason || null
+      reason: contentProposalCommand.reason || null,
+      autoOpenConfirmation: contentProposalCommand.id === "generate_candidate_from_content_proposal"
+    }]
+  };
+}
+
+function conceptPatchRequiredOfferFromDraftTarget(workspace = {}, intent = {}, message = "") {
+  const target = explicitDraftRevisionTarget(intent);
+  if (!target || !(intent.wantsContentChange === true || intent.intent === INTENTS.CONCEPT_REVISION)) {
+    return null;
+  }
+  const command = commandById(workspace, "generate_content_mirror_proposal");
+  if (!command?.enabled) {
+    return null;
+  }
+  return {
+    source: "draft_revision_requires_concept_patch",
+    message: "Das betrifft das Arbeitsblatt-Konzept. Ich kann das Konzept gezielt anpassen; danach sollte der nächste Entwurf auf dieser neuen Grundlage entstehen.",
+    suggestedActions: [{
+      command: command.id,
+      label: "Konzept ändern und Entwurf neu erstellen",
+      payload: conceptRevisionPayload(command, intentMessage(intent, message), target, {
+        followUpIntent: "candidate_from_concept_patch"
+      }),
+      requiresConfirmation: command.requiresConfirmation === true,
+      confirmationKind: command.confirmationKind || null,
+      reason: command.reason || null
     }]
   };
 }
 
 function resolveChatActionOfferFromIntent(workspace = {}, intent = {}, message = "") {
+  const sourceMessage = intentMessage(intent, message);
+  const prepareReference = prepareReferenceAssetOfferFromIntent(workspace, intent, sourceMessage);
+  if (prepareReference) {
+    return prepareReference;
+  }
+  if (workflowCreationHoldBlocksIntent(intent, sourceMessage)) {
+    return null;
+  }
+  if (proposalAdoptionHoldBlocksIntent(intent, sourceMessage)) {
+    return null;
+  }
+  if (scopedCreationHoldBlocksIntent(intent, sourceMessage)) {
+    return null;
+  }
   if (!usableWorkflowIntent(intent)) {
     return null;
+  }
+  const conceptPatchRequired = conceptPatchRequiredOfferFromDraftTarget(workspace, intent, message);
+  if (conceptPatchRequired) {
+    return conceptPatchRequired;
+  }
+  if (intent.intent === INTENTS.CREATE_NEW_CONCEPT_FROM_CONTEXT) {
+    const newConceptOffer = newConceptFromContextOfferFromIntent(workspace, intent, message);
+    if (newConceptOffer) {
+      return newConceptOffer;
+    }
   }
   if (!intentAllowsActionOffer(intent)) {
     return null;
@@ -787,7 +1335,7 @@ function resolveChatActionOfferFromIntent(workspace = {}, intent = {}, message =
   if (intent.wantsContentChange === true || intent.intent === INTENTS.CONCEPT_REVISION) {
     return null;
   }
-  if (intent.intent === INTENTS.CONCEPT_VERSION_ACTIVATION || intent.target?.conceptVersion) {
+  if (intent.intent === INTENTS.CONCEPT_VERSION_ACTIVATION || intentTargetsConceptVersion(intent)) {
     const activationOffer = conceptVersionActivationOfferFromIntent(workspace, intent);
     if (activationOffer) {
       return activationOffer;
@@ -802,20 +1350,34 @@ function resolveChatActionOfferFromIntent(workspace = {}, intent = {}, message =
   ) {
     return contentProposalAdoptionOfferFromIntent(workspace, intent);
   }
-  if (intent.intent === INTENTS.PDF_EXPORT || intent.intent === INTENTS.SELECTION) {
-    return worksheetDepositOfferFromIntent(workspace, intent, message);
+  if (intent.intent === INTENTS.PDF_EXPORT) {
+    return null;
   }
   if (intent.intent === INTENTS.SKIP_REFERENCE) {
     return skipReferenceOfferFromIntent(workspace, intent, message);
   }
   if (intent.intent === INTENTS.CANDIDATE_GENERATION || intent.wantsCandidate === true) {
-    const pendingProposalOffer = contentProposalBeforeCandidateOfferFromIntent(workspace);
+    const pendingProposalOffer = (
+      intentTargetsDraft(intent)
+      || intentTargetsConceptVersion(intent)
+      || intentTargetsOpenProposal(intent)
+      || intentTargetsLatestOffer(intent)
+      || intentTargetsCurrentConcept(intent)
+    )
+      ? null
+      : contentProposalBeforeCandidateOfferFromIntent(workspace);
     return pendingProposalOffer || candidateOfferFromIntent(workspace, intent, message);
   }
   return null;
 }
 
 function resolveChatActionOffer(workspace = {}, message = "") {
+  if (adviceQuestionIntent(message)) {
+    return null;
+  }
+  if (workflowCreationHoldIntent(message)) {
+    return null;
+  }
   if (visualReferenceForCandidateIntent(workspace, message)) {
     const command = commandById(workspace, "generate_image_candidate");
     const feedback = String(message || "").trim();
@@ -823,11 +1385,11 @@ function resolveChatActionOffer(workspace = {}, message = "") {
     return {
       source: "visual_reference_candidate_confirmation",
       message: referenceImages.length
-        ? "Ich nutze das angehängte Bild als Layout- bzw. Stilreferenz für den nächsten Entwurf. Inhaltlich bleibt das freigegebene Arbeitsblatt-Konzept maßgeblich; die Bildgenerierung bestätigst du bitte bewusst."
+        ? "Ich nutze das angehängte Bild als Layout- bzw. Stilreferenz für den nächsten Entwurf. Inhaltlich bleibt das Arbeitsblatt-Konzept maßgeblich; die Bildgenerierung bestätigst du bitte bewusst."
         : "Ich kann daraus jetzt den nächsten Entwurf erstellen; die Bildgenerierung bestätigst du bitte bewusst.",
       suggestedActions: [{
         command: command.id,
-        label: hasCandidateContext(workspace) ? "Weitere Variante erstellen" : command.label,
+        label: hasCandidateContext(workspace) ? "Weitere Entwurfsvariante erstellen" : command.label,
         payload: {
           ...(command.defaultPayload || {}),
           message: feedback,
@@ -865,17 +1427,21 @@ function resolveChatActionOffer(workspace = {}, message = "") {
 
   const contentProposalCommand = openContentProposalCommand(workspace);
   if (contentProposalCommand && openProposalCandidateOrContinuationIntent(message)) {
-    const label = contentProposalCommand.label || "Konzept aktualisieren";
+    const label = contentProposalCommand.label || (contentProposalCommand.id === "generate_candidate_from_content_proposal" ? "Entwurf erstellen" : "Mit diesem Konzept weiterarbeiten");
     return {
       source: "content_proposal_before_candidate",
-      message: "Es liegt noch eine offene Konzeptänderung vor. Ich sollte zuerst dieses Konzept aktualisieren; danach wird der nächste Entwurf auf genau dieser neuen Grundlage erzeugt.",
+      message: contentProposalCommand.id === "generate_candidate_from_content_proposal"
+        ? "Es liegt eine offene Konzeptänderung vor. Ich kann daraus direkt den nächsten Entwurf vorbereiten; die Bildgenerierung bestätigst du bewusst."
+        : "Es liegt eine offene Konzeptänderung vor. Ich arbeite zuerst mit diesem Arbeitsblatt-Konzept weiter; danach wird der nächste Entwurf auf genau dieser Grundlage erzeugt.",
       suggestedActions: [{
         command: contentProposalCommand.id,
         label,
         payload: contentProposalCommand.defaultPayload || {},
         requiresConfirmation: contentProposalCommand.requiresConfirmation === true,
         confirmationKind: contentProposalCommand.confirmationKind || null,
-        reason: contentProposalCommand.reason || null
+        reason: contentProposalCommand.reason || null,
+        autoOpenConfirmation: contentProposalCommand.id === "generate_candidate_from_content_proposal"
+          || explicitCandidateGenerationIntent(message)
       }]
     };
   }
@@ -889,7 +1455,7 @@ function resolveChatActionOffer(workspace = {}, message = "") {
         suggestedActions: [{
           command: command.id,
           label: command.label || "Entwurf erstellen",
-          payload: command.defaultPayload || {},
+          payload: withoutReferenceImages(command.defaultPayload || {}),
           requiresConfirmation: command.requiresConfirmation === true,
           confirmationKind: command.confirmationKind || null,
           reason: command.reason || null,
@@ -909,14 +1475,14 @@ function resolveChatActionOffer(workspace = {}, message = "") {
         source: "candidate_generation_confirmation",
         message: referenceImages.length
           ? hasExistingCandidate
-            ? "Der Wunsch ist klar. Ich kann dafür eine weitere Bildvariante erzeugen und die markierte bzw. vorhandene Bildreferenz als Vorlage mitgeben. Die Bildgenerierung bestätigst du bitte bewusst."
+            ? "Der Wunsch ist klar. Ich kann dafür eine weitere Entwurfsvariante erzeugen und die markierte bzw. vorhandene Bildreferenz als Vorlage mitgeben. Die Bildgenerierung bestätigst du bitte bewusst."
             : "Der Wunsch ist klar. Ich kann dafür einen Entwurf erstellen und die markierte bzw. vorhandene Bildreferenz als Vorlage mitgeben. Die Bildgenerierung bestätigst du bitte bewusst."
           : hasExistingCandidate
-            ? "Der Wunsch ist klar. Ich kann dafür eine weitere Bildvariante erzeugen. Die Bildgenerierung bestätigst du bitte bewusst."
+            ? "Der Wunsch ist klar. Ich kann dafür eine weitere Entwurfsvariante erzeugen. Die Bildgenerierung bestätigst du bitte bewusst."
             : "Der Wunsch ist klar. Ich kann dafür einen Entwurf erstellen. Die Bildgenerierung bestätigst du bitte bewusst.",
         suggestedActions: [{
           command: command.id,
-          label: hasExistingCandidate ? "Weitere Variante erstellen" : command.label,
+          label: hasExistingCandidate ? "Weitere Entwurfsvariante erstellen" : command.label,
           payload: {
             ...(command.defaultPayload || {}),
             ...visualOnlyTextLockPayload(),
@@ -929,20 +1495,6 @@ function resolveChatActionOffer(workspace = {}, message = "") {
           reason: command.reason || null,
           autoOpenConfirmation: explicitCandidateGenerationIntent(message)
         }]
-      };
-    }
-  }
-  return null;
-}
-
-function latestSuggestedCommand(workspace, assistant) {
-  for (const action of assistant?.suggestedActions || []) {
-    const commandId = action.command || action.id;
-    const command = commandById(workspace, commandId);
-    if (isExecutableChatCommand(command)) {
-      return {
-        command,
-        payload: action.payload || command.defaultPayload || {}
       };
     }
   }
@@ -962,22 +1514,22 @@ function preferredVisibleCommand(workspace, message) {
 
   if (adoptionIntent(message)) {
     return prefer([
-      "adopt_lessonbrief_proposal",
       "adopt_content_mirror_proposal",
-      "approve_current_content"
+      "approve_current_content",
+      "adopt_lessonbrief_proposal"
     ]) || visible[0];
   }
   if (/\b(aufgabe|aufgaben|text|lesetext|inhalt|material)\b/.test(text)) {
     return prefer(["generate_content_mirror_proposal", "adopt_content_mirror_proposal", "approve_current_content"]) || visible[0];
   }
   if (/\b(pdf|export)\b/.test(text)) {
-    return prefer(["deposit_worksheet", "generate_image_candidate"]) || visible[0];
+    return null;
   }
   if (/\b(arbeitsblatt|arbeitsblaetter|arbeitsblatter|ableg|ablegen|ablage)\b/.test(text)) {
-    return prefer(["deposit_worksheet"]) || visible[0];
+    return null;
   }
   if (/\b(entwurf|entwurfe|kandidat|auswahl)\b/.test(text)) {
-    return prefer(["deposit_worksheet", "generate_image_candidate"]) || visible[0];
+    return prefer(["generate_image_candidate"]) || visible[0];
   }
   return visible[0];
 }
@@ -990,6 +1542,12 @@ function assistantOfferedNextStep(assistant = {}) {
 }
 
 function resolveChatCommand(workspace = {}, message = "") {
+  if (adviceQuestionIntent(message)) {
+    return null;
+  }
+  if (workflowCreationHoldIntent(message)) {
+    return null;
+  }
   const deposit = resolveWorksheetDepositCommand(workspace, message);
   if (deposit) {
     return deposit;
@@ -1029,7 +1587,7 @@ function resolveChatCommand(workspace = {}, message = "") {
     if (fallbackCommand) {
       return {
         command: fallbackCommand.id,
-        payload: fallbackCommand.defaultPayload || {},
+        payload: withoutReferenceImages(fallbackCommand.defaultPayload || {}),
         source: "skip_reference_intent",
         autopilot: shouldUseAutopilot(workspace, message, fallbackCommand.id)
       };
@@ -1037,15 +1595,6 @@ function resolveChatCommand(workspace = {}, message = "") {
   }
 
   const assistant = latestAssistantMessage(workspace.chat?.messages || []);
-  const suggested = latestSuggestedCommand(workspace, assistant);
-  if (suggested) {
-    return {
-      command: suggested.command.id,
-      payload: suggested.payload,
-      source: "assistant_suggested_action",
-      autopilot: shouldUseAutopilot(workspace, message, suggested.command.id)
-    };
-  }
 
   if (!assistantOfferedNextStep(assistant) && !proposalIntent(message) && !adoptionIntent(message)) {
     return null;

@@ -3,10 +3,12 @@
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const http = require("node:http");
+const https = require("node:https");
 const os = require("node:os");
 const path = require("node:path");
 const { readChat, sendChatMessage } = require("../core/aiChatManager");
 const { addInputUpload } = require("../core/inputManager");
+const { transcribeProjectAudio } = require("../core/voiceInputManager");
 const { buildBillingStatus } = require("../core/billingStatusManager");
 const {
   buildLibraryTree,
@@ -17,7 +19,6 @@ const {
   removeProjectFromLibrary,
   updateLibraryFolder
 } = require("../core/libraryManager");
-const { loadLocalEnv } = require("../core/localEnv");
 const {
   createSingleWorksheetProject,
   deleteProject,
@@ -42,7 +43,21 @@ const {
   renameWorksheet,
   updateWorksheetFolder
 } = require("../core/worksheetLibraryManager");
-const { markCandidateGenerationSeen } = require("../core/candidateGenerationJobManager");
+const {
+  beginCandidateGenerationShutdown,
+  markCandidateGenerationSeen,
+  waitForActiveCandidateGenerationJobs
+} = require("../core/candidateGenerationJobManager");
+const {
+  loadServerEnvironment,
+  resolveServerConfig,
+  safeServerConfig
+} = require("./runtime-config");
+const {
+  checkRuntimeReadiness,
+  prepareRuntime,
+  writeRuntimeProbe
+} = require("./runtime-health");
 
 const repoRoot = path.resolve(__dirname, "..");
 const AI_ENV_KEYS = [
@@ -57,6 +72,9 @@ const AI_ENV_KEYS = [
   "SHEETIFYIMG_REASONING_MODEL",
   "SHEETIFYIMG_REASONING_EFFORT",
   "SHEETIFYIMG_OPENAI_TIMEOUT_MS",
+  "SHEETIFYIMG_TRANSCRIPTION_MODEL",
+  "SHEETIFYIMG_TRANSCRIPTION_LANGUAGE",
+  "SHEETIFYIMG_TRANSCRIPTION_TIMEOUT_MS",
   "SHEETIFYIMG_CHAT_INTENT_INTERPRETER",
   "SHEETIFYIMG_IMAGE_MODEL",
   "SHEETIFYIMG_IMAGE_PROVIDER",
@@ -75,26 +93,31 @@ const AI_ENV_KEYS = [
   "SHEETIFYIMG_CODEX_IMAGE_TIMEOUT_MS",
   "SHEETIFYIMG_CODEX_GENERATED_IMAGES_DIR"
 ];
-loadLocalEnv(repoRoot, { overrideKeys: AI_ENV_KEYS });
+loadServerEnvironment({ repoRoot, localOverrideKeys: AI_ENV_KEYS });
 if (!process.env.SHEETIFYIMG_SEMANTIC_INTERPRETER) {
   process.env.SHEETIFYIMG_SEMANTIC_INTERPRETER = "on";
 }
+if (!process.env.SHEETIFYIMG_CHAT_INTENT_INTERPRETER) {
+  process.env.SHEETIFYIMG_CHAT_INTENT_INTERPRETER = "on";
+}
 
-const projectsDir = process.env.PROJECTS_DIR
-  ? path.resolve(process.env.PROJECTS_DIR)
-  : path.join(repoRoot, "projects");
-const worksheetsDir = process.env.WORKSHEETS_DIR
-  ? path.resolve(process.env.WORKSHEETS_DIR)
-  : path.join(repoRoot, "worksheets");
-const publicDir = path.join(repoRoot, "public");
-const defaultPort = Number(process.env.PORT || 4173);
-const defaultHost = process.env.SHEETIFYIMG_BIND_HOST || process.env.HOST || "127.0.0.1";
+const serverConfig = resolveServerConfig({ repoRoot });
+const {
+  projectsDir,
+  worksheetsDir,
+  publicDir,
+  port: defaultPort,
+  host: defaultHost,
+  httpsKeyPath,
+  httpsCertPath,
+  httpsEnabled
+} = serverConfig;
 
 function normalizeBaseUrl(value) {
   return String(value || "").trim().replace(/\/+$/, "");
 }
 
-function hostToHttpUrl(host, port) {
+function hostToHttpUrl(host, port, scheme = httpsEnabled ? "https" : "http") {
   const trimmed = String(host || "").trim();
   if (!trimmed) {
     return null;
@@ -103,15 +126,15 @@ function hostToHttpUrl(host, port) {
     return normalizeBaseUrl(trimmed);
   }
   if (trimmed.startsWith("[")) {
-    return `http://${trimmed}${trimmed.includes("]:") ? "" : `:${port}`}`;
+    return `${scheme}://${trimmed}${trimmed.includes("]:") ? "" : `:${port}`}`;
   }
   if (trimmed.includes(":") && !trimmed.includes("]") && !/^\d+\.\d+\.\d+\.\d+(?::\d+)?$/.test(trimmed)) {
-    return `http://[${trimmed}]:${port}`;
+    return `${scheme}://[${trimmed}]:${port}`;
   }
   if (/[^\]]:\d+$/.test(trimmed)) {
-    return `http://${trimmed}`;
+    return `${scheme}://${trimmed}`;
   }
-  return `http://${trimmed}:${port}`;
+  return `${scheme}://${trimmed}:${port}`;
 }
 
 function localNetworkAddresses() {
@@ -153,7 +176,7 @@ function isLocalShareUrl(value) {
     || hostname.endsWith(".localhost");
 }
 
-function shareUrlFromBase(baseUrl, currentUrl, projectId) {
+function shareUrlFromBase(baseUrl, currentUrl) {
   const base = parseHttpUrl(baseUrl);
   if (!base) {
     return null;
@@ -161,13 +184,9 @@ function shareUrlFromBase(baseUrl, currentUrl, projectId) {
 
   const current = parseHttpUrl(currentUrl);
   base.pathname = current?.pathname || "/";
-  base.search = current?.search || "";
+  base.search = "";
   base.hash = "";
-
-  const cleanProjectId = String(projectId || "").trim();
-  if (cleanProjectId) {
-    base.searchParams.set("project", cleanProjectId);
-  }
+  base.searchParams.set("view", "projects");
   return base.toString();
 }
 
@@ -189,7 +208,6 @@ function shareTargetDetail(label, url) {
 
 async function buildShareTargets(request, options = {}) {
   const currentUrl = String(options.currentUrl || "").trim();
-  const projectId = String(options.projectId || "").trim();
   const hostHeader = request.headers.host ? `http://${request.headers.host}` : null;
   const current = parseHttpUrl(currentUrl);
   const sourceUrl = current?.toString() || hostHeader || hostToHttpUrl(defaultHost, defaultPort);
@@ -197,7 +215,7 @@ async function buildShareTargets(request, options = {}) {
   const entries = [];
 
   const addEntry = (label, baseUrl, kind) => {
-    const url = shareUrlFromBase(baseUrl, sourceUrl, projectId);
+    const url = shareUrlFromBase(baseUrl, sourceUrl);
     if (!url || entries.some((entry) => entry.url === url)) {
       return;
     }
@@ -220,7 +238,10 @@ async function buildShareTargets(request, options = {}) {
   }
 
   const currentIndex = entries.findIndex((entry) => entry.kind === "current");
-  const preferredNetworkIndex = entries.findIndex((entry) => !entry.localOnly);
+  const sameServerNetworkIndex = entries.findIndex((entry) => entry.label === "Netzwerk" && !entry.localOnly);
+  const preferredNetworkIndex = sameServerNetworkIndex >= 0
+    ? sameServerNetworkIndex
+    : entries.findIndex((entry) => !entry.localOnly);
   const preferredIndex = currentIndex >= 0 && !entries[currentIndex].localOnly
     ? currentIndex
     : preferredNetworkIndex >= 0 ? preferredNetworkIndex : Math.max(0, currentIndex);
@@ -249,7 +270,7 @@ async function buildShareTargets(request, options = {}) {
   };
 }
 
-function serverUrls(host, port) {
+function serverUrls(host, port, scheme = httpsEnabled ? "https" : "http") {
   const urls = [];
   const addUrl = (label, url) => {
     if (!url || urls.some((entry) => entry.url === url)) {
@@ -259,25 +280,35 @@ function serverUrls(host, port) {
   };
 
   addUrl("Homebildschirm", normalizeBaseUrl(process.env.SHEETIFYIMG_PUBLIC_URL));
-  addUrl("Homebildschirm", hostToHttpUrl(process.env.SHEETIFYIMG_PUBLIC_HOST, port));
+  addUrl("Homebildschirm", hostToHttpUrl(process.env.SHEETIFYIMG_PUBLIC_HOST, port, scheme));
 
   if (isWildcardHost(host)) {
-    addUrl("Lokal", hostToHttpUrl("127.0.0.1", port));
+    addUrl("Lokal", hostToHttpUrl("127.0.0.1", port, scheme));
     for (const address of localNetworkAddresses()) {
-      addUrl("Netzwerk", hostToHttpUrl(address, port));
+      addUrl("Netzwerk", hostToHttpUrl(address, port, scheme));
     }
-    addUrl("Mac-Name", hostToHttpUrl(os.hostname(), port));
+    addUrl("Mac-Name", hostToHttpUrl(os.hostname(), port, scheme));
     return urls;
   }
 
-  addUrl(host === "127.0.0.1" || host === "localhost" ? "Lokal" : "Netzwerk", hostToHttpUrl(host, port));
+  addUrl(host === "127.0.0.1" || host === "localhost" ? "Lokal" : "Netzwerk", hostToHttpUrl(host, port, scheme));
   return urls;
 }
 
-function sendJson(response, statusCode, value) {
+function securityHeaders() {
+  return {
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "same-origin",
+    "permissions-policy": "camera=(), geolocation=(), microphone=(self)"
+  };
+}
+
+function sendJson(response, statusCode, value, headers = {}) {
   response.writeHead(statusCode, {
+    ...securityHeaders(),
     "content-type": "application/json; charset=utf-8",
-    "cache-control": "no-store"
+    "cache-control": "no-store",
+    ...headers
   });
   response.end(`${JSON.stringify(value, null, 2)}\n`);
 }
@@ -286,30 +317,56 @@ function requestError(statusCode, message) {
   return Object.assign(new Error(message), { statusCode });
 }
 
-async function readJsonBody(request) {
-  const chunks = [];
-  for await (const chunk of request) {
-    chunks.push(chunk);
-  }
-  if (chunks.length === 0) {
-    return {};
-  }
-  const text = Buffer.concat(chunks).toString("utf8").trim();
-  return text ? JSON.parse(text) : {};
+function declaredContentLength(request) {
+  const value = Number(request.headers["content-length"]);
+  return Number.isFinite(value) && value >= 0 ? value : null;
 }
 
-async function readRawBody(request, options = {}) {
-  const maxBytes = options.maxBytes || 25 * 1024 * 1024;
+async function readBodyWithLimit(request, maxBytes, tooLargeMessage) {
+  const declaredSize = declaredContentLength(request);
+  if (declaredSize !== null && declaredSize > maxBytes) {
+    throw requestError(413, tooLargeMessage);
+  }
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
     if (size > maxBytes) {
-      throw requestError(413, "Die Datei ist zu gross. Bitte maximal 25 MB hochladen.");
+      throw requestError(413, tooLargeMessage);
     }
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
+}
+
+async function readJsonBody(request) {
+  const body = await readBodyWithLimit(
+    request,
+    serverConfig.maxJsonBodyBytes,
+    "Die Anfrage ist zu groß."
+  );
+  if (body.length === 0) {
+    return {};
+  }
+  const text = body.toString("utf8").trim();
+  if (!text) {
+    return {};
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw requestError(400, "Die Anfrage enthält ungültiges JSON.");
+  }
+}
+
+async function readRawBody(request, options = {}) {
+  const maxBytes = options.maxBytes || serverConfig.maxUploadBytes;
+  const maxMegabytes = Math.max(1, Math.floor(maxBytes / (1024 * 1024)));
+  return readBodyWithLimit(
+    request,
+    maxBytes,
+    `Die Datei ist zu groß. Bitte maximal ${maxMegabytes} MB hochladen.`
+  );
 }
 
 function multipartBoundary(contentType) {
@@ -349,6 +406,15 @@ function parsePartHeaders(value) {
 }
 
 function parseMultipartFile(request, body) {
+  const form = parseMultipartForm(request, body);
+  const file = form.files.find((entry) => entry.fieldName === "file") || form.files[0] || null;
+  if (!file) {
+    throw requestError(400, "Bitte eine Datei auswaehlen.");
+  }
+  return file;
+}
+
+function parseMultipartForm(request, body) {
   const contentType = request.headers["content-type"] || "";
   const boundary = multipartBoundary(contentType);
   if (!boundary) {
@@ -358,6 +424,8 @@ function parseMultipartFile(request, body) {
   const delimiter = Buffer.from(`--${boundary}`, "utf8");
   const headerSeparator = Buffer.from("\r\n\r\n", "latin1");
   let offset = 0;
+  const fields = {};
+  const files = [];
 
   while (offset < body.length) {
     const delimiterStart = body.indexOf(delimiter, offset);
@@ -395,20 +463,29 @@ function parseMultipartFile(request, body) {
     const headers = parsePartHeaders(part.subarray(0, headerEnd).toString("latin1"));
     const disposition = headers["content-disposition"] || "";
     const dispositionParams = parseHeaderParameters(disposition);
+    const fieldName = dispositionParams.name || "";
+    if (!fieldName) {
+      offset = nextDelimiterStart;
+      continue;
+    }
     const fileName = dispositionParams.filename || "";
-    if (dispositionParams.name !== "file" || !fileName) {
+    const value = part.subarray(headerEnd + headerSeparator.length);
+    if (!fileName) {
+      fields[fieldName] = value.toString("utf8");
       offset = nextDelimiterStart;
       continue;
     }
 
-    return {
+    files.push({
+      fieldName,
       fileName,
       mimeType: headers["content-type"] || "application/octet-stream",
-      buffer: part.subarray(headerEnd + headerSeparator.length)
-    };
+      buffer: value
+    });
+    offset = nextDelimiterStart;
   }
 
-  throw requestError(400, "Bitte eine Datei auswaehlen.");
+  return { fields, files };
 }
 
 function routePath(request) {
@@ -497,6 +574,7 @@ async function serveFileFromRoot({ rootDir, relativePath, response }) {
   }
 
   response.writeHead(200, {
+    ...securityHeaders(),
     "content-type": contentTypeFor(realFilePath),
     "content-length": stat.size,
     "cache-control": "no-store"
@@ -506,6 +584,23 @@ async function serveFileFromRoot({ rootDir, relativePath, response }) {
 
 async function serveProjectFile(request, response) {
   const relativePath = decodeURIComponent(rawPathname(request).replace(/^\/files\/?/, ""));
+  const normalizedRelativePath = relativePath.replace(/^\/+/, "");
+  if (normalizedRelativePath.startsWith("projects/")) {
+    await serveFileFromRoot({
+      rootDir: projectsDir,
+      relativePath: normalizedRelativePath.slice("projects/".length),
+      response
+    });
+    return;
+  }
+  if (normalizedRelativePath.startsWith("worksheets/")) {
+    await serveFileFromRoot({
+      rootDir: worksheetsDir,
+      relativePath: normalizedRelativePath.slice("worksheets/".length),
+      response
+    });
+    return;
+  }
   const filePath = path.resolve(repoRoot, relativePath);
   const rootDir = fileServingRootFor(filePath);
   if (!rootDir) {
@@ -526,6 +621,23 @@ async function servePublicFile(request, response) {
   const pathname = routePath(request);
   const relativePath = pathname === "/" ? "index.html" : pathname.replace(/^\//, "");
   await serveFileFromRoot({ rootDir: publicDir, relativePath, response });
+}
+
+async function handleHealth(pathname, response) {
+  if (pathname === "/health/live") {
+    sendJson(response, 200, { status: "ok" });
+    return true;
+  }
+  if (pathname === "/health/ready") {
+    const readiness = await checkRuntimeReadiness(serverConfig);
+    const writable = readiness.status === "ready" && await writeRuntimeProbe(serverConfig);
+    sendJson(response, writable ? 200 : 503, {
+      status: writable ? "ready" : "not_ready",
+      checks: readiness.checks
+    });
+    return true;
+  }
+  return false;
 }
 
 async function handleApi(request, response) {
@@ -567,6 +679,13 @@ async function handleApi(request, response) {
   }
 
   if (request.method === "GET" && pathname === "/api/billing/status") {
+    if (!serverConfig.exposeBillingStatus) {
+      sendJson(response, 404, {
+        error: "not_found",
+        message: "No route for GET /api/billing/status"
+      });
+      return;
+    }
     const url = new URL(request.url, "http://localhost");
     sendJson(response, 200, {
       billing: await buildBillingStatus({
@@ -748,14 +867,44 @@ async function handleApi(request, response) {
   const workspaceInputUploadMatch = pathname.match(/^\/api\/workspace\/([^/]+)\/input-upload$/);
   if (request.method === "POST" && workspaceInputUploadMatch) {
     const rawBody = await readRawBody(request);
-    const file = parseMultipartFile(request, rawBody);
+    const form = parseMultipartForm(request, rawBody);
+    const file = form.files.find((entry) => entry.fieldName === "file") || form.files[0] || null;
+    if (!file) {
+      throw requestError(400, "Bitte eine Datei auswaehlen.");
+    }
     const upload = await addInputUpload(workspaceInputUploadMatch[1], file, {
       repoRoot,
-      projectsDir
+      projectsDir,
+      appendChatReceipt: form.fields.deferChatReceipt !== "true"
     });
     sendJson(response, 201, {
       upload,
       workspace: await buildWorkspace(workspaceInputUploadMatch[1], { repoRoot, projectsDir, worksheetsDir })
+    });
+    return;
+  }
+
+  const workspaceVoiceTranscriptionMatch = pathname.match(/^\/api\/workspace\/([^/]+)\/voice-transcription$/);
+  if (request.method === "POST" && workspaceVoiceTranscriptionMatch) {
+    const rawBody = await readRawBody(request);
+    const form = parseMultipartForm(request, rawBody);
+    const audio = form.files.find((entry) => entry.fieldName === "audio")
+      || form.files.find((entry) => entry.fieldName === "file")
+      || form.files[0]
+      || null;
+    if (!audio) {
+      throw requestError(400, "Bitte eine Audioaufnahme senden.");
+    }
+    const transcription = await transcribeProjectAudio(workspaceVoiceTranscriptionMatch[1], {
+      ...audio,
+      durationMs: form.fields.durationMs
+    }, {
+      repoRoot,
+      projectsDir
+    });
+    sendJson(response, 201, {
+      voice: transcription.voice,
+      workspace: await buildWorkspace(workspaceVoiceTranscriptionMatch[1], { repoRoot, projectsDir, worksheetsDir })
     });
     return;
   }
@@ -766,7 +915,8 @@ async function handleApi(request, response) {
     sendJson(response, 200, await runWorkspaceCommand(workspaceCommandsMatch[1], body, {
       repoRoot,
       projectsDir,
-      worksheetsDir
+      worksheetsDir,
+      traceCommand: true
     }));
     return;
   }
@@ -831,10 +981,24 @@ async function handleApi(request, response) {
   });
 }
 
-const server = http.createServer(async (request, response) => {
+function httpsServerOptions() {
+  if (!httpsEnabled) {
+    return null;
+  }
+  return {
+    key: fs.readFileSync(httpsKeyPath),
+    cert: fs.readFileSync(httpsCertPath)
+  };
+}
+
+async function handleRequest(request, response) {
   try {
     const pathname = routePath(request);
     const rawPath = rawPathname(request);
+
+    if (request.method === "GET" && await handleHealth(pathname, response)) {
+      return;
+    }
 
     if (request.method === "GET" && rawPath.startsWith("/files/")) {
       await serveProjectFile(request, response);
@@ -872,16 +1036,140 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (serverConfig.production) {
+      console.error(`[SheetifyIMG] request failed: ${String(error?.name || "Error")}`);
+    }
     sendJson(response, 500, {
       error: "internal_error",
-      message: error.message
+      message: serverConfig.production
+        ? "Die Anfrage konnte intern nicht verarbeitet werden."
+        : error.message
     });
   }
-});
+}
 
-server.listen(defaultPort, defaultHost, () => {
-  console.log(`SheetifyIMG server listening on ${defaultHost}:${defaultPort}`);
+function createHttpServer() {
+  return httpsEnabled
+    ? https.createServer(httpsServerOptions(), handleRequest)
+    : http.createServer(handleRequest);
+}
+
+function listen(server) {
+  return new Promise((resolve, reject) => {
+    const onError = (error) => {
+      server.off("listening", onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      server.off("error", onError);
+      resolve();
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(defaultPort, defaultHost);
+  });
+}
+
+function closeServer(server) {
+  return new Promise((resolve) => {
+    server.close((error) => resolve(error || null));
+  });
+}
+
+function installSignalHandlers(server, options = {}) {
+  let stopping = false;
+  const exitProcess = options.exitProcess !== false;
+  const signals = ["SIGINT", "SIGTERM"];
+
+  const shutdown = async (signal) => {
+    if (stopping) {
+      return;
+    }
+    stopping = true;
+    beginCandidateGenerationShutdown();
+    console.log(`[SheetifyIMG] ${signal} received; stopping HTTP intake and waiting for active Entwurf jobs.`);
+
+    let timeoutId;
+    const timeout = new Promise((resolve) => {
+      timeoutId = setTimeout(() => resolve({ timedOut: true }), serverConfig.shutdownTimeoutMs);
+    });
+    const finished = Promise.all([
+      closeServer(server),
+      waitForActiveCandidateGenerationJobs({ timeoutMs: serverConfig.shutdownTimeoutMs })
+    ]).then(([closeError, jobs]) => ({ closeError, jobs, timedOut: false }));
+    const result = await Promise.race([finished, timeout]);
+    clearTimeout(timeoutId);
+
+    if (result.timedOut) {
+      server.closeAllConnections?.();
+      console.error("[SheetifyIMG] graceful shutdown timed out; interrupted jobs will be reconciled after restart.");
+      if (exitProcess) {
+        process.exit(1);
+      }
+      return;
+    }
+
+    if (result.closeError) {
+      console.error("[SheetifyIMG] HTTP server reported an error while closing.");
+      process.exitCode = 1;
+    }
+    if (result.jobs?.timedOut) {
+      console.error("[SheetifyIMG] Entwurf jobs exceeded the shutdown timeout.");
+      process.exitCode = 1;
+    }
+    for (const registeredSignal of signals) {
+      process.off(registeredSignal, handlers[registeredSignal]);
+    }
+    console.log("[SheetifyIMG] shutdown complete.");
+  };
+
+  const handlers = Object.fromEntries(signals.map((signal) => [
+    signal,
+    () => {
+      shutdown(signal).catch((error) => {
+        console.error(`[SheetifyIMG] shutdown failed: ${String(error?.message || error)}`);
+        if (exitProcess) {
+          process.exit(1);
+        }
+      });
+    }
+  ]));
+  for (const signal of signals) {
+    process.on(signal, handlers[signal]);
+  }
+  return shutdown;
+}
+
+async function startServer(options = {}) {
+  await prepareRuntime(serverConfig);
+  if (!(await writeRuntimeProbe(serverConfig))) {
+    throw new Error("SheetifyIMG runtime is not writable.");
+  }
+
+  const server = createHttpServer();
+  await listen(server);
+  console.log(`SheetifyIMG ${httpsEnabled ? "HTTPS" : "HTTP"} server listening on ${defaultHost}:${defaultPort}`);
+  console.log(`[SheetifyIMG] runtime ${JSON.stringify(safeServerConfig(serverConfig))}`);
   for (const entry of serverUrls(defaultHost, defaultPort)) {
     console.log(`  ${entry.label}: ${entry.url}`);
   }
-});
+  const shutdown = options.handleSignals === false
+    ? null
+    : installSignalHandlers(server, options);
+  return {
+    server,
+    config: serverConfig,
+    shutdown
+  };
+}
+
+if (require.main === module) {
+  startServer().catch((error) => {
+    console.error(`[SheetifyIMG] start failed: ${String(error?.message || error)}`);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  startServer
+};

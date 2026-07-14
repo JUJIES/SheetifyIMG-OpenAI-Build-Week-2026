@@ -5,6 +5,13 @@ function clean(value) {
 }
 
 function candidateLabel(value) {
+  if (value && typeof value === "object") {
+    const displayLabel = clean(value.displayLabel);
+    if (displayLabel) {
+      return displayLabel;
+    }
+    return candidateLabel(value.candidateId || value.id);
+  }
   const raw = clean(value);
   const match = raw.match(/^candidate_0*(\d+)$/i);
   if (match) {
@@ -31,24 +38,24 @@ function presentWorkflowCommand(commandId, moment = {}) {
   const action = moment.action || (Array.isArray(moment.suggestedActions) ? moment.suggestedActions[0] : null) || null;
   const nextCandidate = action?.command === "generate_image_candidate";
   const messages = {
-    generate_lessonbrief_proposal: "Konzeptvorschlag wurde erstellt.",
-    adopt_lessonbrief_proposal: "Konzeptvorschlag wurde übernommen.",
+    generate_lessonbrief_proposal: "Arbeitsblatt-Konzept wurde vorbereitet.",
+    adopt_lessonbrief_proposal: "Arbeitsblatt-Konzept wurde ausformuliert.",
     generate_content_mirror_proposal: "Arbeitsblatt-Konzept wurde ausformuliert.",
-    adopt_content_mirror_proposal: "Arbeitsblatt-Konzept übernommen und freigegeben.",
-    approve_current_content: "Arbeitsblatt-Konzept freigegeben.",
-    prepare_image_spec: "Entwurfsvorbereitung wurde erstellt.",
-    adopt_image_spec: "Entwurfsvorbereitung wurde übernommen.",
+    adopt_content_mirror_proposal: "Mit dem Arbeitsblatt-Konzept wird weitergearbeitet.",
+    approve_current_content: "Mit dem Arbeitsblatt-Konzept wird weitergearbeitet.",
+    prepare_image_spec: "Referenzbedarf wurde geprüft.",
+    adopt_image_spec: "Interner Stand wurde gespeichert.",
     prepare_reference_asset: "Referenz wurde vorbereitet.",
-    prepare_web_reference_asset: "Webreferenz wurde vorbereitet.",
+    prepare_web_reference_asset: "Bildreferenz wurde vorbereitet.",
     deposit_worksheet: "Arbeitsblatt abgelegt.",
     create_brief_draft: "Erste Konzeptfassung wurde angelegt.",
     create_content_draft: "Arbeitsblatt-Konzept wurde angelegt.",
-    generate_content_warnings_proposal: "Prüfhinweise wurden vorbereitet.",
-    adopt_content_warnings_proposal: "Prüfhinweise wurden übernommen."
+    generate_content_warnings_proposal: "Konzept-Feedback wurde vorbereitet.",
+    adopt_content_warnings_proposal: "Konzept-Feedback wurde intern gespeichert."
   };
 
   if (commandId === "activate_content_mirror_version") {
-    return `${conceptVersionFromAction(action)} ist jetzt die aktuelle Basis.`;
+    return `${conceptVersionFromAction(action)} wird für die nächsten Schritte genutzt.`;
   }
   if (commandId === "generate_image_candidate") {
     return nextCandidate
@@ -60,7 +67,7 @@ function presentWorkflowCommand(commandId, moment = {}) {
 
 function presentCandidateCreated(moment = {}) {
   const candidate = moment.candidate || {};
-  const label = candidateLabel(candidate.candidateId || candidate.id);
+  const label = candidateLabel(candidate);
   const pages = pageCountLabel(candidate.pageCount);
   return pages ? `${label} ist fertig. ${pages}.` : `${label} ist fertig.`;
 }
@@ -68,15 +75,23 @@ function presentCandidateCreated(moment = {}) {
 function presentProposalAdopted(moment = {}) {
   const kind = moment.proposal?.kind || "";
   if (kind === "image_spec") {
-    return "Entwurfsvorbereitung wurde übernommen.";
+    return "Interner Stand wurde gespeichert.";
   }
   if (kind === "content_warnings") {
-    return "Prüfhinweise wurden übernommen.";
+    return "Konzept-Feedback wurde intern gespeichert.";
   }
-  return "Arbeitsblatt-Konzept wurde übernommen.";
+  return "Mit dem Arbeitsblatt-Konzept wird weitergearbeitet.";
 }
 
 function presentWorkflowEvent(moment = {}) {
+  const action = moment.action || (Array.isArray(moment.suggestedActions) ? moment.suggestedActions[0] : null) || null;
+  if (
+    (moment.kind === "suggested_action" || moment.kind === "local_action_offer")
+    && moment.requiresPaidConfirmation === true
+    && ["generate_candidate_from_content_proposal", "generate_image_candidate"].includes(action?.command)
+  ) {
+    return "Ich kann daraus jetzt einen Entwurf erstellen; die Bildgenerierung startet erst nach deiner bewussten Bestätigung.";
+  }
   if (moment.kind === "workflow_followup") {
     return presentWorkflowCommand(moment.commandId, moment);
   }

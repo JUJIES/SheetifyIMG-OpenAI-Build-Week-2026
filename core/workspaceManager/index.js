@@ -17,7 +17,11 @@ const { readEvents } = require("../eventLog");
 const { getLibraryItem } = require("../libraryManager");
 const { openProject } = require("../projectManager");
 const { listProjectWorksheets } = require("../worksheetLibraryManager");
-const { getAiRuntimeStatus, getImageRuntimeStatus } = require("../aiConfig");
+const { getAiRuntimeStatus, getImageRuntimeStatus, getTranscriptionRuntimeStatus } = require("../aiConfig");
+const {
+  annotateCandidateDisplayList,
+  candidateDisplayLabelMap
+} = require("../candidateDisplay");
 const { inputReadiness } = require("../inputReadiness");
 const { readProposalState } = require("../aiProposalManager");
 const { hasMeaningfulContent } = require("../contentMirrorManager");
@@ -40,6 +44,7 @@ const { readJsonFileIfExists } = require("../jsonFile");
 
 const DEFAULT_REPO_ROOT = path.resolve(__dirname, "..", "..");
 const DEFAULT_PROJECTS_DIR = path.join(DEFAULT_REPO_ROOT, "projects");
+const APP_TEMPLATE_REFERENCE_USERFLOW_ENABLED = false;
 
 async function pathExists(filePath) {
   try {
@@ -114,8 +119,26 @@ async function latestRunState(projectDir, options = {}) {
     return null;
   }
 
-  const runDir = runDirs[runDirs.length - 1];
-  const manifest = await readJsonIfExists(path.join(runDir, "run-manifest.json"));
+  const runEntries = [];
+  for (const runDir of runDirs) {
+    runEntries.push({
+      runDir,
+      manifest: await readJsonIfExists(path.join(runDir, "run-manifest.json"))
+    });
+  }
+  const matchingEntry = currentContentMirrorId
+    ? [...runEntries].reverse().find((entry) => {
+        const manifestContentId = entry.manifest?.sourceArtifacts?.contentMirrorId
+          || contentMirrorIdFromConcept(entry.manifest?.concept || {});
+        return manifestContentId === currentContentMirrorId
+          || (entry.manifest?.candidates || []).some((candidate) => {
+            return candidateContentMirrorId({ manifest: entry.manifest }, candidate) === currentContentMirrorId;
+          });
+      })
+    : null;
+  const selectedEntry = matchingEntry || runEntries[runEntries.length - 1];
+  const runDir = selectedEntry.runDir;
+  const manifest = selectedEntry.manifest;
   const runId = manifest?.runId || path.basename(runDir);
   const rawCandidates = Array.isArray(manifest?.candidates) ? manifest.candidates : [];
   const candidates = await Promise.all(rawCandidates.map(async (candidate) => {
@@ -213,6 +236,7 @@ async function contentMirrorHistory(projectDir, index, currentContent = null) {
       status: artifact.status || null,
       current: currentContent?.id === artifact.id,
       createdFrom: Array.isArray(artifact.createdFrom) ? artifact.createdFrom : [],
+      lineage: data?.lineage || artifact.lineage || null,
       createdAt: artifact.createdAt || data?.createdAt || null,
       updatedAt: artifact.updatedAt || data?.updatedAt || null,
       title: summary.title,
@@ -256,14 +280,18 @@ async function candidatePreviewFromRun({ repoRoot, runDir, index, currentContent
     }
 
     const contentMirrorId = candidateContentMirrorId({ manifest }, candidate) || contentMirrorIdFromConcept(concept);
-    const status = artifact?.status || candidate.status || runArtifact?.status || null;
+    const matchesCurrentContent = Boolean(currentContentMirrorId && contentMirrorId === currentContentMirrorId);
+    const storedStatus = artifact?.status || candidate.status || runArtifact?.status || null;
+    const status = matchesCurrentContent && storedStatus === ARTIFACT_STATUSES.OUTDATED
+      ? candidate.status || "reviewable"
+      : storedStatus;
     candidates.push({
       artifactId,
       id: candidate.id,
       runId,
       runStatus: runArtifact?.status || manifest?.status || null,
       status,
-      current: Boolean(currentContentMirrorId && contentMirrorId === currentContentMirrorId && status !== ARTIFACT_STATUSES.OUTDATED),
+      current: matchesCurrentContent && status !== "technical_failed",
       concept,
       basedOnConceptId: candidate.basedOnConceptId || contentMirrorId || concept.conceptId,
       basedOnConceptVersion: candidate.basedOnConceptVersion || concept.conceptVersion,
@@ -272,11 +300,15 @@ async function candidatePreviewFromRun({ repoRoot, runDir, index, currentContent
       generation: candidate.generation ? {
         provider: candidate.generation.provider || null,
         model: candidate.generation.model || null,
+        generationMode: candidate.generation.generationMode || null,
         pageCount: candidate.generation.pageCount || candidate.generation.plannedPageCount || null,
         plannedPageCount: candidate.generation.plannedPageCount || null,
         generatedPageCount: candidate.generation.generatedPageCount || null,
         qualityPreset: candidate.generation.qualityPreset || null,
-        qualityLabel: candidate.generation.qualityLabel || null
+        qualityLabel: candidate.generation.qualityLabel || null,
+        imageSpecProposalId: candidate.generation.imageSpecProposalId || null,
+        referencePolicy: candidate.generation.referencePolicy || null,
+        referenceImages: candidate.generation.referenceImages || []
       } : null,
       qc: qc?.formatContract ? {
         status: qc.status || null,
@@ -302,11 +334,12 @@ async function candidateHistory({ repoRoot, projectDir, index, currentContentMir
       currentContentMirrorId
     }));
   }
-  return candidates.sort((left, right) => {
+  const sortedCandidates = candidates.sort((left, right) => {
     return String(right.createdAt || "").localeCompare(String(left.createdAt || ""))
       || String(right.runId || "").localeCompare(String(left.runId || ""))
       || String(right.id || "").localeCompare(String(left.id || ""));
   });
+  return annotateCandidateDisplayList(sortedCandidates);
 }
 
 function firstSelectableCandidate(runState, currentContentMirrorId = null) {
@@ -389,16 +422,19 @@ function referencePolicyNeedsAction(policy = null) {
 }
 
 function referencePolicyUsesAppTemplate(policy = null) {
-  return Boolean(policy && (
-    policy.preferredSource === "app_template"
-    || policy.preferredSource === "app_template_or_user_upload"
-    || policy.category === "coordinate_template"
-    || policy.category === "code_asset"
-  ));
+  return Boolean(APP_TEMPLATE_REFERENCE_USERFLOW_ENABLED
+    && policy
+    && ["coordinate_template", "code_asset"].includes(policy.category)
+    && policy.preferredSource === "app_template");
 }
 
 function referencePolicyNeedsUpload(policy = null) {
-  return Boolean(policy && policy.preferredSource === "user_upload_or_reference_search");
+  return Boolean(policy && [
+    "user_upload",
+    "user_upload_or_reference_search",
+    "app_template",
+    "app_template_or_user_upload"
+  ].includes(policy.preferredSource));
 }
 
 function referencePolicySupportsWebSearch(policy = null) {
@@ -434,6 +470,10 @@ function imageCandidateDefaultPayload({ activeImageSpec, runState, imageRuntime,
 }
 
 function plannedPageCountForCandidates(activeImageSpec = null, currentContentData = {}, currentBriefData = {}) {
+  const contentDeclaredPageCount = Number(currentContentData?.pageCount || currentContentData?.outputPreference?.pages || 0) || 0;
+  if (contentDeclaredPageCount > 0) {
+    return pageCountFromContent(currentContentData || {}, null, currentBriefData || {});
+  }
   return Number(activeImageSpec?.data?.pageCount || activeImageSpec?.pageCount || 0)
     || pageCountFromContent(currentContentData || {}, activeImageSpec?.data || activeImageSpec || null, currentBriefData || {});
 }
@@ -442,7 +482,7 @@ function candidateGenerationLabel({ hasCandidate, pageCount }) {
   if (pageCount > 1) {
     return hasCandidate ? "Weiteren mehrseitigen Entwurf erstellen" : "Mehrseitigen Entwurf erstellen";
   }
-  return hasCandidate ? "Weitere Variante erstellen" : "Entwurf erstellen";
+  return hasCandidate ? "Weitere Entwurfsvariante erstellen" : "Entwurf erstellen";
 }
 
 function candidateGenerationLabelForConcept({ hasCandidate, pageCount, currentContent }) {
@@ -452,8 +492,8 @@ function candidateGenerationLabelForConcept({ hasCandidate, pageCount, currentCo
   if (!conceptLabel) {
     return baseLabel;
   }
-  if (/weitere variante/i.test(baseLabel)) {
-    return `Weitere Variante aus ${conceptLabel} erstellen`;
+  if (/weitere (?:entwurfs)?variante/i.test(baseLabel)) {
+    return `Weitere Entwurfsvariante aus ${conceptLabel} erstellen`;
   }
   if (/weiteren mehrseitigen entwurf|mehrseitigen entwurf/i.test(baseLabel) && /weitere/i.test(baseLabel)) {
     return `Weiteren mehrseitigen Entwurf aus ${conceptLabel} erstellen`;
@@ -464,17 +504,75 @@ function candidateGenerationLabelForConcept({ hasCandidate, pageCount, currentCo
   return `Entwurf aus ${conceptLabel} erstellen`;
 }
 
+function nextCandidateReferenceImagesFromProposal(proposal = null) {
+  return (Array.isArray(proposal?.source?.nextCandidateReferenceImages)
+    ? proposal.source.nextCandidateReferenceImages
+    : [])
+    .filter((reference) => reference?.path)
+    .slice(0, 4);
+}
+
+function contentProposalCandidatePayload(proposal = null) {
+  if (!proposal) {
+    return {};
+  }
+  const referenceImages = nextCandidateReferenceImagesFromProposal(proposal);
+  return {
+    proposalId: proposal.proposalId,
+    approve: true,
+    ...(referenceImages.length ? { referenceImages } : {})
+  };
+}
+
+function contentProposalAdoptionPayload(proposal = null) {
+  return proposal ? {
+    proposalId: proposal.proposalId,
+    approve: true
+  } : {};
+}
+
 function worksheetDepositActionLabel(pageCount = 1) {
   return (Number(pageCount || 0) || 1) > 1 ? "Arbeitsblätter ablegen" : "Arbeitsblatt ablegen";
 }
 
-function buildWorksheetSteps({ project, currentBrief, currentContent, approvalState, runState, item, inputState, candidateGeneration }) {
+function buildWorksheetSteps({
+  project,
+  currentBrief,
+  currentContent,
+  currentBriefData = {},
+  currentContentData = {},
+  approvalState,
+  runState,
+  item,
+  inputState,
+  candidateGeneration,
+  events = [],
+  proposals = {}
+}) {
   const preview = item.preview || {};
   const hasInput = Boolean(inputState?.ready);
   const canUsePreviewSelection = !runState || !runState.hasOutdatedSelection;
   const hasCandidates = Boolean(runState?.candidateCount || (canUsePreviewSelection && preview.previewMeta?.renderedCandidateCount));
   const candidatePending = Boolean(candidateGeneration?.isRunning);
   const candidateState = candidatePending ? "generating" : hasCandidates ? "available" : "missing";
+  const contentReadiness = contentReadinessForGeneration(currentContentData || {}, { events, brief: currentBriefData || {} });
+  const hasReadyConcept = Boolean(currentContent)
+    && hasMeaningfulContent(currentContentData || {})
+    && contentReadiness.ready;
+  const latestContentProposal = proposals.latestContentMirror || null;
+  const proposalReadiness = latestContentProposal
+    ? contentReadinessForGeneration(latestContentProposal.data || {}, { events, brief: currentBriefData || {} })
+    : { ready: false };
+  const hasReadyConceptProposal = Boolean(latestContentProposal)
+    && hasMeaningfulContent(latestContentProposal.data || {})
+    && proposalReadiness.ready;
+  const conceptState = hasReadyConcept
+    ? "available"
+    : hasReadyConceptProposal
+      ? "proposed"
+      : currentContent
+        ? currentContent.status
+        : "missing";
 
   return [
     {
@@ -486,8 +584,8 @@ function buildWorksheetSteps({ project, currentBrief, currentContent, approvalSt
     {
       id: "concept",
       label: "Arbeitsblatt-Konzept",
-      state: currentContent ? currentContent.status : "missing",
-      complete: approvalState.canGenerate
+      state: conceptState,
+      complete: hasReadyConcept || hasReadyConceptProposal || approvalState.canGenerate
     },
     {
       id: "candidates",
@@ -590,29 +688,50 @@ function buildWorksheetCommands({
     contentMirror: currentContentData || {}
   });
   const imageSpecReferencePolicy = referenceImageSpec?.data?.referencePolicy || null;
-  const referenceActionPolicy = imageSpecReferencePolicy || null;
+  const referenceActionPolicy = imageSpecReferencePolicy || preliminaryReferencePolicy || null;
   const latestSourceImage = latestImageSourceFile(source);
   const referenceActionNeedsAppTemplate = referencePolicyUsesAppTemplate(referenceActionPolicy);
   const referenceActionNeedsUpload = referencePolicyNeedsUpload(referenceActionPolicy);
   const referenceActionSupportsWebSearch = referencePolicySupportsWebSearch(referenceActionPolicy);
-  const referenceActionEnabled = Boolean(referenceImageSpec)
+  const referenceActionUsesInput = !referenceActionNeedsAppTemplate && Boolean(latestSourceImage);
+  const referenceActionEnabled = approvalState.canGenerate
+    && contentIsReadyForCandidates
     && referencePolicyNeedsAction(referenceActionPolicy)
     && (referenceActionNeedsAppTemplate || Boolean(latestSourceImage));
-  const webReferenceActionEnabled = Boolean(referenceImageSpec)
+  const webReferenceActionEnabled = approvalState.canGenerate
+    && contentIsReadyForCandidates
     && referencePolicyNeedsAction(referenceActionPolicy)
     && referenceActionSupportsWebSearch;
-  const referenceActionReason = !referenceImageSpec
-    ? "Es gibt noch keine Entwurfsvorbereitung."
-    : !referencePolicyNeedsAction(referenceActionPolicy)
-      ? "Referenzentscheidung ist schon erledigt."
+  const referenceActionPayload = {
+    ...(referenceImageSpec?.proposalId ? { proposalId: referenceImageSpec.proposalId } : {}),
+    ...(latestSourceImage ? { sourcePath: latestSourceImage.path } : {}),
+    ...(!referenceImageSpec ? {
+      message: "Prüfe intern, welche Referenz oder Vorlage den nächsten Entwurf stabiler macht.",
+      uiEvent: "reference_preflight"
+    } : {})
+  };
+  const webReferenceActionPayload = {
+    ...(referenceImageSpec?.proposalId ? { proposalId: referenceImageSpec.proposalId } : {}),
+    ...(referenceActionPolicy?.suggestedSearchQuery ? { query: referenceActionPolicy.suggestedSearchQuery } : {}),
+    ...(!referenceImageSpec ? {
+      message: "Prüfe intern, welche Webreferenz den nächsten Entwurf stabiler macht.",
+      uiEvent: "reference_preflight"
+    } : {})
+  };
+  const referenceActionReason = !approvalState.canGenerate
+    ? approvalState.reason || "Es gibt noch keine Entwurfsbasis."
+    : !contentIsReadyForCandidates
+      ? contentReadinessReason
+      : !referencePolicyNeedsAction(referenceActionPolicy)
+      ? "Referenzbild ist schon berücksichtigt."
       : referenceActionNeedsUpload
         ? "Bitte zuerst ein passendes Referenzbild als Input hochladen."
-        : "Für diese Visualisierung gibt es keine automatisch erzeugbare Vorlage.";
+        : "Für diese Visualisierung gibt es keine automatisch vorbereitete Spezialvorlage.";
 
   return [
     commandState(
       "activate_content_mirror_version",
-      "Konzeptversion als Basis setzen",
+      "Konzeptversion nutzen",
       conceptHistory.length > 0,
       "Es gibt noch keine Konzeptversion."
     ),
@@ -628,10 +747,16 @@ function buildWorksheetCommands({
     ),
     commandState(
       "adopt_lessonbrief_proposal",
-      "Konzept übernehmen",
+      "Arbeitsblatt-Konzept ausformulieren",
       Boolean(latestLessonBriefProposal),
-      "Es gibt keinen offenen Konzept-Vorschlag.",
-      latestLessonBriefProposal ? { defaultPayload: { proposalId: latestLessonBriefProposal.proposalId } } : {}
+      "Es gibt keinen offenen internen Konzeptstand.",
+      latestLessonBriefProposal ? {
+        defaultPayload: {
+          proposalId: latestLessonBriefProposal.proposalId,
+          continueToContent: true,
+          silent: true
+        }
+      } : {}
     ),
     commandState(
       "create_brief_draft",
@@ -641,7 +766,7 @@ function buildWorksheetCommands({
     ),
     commandState(
       "approve_current_brief",
-      "Konzeptentwurf freigeben",
+      "Internen Konzeptstand speichern",
       currentBrief?.status === ARTIFACT_STATUSES.DRAFT,
       "Der aktuelle Konzeptentwurf ist nicht im Bearbeitungsstatus."
     ),
@@ -649,30 +774,40 @@ function buildWorksheetCommands({
       "generate_content_mirror_proposal",
       hasContent ? "Konzept überarbeiten" : "Konzept ausformulieren",
       hasBrief,
-      "Es gibt noch kein Arbeitsblatt-Konzept als Planungsgrundlage."
+      "Es gibt noch kein Arbeitsblatt-Konzept als Planungsgrundlage.",
+      latestContentMirrorProposal ? {
+        defaultPayload: {
+          basisProposalId: latestContentMirrorProposal.proposalId
+        }
+      } : {}
     ),
     commandState(
       "adopt_content_mirror_proposal",
-      hasContent ? "Konzept aktualisieren" : "Konzept übernehmen",
+      "Konzeptbasis intern setzen",
       Boolean(latestContentMirrorProposal),
       "Es gibt keinen offenen Aufgaben- und Materialvorschlag.",
-      latestContentMirrorProposal ? { defaultPayload: { proposalId: latestContentMirrorProposal.proposalId, approve: true } } : {}
+      latestContentMirrorProposal ? { defaultPayload: contentProposalAdoptionPayload(latestContentMirrorProposal) } : {}
     ),
     commandState(
       "generate_candidate_from_content_proposal",
-      "Konzept übernehmen und Entwurf erstellen",
-      false,
-      latestContentMirrorProposal
-        ? "Bitte zuerst das Konzept übernehmen oder aktualisieren. Danach wird die Aktion „Entwurf erstellen“ auf dem freigegebenen Stand angeboten."
-        : "Es gibt kein offenes Arbeitsblatt-Konzept.",
+      "Entwurf aus diesem Konzept erstellen",
+      proposalContentIsReadyForCandidates && imageGenerationConfigured && !candidateGenerationRunning,
+      candidateGenerationRunning
+        ? plannedCandidatePageCount > 1
+          ? "Für dieses Projekt läuft bereits ein mehrseitiger Entwurf im Hintergrund."
+          : "Für dieses Projekt läuft bereits ein Entwurf im Hintergrund."
+        : !latestContentMirrorProposal
+          ? "Es gibt keinen offenen Konzeptvorschlag."
+          : !proposalContentIsReadyForCandidates
+            ? proposalContentReadinessReason
+            : imageRuntime.fallbackReason || "Bildgenerierung ist nicht konfiguriert.",
       {
         requiresConfirmation: true,
         confirmationKind: "image_generation_provider",
-        confirmationMessage: `Das übernimmt das angezeigte Arbeitsblatt-Konzept, gibt es frei und erstellt einen ${imageRuntime.imageQualityLabel || "Standard"}-Entwurf. Der Bildanbieter ist in den Einstellungen festgelegt.`,
+        confirmationMessage: `Dieser Schritt erstellt aus dem angezeigten Arbeitsblatt-Konzept einen ${imageRuntime.imageQualityLabel || "Standard"}-Entwurf. Die Konzeptbasis wird dafür intern gespeichert.`,
         imageProviders: imageProviderOptions,
         defaultPayload: latestContentMirrorProposal ? {
-          proposalId: latestContentMirrorProposal.proposalId,
-          approve: true,
+          ...contentProposalCandidatePayload(latestContentMirrorProposal),
           imageProvider: defaultImageProvider,
           imageQualityPreset: imageRuntime.imageQualityPreset
         } : {}
@@ -686,7 +821,7 @@ function buildWorksheetCommands({
     ),
     commandState(
       "approve_current_content",
-      "Konzept freigeben",
+      "Konzeptbasis intern speichern",
       currentContent?.status === ARTIFACT_STATUSES.DRAFT && contentIsReadyForCandidates,
       currentContent?.status !== ARTIFACT_STATUSES.DRAFT
         ? "Das aktuelle Arbeitsblatt-Konzept ist nicht im Bearbeitungsstatus."
@@ -696,26 +831,26 @@ function buildWorksheetCommands({
     ),
     commandState(
       "generate_content_warnings_proposal",
-      "Prüfung vorschlagen",
+      "Konzept-Feedback intern erzeugen",
       hasContent && contentIsMeaningful,
-      "Es gibt noch kein Arbeitsblatt-Konzept für die Prüfung."
+      "Es gibt noch kein Arbeitsblatt-Konzept für Konzept-Feedback."
     ),
     commandState(
       "adopt_content_warnings_proposal",
-      "Prüfhinweise übernehmen",
+      "Konzept-Feedback intern speichern",
       Boolean(latestContentWarningsProposal),
-      "Es gibt keinen offenen Prüfvorschlag.",
+      "Es gibt kein offenes Konzept-Feedback.",
       latestContentWarningsProposal ? { defaultPayload: { proposalId: latestContentWarningsProposal.proposalId } } : {}
     ),
     commandState(
       "prepare_image_spec",
       preliminaryReferencePolicy.level !== "none" && !referenceImageSpec
-        ? "Visualisierung prüfen"
-        : "Entwurf vorbereiten",
+        ? "Referenzbedarf intern prüfen"
+        : "Bildplanung intern erstellen",
       approvalState.canGenerate && contentIsReadyForCandidates,
       approvalState.canGenerate
         ? contentReadinessReason
-        : approvalState.reason || "Arbeitsblatt-Konzept ist noch nicht freigegeben.",
+        : approvalState.reason || "Es gibt noch keine Entwurfsbasis.",
       {
         defaultPayload: preliminaryReferencePolicy.level !== "none"
           ? {
@@ -729,38 +864,34 @@ function buildWorksheetCommands({
     ),
     commandState(
       "adopt_image_spec",
-      "Entwurfsvorbereitung übernehmen",
+      "Bildplanung intern speichern",
       Boolean(latestImageSpecProposal),
-      "Es gibt keine offene Entwurfsvorbereitung.",
+      "Es gibt keine offene Bildplanung.",
       latestImageSpecProposal ? { defaultPayload: { proposalId: latestImageSpecProposal.proposalId } } : {}
     ),
     commandState(
       "prepare_reference_asset",
-      referenceActionNeedsUpload ? "Input als Referenz nutzen" : "Vorlage vorbereiten",
+      referenceActionUsesInput || referenceActionNeedsUpload ? "Input als Referenz nutzen" : "Referenzbild nutzen",
       referenceActionEnabled,
       referenceActionReason,
       {
-        defaultPayload: referenceImageSpec ? {
-          proposalId: referenceImageSpec.proposalId,
-          ...(latestSourceImage ? { sourcePath: latestSourceImage.path } : {})
-        } : {},
+        defaultPayload: referenceActionPayload,
         referencePolicy: referenceActionPolicy
       }
     ),
     commandState(
       "prepare_web_reference_asset",
-      "Webreferenz suchen",
+      "Bildreferenz suchen",
       webReferenceActionEnabled,
-      !referenceImageSpec
-        ? "Es gibt noch keine Entwurfsvorbereitung."
-        : !referencePolicyNeedsAction(referenceActionPolicy)
-          ? "Referenzentscheidung ist schon erledigt."
-          : "Für diese Visualisierung ist keine Webreferenz vorgesehen.",
+      !approvalState.canGenerate
+        ? approvalState.reason || "Es gibt noch keine Entwurfsbasis."
+        : !contentIsReadyForCandidates
+          ? contentReadinessReason
+          : !referencePolicyNeedsAction(referenceActionPolicy)
+            ? "Referenzbild ist schon berücksichtigt."
+            : "Für diese Visualisierung ist keine offene Bildreferenz vorgesehen.",
       {
-        defaultPayload: referenceImageSpec ? {
-          proposalId: referenceImageSpec.proposalId,
-          ...(referenceActionPolicy?.suggestedSearchQuery ? { query: referenceActionPolicy.suggestedSearchQuery } : {})
-        } : {},
+        defaultPayload: webReferenceActionPayload,
         referencePolicy: referenceActionPolicy
       }
     ),
@@ -770,7 +901,7 @@ function buildWorksheetCommands({
       approvalState.canGenerate && contentIsReadyForCandidates,
       approvalState.canGenerate
         ? contentReadinessReason
-        : approvalState.reason || "Arbeitsblatt-Konzept ist nicht freigegeben."
+        : approvalState.reason || "Es gibt noch keine Entwurfsbasis."
     ),
     commandState(
       "generate_image_candidate",
@@ -779,13 +910,11 @@ function buildWorksheetCommands({
         pageCount: plannedCandidatePageCount,
         currentContent
       }),
-      approvalState.canGenerate && contentIsReadyForCandidates && imageGenerationConfigured && !candidateGenerationRunning,
+      contentIsReadyForCandidates && imageGenerationConfigured && !candidateGenerationRunning,
       candidateGenerationRunning
         ? plannedCandidatePageCount > 1
           ? "Für dieses Projekt läuft bereits ein mehrseitiger Entwurf im Hintergrund."
           : "Für dieses Projekt läuft bereits ein Entwurf im Hintergrund."
-        : !approvalState.canGenerate
-        ? approvalState.reason || "Arbeitsblatt-Konzept ist nicht freigegeben."
         : !contentIsReadyForCandidates
           ? contentReadinessReason
           : imageRuntime.fallbackReason || "Bildgenerierung ist nicht konfiguriert.",
@@ -795,7 +924,7 @@ function buildWorksheetCommands({
         confirmationMessage: selectableCandidateId
           ? plannedCandidatePageCount > 1
             ? `Dieser Schritt erstellt einen weiteren ${imageRuntime.imageQualityLabel || "Standard"}-Entwurf mit ${plannedCandidatePageCount} Seiten. Der Bildanbieter ist in den Einstellungen festgelegt.`
-            : `Dieser Schritt erstellt eine weitere ${imageRuntime.imageQualityLabel || "Standard"}-Variante. Der Bildanbieter ist in den Einstellungen festgelegt.`
+            : `Dieser Schritt erstellt einen weiteren ${imageRuntime.imageQualityLabel || "Standard"}-Entwurf als Variante. Der Bildanbieter ist in den Einstellungen festgelegt.`
           : plannedCandidatePageCount > 1
             ? `Dieser Schritt erstellt einen ${imageRuntime.imageQualityLabel || "Standard"}-Entwurf mit ${plannedCandidatePageCount} Seiten. Der Bildanbieter ist in den Einstellungen festgelegt.`
             : `Dieser Schritt erstellt einen ${imageRuntime.imageQualityLabel || "Standard"}-Entwurf. Der Bildanbieter ist in den Einstellungen festgelegt.`,
@@ -829,7 +958,8 @@ function buildWorksheetCommands({
   ];
 }
 
-function workspaceMessagesFromEvents(events) {
+function workspaceMessagesFromEvents(events, options = {}) {
+  const candidateDisplayLabels = options.candidateDisplayLabels || {};
   return events
     .map((event) => {
       if (event.type === EVENT_TYPES.USER_MESSAGE || event.type === EVENT_TYPES.ASSISTANT_MESSAGE) {
@@ -840,6 +970,8 @@ function workspaceMessagesFromEvents(events) {
           content: event.payload?.message || event.payload?.content || "",
           mode: event.payload?.mode || "openai",
           attachments: Array.isArray(event.payload?.attachments) ? event.payload.attachments : [],
+          contextRefs: event.payload?.contextRefs || null,
+          revisionTarget: event.payload?.revisionTarget || null,
           proposal: event.payload?.proposal || null,
           suggestedActions: event.payload?.suggestedActions || []
         };
@@ -848,11 +980,15 @@ function workspaceMessagesFromEvents(events) {
         const candidateId = event.payload?.candidateId || "Entwurf";
         const pageCount = Number(event.payload?.pageCount || event.payload?.candidate?.pages?.length || 1) || 1;
         const runId = event.runId || event.payload?.runId || null;
+        const displayLabel = candidateDisplayLabels[`${runId || ""}:${candidateId || ""}`]
+          || event.payload?.displayLabel
+          || null;
         const depositLabel = worksheetDepositActionLabel(pageCount);
         const fallbackMessage = presentWorkflowEvent({
           kind: "candidate_created",
           candidate: {
             id: candidateId,
+            displayLabel,
             pageCount
           }
         }) || `${candidateId} ist fertig.`;
@@ -860,12 +996,13 @@ function workspaceMessagesFromEvents(events) {
           id: event.id,
           role: "assistant",
           createdAt: event.createdAt,
-          content: event.payload?.message || fallbackMessage,
+          content: displayLabel ? fallbackMessage : event.payload?.message || fallbackMessage,
           mode: "system",
           productionCard: {
             kind: "candidate",
             runId,
-            candidateId
+            candidateId,
+            displayLabel
           },
           suggestedActions: [{
             command: "deposit_worksheet",
@@ -948,6 +1085,7 @@ async function worksheetWorkspace({ projectId, projectDir, projectsDir, repoRoot
   const events = await readEvents(projectDir);
   const chatRuntime = getAiRuntimeStatus();
   const imageRuntime = getImageRuntimeStatus();
+  const transcriptionRuntime = getTranscriptionRuntimeStatus();
   const proposals = await readProposalState(projectDir);
   const teachingContext = await readTeachingContext(projectDir, {
     project,
@@ -967,6 +1105,7 @@ async function worksheetWorkspace({ projectId, projectDir, projectsDir, repoRoot
     index,
     currentContentMirrorId: currentContent?.id || null
   });
+  const candidateDisplayLabels = candidateDisplayLabelMap(candidates);
   const projectWorksheets = await listProjectWorksheets(projectId, {
     repoRoot,
     ...(worksheetsDir ? { worksheetsDir } : {})
@@ -1007,6 +1146,7 @@ async function worksheetWorkspace({ projectId, projectDir, projectsDir, repoRoot
     },
     approval: approvalState,
     image: imageRuntime,
+    transcription: transcriptionRuntime,
     latestRun: runState,
     exports: {
       totalCount: 0,
@@ -1016,7 +1156,20 @@ async function worksheetWorkspace({ projectId, projectDir, projectsDir, repoRoot
       items: [],
       current: []
     },
-    steps: buildWorksheetSteps({ project, currentBrief, currentContent, approvalState, runState, item, inputState, candidateGeneration }),
+    steps: buildWorksheetSteps({
+      project,
+      currentBrief,
+      currentContent,
+      currentBriefData,
+      currentContentData,
+      approvalState,
+      runState,
+      item,
+      inputState,
+      candidateGeneration,
+      events,
+      proposals
+    }),
     proposals,
     commands: buildWorksheetCommands({
       project,
@@ -1037,7 +1190,7 @@ async function worksheetWorkspace({ projectId, projectDir, projectsDir, repoRoot
     }),
     chat: {
       ...chatRuntime,
-      messages: workspaceMessagesFromEvents(events)
+      messages: workspaceMessagesFromEvents(events, { candidateDisplayLabels })
     },
     paths: {
       projectDir: rel(repoRoot, projectDir)

@@ -2,6 +2,7 @@
 
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { EVENT_TYPES } = require("../contracts");
 const { readEvents } = require("../eventLog");
 const { interpretTeachingContext } = require("../semanticInterpreterManager");
 
@@ -327,7 +328,7 @@ function inferLessonGoal(message, context = {}, project = {}) {
     const topic = cleanValue(topicMatch?.[1] || "");
     return topic ? `mehr über ${topic} wissen` : "mehr über das Thema wissen";
   }
-  const explicitGoal = valueAfter(raw, /\b(?:ziel|unterrichtsziel|lernziel)\s*(?:(?:ist|is|sit|soll(?:te)?(?:\s+sein)?|:)\s*)?(?:dass\s+)?([^.!?\n;]+)/i);
+  const explicitGoal = valueAfter(raw, /\b(?:ziel|unterrichtsziel|lernziel|goal|aim|objective)\s*(?:(?:ist|is|sit|soll(?:te)?(?:\s+sein)?|:)\s*)?(?:dass\s+)?([^.!?\n;]+)/i);
   const canonicalExplicitGoal = lessonGoalCandidate(explicitGoal, contextText);
   if (canonicalExplicitGoal) {
     return canonicalExplicitGoal;
@@ -341,6 +342,16 @@ function inferLessonGoal(message, context = {}, project = {}) {
   const canonicalSollenGoal = lessonGoalCandidate(sollenGoal, contextText);
   if (canonicalSollenGoal) {
     return canonicalSollenGoal;
+  }
+  const learnerGoalMatch = raw.match(/\b(?:die kinder|schueler|schüler|lernenden)\s+((?:koennen|können|sollen|lernen|ueben|üben|trainieren|bearbeiten|finden|ordnen|begr[uü]nden|markieren|untersuchen|lesen|verstehen|anwenden)\b[^.!?\n;]*)/i);
+  const canonicalLearnerGoal = lessonGoalCandidate(learnerGoalMatch?.[1] || "", contextText);
+  if (canonicalLearnerGoal) {
+    return canonicalLearnerGoal;
+  }
+  const learnerActionGoalMatch = raw.match(/\b(?:die kinder|schueler|schüler|lernenden)\s+([^.!?\n;]*(?:finden|ordnen|begr[uü]nden|markieren|untersuchen|lesen|verstehen|anwenden)[^.!?\n;]*)/i);
+  const canonicalLearnerActionGoal = lessonGoalCandidate(learnerActionGoalMatch?.[1] || "", contextText);
+  if (canonicalLearnerActionGoal) {
+    return canonicalLearnerActionGoal;
   }
   if (
     /\b(?:wichtige\s+infos?|wichtige\s+informationen|informationen|infos?)\b/.test(text)
@@ -429,6 +440,12 @@ function forceRequested(message) {
     || /\bmit annahmen\b/.test(text);
 }
 
+function explicitConceptCreationRequested(message) {
+  const text = normalizeText(message);
+  return /\b(?:arbeitsblatt-?konzept|konzept|konzeptvorschlag)\b/.test(text)
+    && /\b(?:anleg|angeleg|erstell|erstelle|entwickel|entwickeln|ausarbeit|ausarbeiten|ausformulier|formulier|vorschlag)\w*\b/.test(text);
+}
+
 function inferFromMessage(context, message, options = {}) {
   const project = options.project || {};
   const now = options.now || null;
@@ -441,7 +458,7 @@ function inferFromMessage(context, message, options = {}) {
   setField(context, "lessonGoal", inferLessonGoal(message, context, project), { onlyIfMissing: onlyFillMissing, source, now });
   setField(context, "worksheetType", inferWorksheetType(message), { onlyIfMissing: onlyFillMissing, source, now });
   setField(context, "specialRequirements", inferSpecialRequirements(message), { onlyIfMissing: onlyFillMissing, source, now });
-  if (forceRequested(message)) {
+  if (forceRequested(message) || explicitConceptCreationRequested(message)) {
     context.forcedWithAssumptions = true;
   }
   return evaluateReadiness(context);
@@ -543,7 +560,7 @@ function inferFromProjectAndDocuments(context, options = {}) {
 
 function inferFromEvents(context, events = [], options = {}) {
   for (const event of events || []) {
-    if (event.type !== "user_message") {
+    if (event.type !== EVENT_TYPES.USER_MESSAGE) {
       continue;
     }
     inferFromMessage(context, event.payload?.message || event.payload?.content || "", {
@@ -556,10 +573,31 @@ function inferFromEvents(context, events = [], options = {}) {
   return evaluateReadiness(context);
 }
 
+function isInputUploadAnalysisEvent(event = {}) {
+  return event.type === EVENT_TYPES.ASSISTANT_MESSAGE
+    && event.payload?.contextRefs?.kind === "input_upload_analysis";
+}
+
+function inferFromInputAnalyses(context, events = [], options = {}) {
+  for (const event of events || []) {
+    if (!isInputUploadAnalysisEvent(event)) {
+      continue;
+    }
+    inferFromMessage(context, event.payload?.message || "", {
+      ...options,
+      now: event.createdAt || options.now || null,
+      source: "input_analysis",
+      onlyFillMissing: true
+    });
+  }
+  return evaluateReadiness(context);
+}
+
 async function readTeachingContext(projectDir, options = {}) {
   const stored = normalizeContext(await readJsonIfExists(contextPath(projectDir)) || {});
   let context = inferFromProjectAndDocuments(stored, options);
   context = inferFromEvents(context, options.events || [], options);
+  context = inferFromInputAnalyses(context, options.events || [], options);
   return evaluateReadiness(context);
 }
 

@@ -1,6 +1,6 @@
 {
   "id": "worksheet_design.no_visible_solutions",
-  "version": 1,
+  "version": 2,
   "scope": "worksheet_design",
   "stages": ["content_mirror", "image_spec"],
   "priority": 95,
@@ -16,6 +16,11 @@
     "Trenne sichtbare Aufgaben strikt von erwarteten Antworten."
   ],
   "imageSpecInstructions": [
-    "Nutze Loesungen nur als unsichtbaren Kontext fuer Passung und Kontrolle, niemals als sichtbaren Text."
+    "Uebertrage keine konkreten Loesungstexte, erwarteten Antworten oder Musterloesungen in die Bildplanung.",
+    "Der normale Bildprompt erhaelt nur die Regel, dass Loesungen nicht sichtbar sein duerfen."
+  ],
+  "imagePromptInstructions": [
+    "Keine Loesungen, Musterantworten oder Erwartungshorizonte sichtbar machen.",
+    "Keine konkreten Loesungstexte im normalen Bildprompt nutzen."
   ]
 }

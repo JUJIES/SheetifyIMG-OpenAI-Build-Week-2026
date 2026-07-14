@@ -7,6 +7,7 @@ const { buildAiTools, suggestedActionsFromToolCalls } = require("../aiToolRegist
 const { createResponse, extractOutputText, extractToolCalls } = require("../openaiClient");
 const { logModelRun, sanitizeErrorMessage } = require("../modelRunLogger");
 const { estimateOpenAiTextCost } = require("../imageCostManager");
+const { measureModelRequest } = require("../modelRequestMetrics");
 const { routeChatRequest } = require("../modelRouter");
 const { composePrompts } = require("../promptRegistry");
 const { buildProductionContext, productionContextToPrompt } = require("../productionContext");
@@ -21,26 +22,27 @@ const {
 const QUESTION_MAX_OUTPUT_TOKENS = 220;
 const BRAINSTORM_MAX_OUTPUT_TOKENS = 280;
 
-function messageContentForOpenAi(message, images = []) {
-  if (!images.length) {
+function messageContentForOpenAi(message, contentItems = []) {
+  const modelContentItems = (Array.isArray(contentItems) ? contentItems : []).filter(Boolean);
+  if (!modelContentItems.length) {
     return message.content;
   }
   return [
     {
       type: "input_text",
-      text: message.content || "Visuelle Rueckmeldung zum markierten Ausschnitt."
+      text: message.content || "Bitte analysiere den angehaengten Input im Kontext des Arbeitsblatt-Projekts."
     },
-    ...images
+    ...modelContentItems
   ];
 }
 
-function inputForOpenAi(productionContext, messages, currentImages = []) {
+function inputForOpenAi(productionContext, messages, currentContentItems = []) {
   const recent = messages.slice(-12);
   const recentMessages = recent.map((message, index) => {
     const isLastUserMessage = index === recent.length - 1 && message.role !== "assistant";
     return {
       role: message.role === "assistant" ? "assistant" : "user",
-      content: messageContentForOpenAi(message, isLastUserMessage ? currentImages : [])
+      content: messageContentForOpenAi(message, isLastUserMessage ? currentContentItems : [])
     };
   });
 
@@ -70,6 +72,20 @@ function contradictsRequiredConfirmation(message, suggestedActions = []) {
     || /(?:best[aä]tig|bestaetig|kostenbest[aä]tig|kostenbestaetig).{0,90}(?:keine|ohne|nicht\s+(?:n[oö]tig|notwendig))/i.test(text);
 }
 
+function contextRefsForInput(input = {}) {
+  const inputUploads = Array.isArray(input.inputUploadRefs)
+    ? input.inputUploadRefs.filter(Boolean)
+    : [];
+  if (!inputUploads.length) {
+    return null;
+  }
+  return {
+    kind: "input_upload_analysis",
+    sourceUserMessage: input.message || null,
+    inputUploads
+  };
+}
+
 async function assistantMessageForSuggestedActions(projectDir, suggestedActions = [], input = {}, workspace = {}, options = {}) {
   const fallback = input.modelMessage
     || fallbackAssistantMessageForSuggestedActions(suggestedActions, { ...input, workspace })
@@ -87,7 +103,8 @@ async function assistantMessageForSuggestedActions(projectDir, suggestedActions 
     requiresPaidConfirmation: requiresPaidConfirmation(suggestedActions)
   }, {
     now: options.now,
-    uiEvent: input.uiEvent || "chat_message"
+    uiEvent: input.uiEvent || "chat_message",
+    usageAttribution: options.usageAttribution
   });
 }
 
@@ -143,12 +160,18 @@ async function sendOpenAiChatResponse(projectId, projectDir, input = {}, options
   });
   const instructions = await composePrompts(route.promptNames, { repoRoot: options.repoRoot });
   const startedAt = Date.now();
+  let modelCallLogged = false;
+  let requestShape = null;
 
   try {
     const responseBody = {
       model: route.model || requestConfig.textModel,
       instructions,
-      input: inputForOpenAi(productionContext, input.messages, input.openAiImages),
+      input: inputForOpenAi(
+        productionContext,
+        input.messages,
+        input.openAiContentItems || input.openAiImages || []
+      ),
       store: false
     };
     if (tools.length > 0) {
@@ -165,6 +188,9 @@ async function sendOpenAiChatResponse(projectId, projectDir, input = {}, options
         ? BRAINSTORM_MAX_OUTPUT_TOKENS
         : QUESTION_MAX_OUTPUT_TOKENS;
     }
+    requestShape = measureModelRequest(responseBody, {
+      contextSections: productionContext
+    });
 
     const response = await createResponse(responseBody, requestConfig);
     const responseModel = response.model || route.model || requestConfig.textModel;
@@ -175,25 +201,52 @@ async function sendOpenAiChatResponse(projectId, projectDir, input = {}, options
     });
 
     const toolCalls = extractToolCalls(response);
-    const suggestedActions = suggestedActionsFromToolCalls(toolCalls, input.workspace);
+    await logModelRun(projectDir, {
+      status: "success",
+      source: "chat",
+      purpose: route.purpose,
+      route: route.route,
+      promptNames: route.promptNames,
+      model: responseModel,
+      reasoningEffort: route.reasoningEffort,
+      responseId: response.id || null,
+      toolCallCount: toolCalls.length,
+      durationMs: Date.now() - startedAt,
+      usage,
+      costEstimate,
+      requestShape,
+      attribution: options.usageAttribution,
+      uiEvent: input.rawInput.uiEvent || "chat_message"
+    }, { now: options.now });
+    modelCallLogged = true;
+    const suggestedActions = suggestedActionsFromToolCalls(toolCalls, input.workspace, {
+      intent: input.intent
+    });
     const outputText = extractOutputText(response);
     const safeOutputText = outputText && !contradictsRequiredConfirmation(outputText, suggestedActions)
       ? outputText
       : null;
-    const assistantMessage = suggestedActions.length
+    const contextRefs = contextRefsForInput(input);
+    const paidActionOffer = requiresPaidConfirmation(suggestedActions);
+    const shouldPreserveModelAnswer = Boolean(contextRefs && safeOutputText);
+    const assistantMessage = suggestedActions.length && !shouldPreserveModelAnswer
       ? await assistantMessageForSuggestedActions(
           projectDir,
           suggestedActions,
-          { ...input.rawInput, message: input.message, modelMessage: safeOutputText },
+          {
+            ...input.rawInput,
+            message: input.message,
+            ...(paidActionOffer ? {} : { modelMessage: safeOutputText })
+          },
           input.workspace,
-          { now: options.now }
+          { now: options.now, usageAttribution: options.usageAttribution }
         )
       : safeOutputText || await assistantMessageForSuggestedActions(
           projectDir,
           suggestedActions,
           { ...input.rawInput, message: input.message },
           input.workspace,
-          { now: options.now }
+          { now: options.now, usageAttribution: options.usageAttribution }
         );
 
     const assistantEvent = await appendEvent(projectDir, {
@@ -204,6 +257,7 @@ async function sendOpenAiChatResponse(projectId, projectDir, input = {}, options
         mode: "openai",
         message: assistantMessage,
         suggestedActions,
+        ...(contextRefs ? { contextRefs } : {}),
         provider: {
           name: "openai",
           responseId: response.id || null,
@@ -214,21 +268,6 @@ async function sendOpenAiChatResponse(projectId, projectDir, input = {}, options
         }
       }
     }, { now: options.now });
-    await logModelRun(projectDir, {
-      status: "success",
-      source: "chat",
-      purpose: route.purpose,
-      route: route.route,
-      promptNames: route.promptNames,
-      model: responseModel,
-      responseId: response.id || null,
-      toolCallCount: toolCalls.length,
-      durationMs: Date.now() - startedAt,
-      usage,
-      costEstimate,
-      uiEvent: input.rawInput.uiEvent || "chat_message"
-    }, { now: options.now });
-
     const nextWorkspace = await buildWorkspace(projectId, {
       repoRoot: options.repoRoot,
       projectsDir: options.projectsDir
@@ -242,6 +281,7 @@ async function sendOpenAiChatResponse(projectId, projectDir, input = {}, options
         createdAt: assistantEvent.createdAt,
         content: assistantMessage,
         suggestedActions,
+        contextRefs,
         provider: {
           responseId: response.id || null,
           model: response.model || route.model || requestConfig.textModel,
@@ -254,17 +294,22 @@ async function sendOpenAiChatResponse(projectId, projectDir, input = {}, options
     };
   } catch (error) {
     const errorMessage = `OpenAI-Chat konnte nicht antworten: ${sanitizeErrorMessage(error)}`;
-    await logModelRun(projectDir, {
-      status: "error",
-      source: "chat",
-      purpose: route.purpose,
-      route: route.route,
-      promptNames: route.promptNames,
-      model: route.model || requestConfig.textModel,
-      durationMs: Date.now() - startedAt,
-      uiEvent: input.rawInput.uiEvent || "chat_message",
-      error
-    }, { now: options.now });
+    if (!modelCallLogged) {
+      await logModelRun(projectDir, {
+        status: "error",
+        source: "chat",
+        purpose: route.purpose,
+        route: route.route,
+        promptNames: route.promptNames,
+        model: route.model || requestConfig.textModel,
+        reasoningEffort: route.reasoningEffort,
+        durationMs: Date.now() - startedAt,
+        requestShape,
+        attribution: options.usageAttribution,
+        uiEvent: input.rawInput.uiEvent || "chat_message",
+        error
+      }, { now: options.now });
+    }
     const assistantEvent = await appendEvent(projectDir, {
       type: EVENT_TYPES.ASSISTANT_MESSAGE,
       createdAt: options.now,

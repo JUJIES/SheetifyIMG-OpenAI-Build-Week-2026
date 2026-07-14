@@ -6,12 +6,13 @@ const { createImageEdit, createImageGeneration } = require("../openaiClient");
 const { writeImageAsset, writeImageFileAsset } = require("../imageAssetManager");
 const { estimateOpenAiImageCost } = require("../imageCostManager");
 const { logModelRun } = require("../modelRunLogger");
+const { extendUsageAttribution } = require("../usageAttributionManager");
 const {
   buildPagePlans,
   pageRole,
   promptForPage
 } = require("./promptBuilder");
-const { resolveReferenceImages } = require("./referenceImages");
+const { referencesForPage, resolveReferenceImages } = require("./referenceImages");
 
 function filterPagePlans(pagePlans = [], pageNumbers = []) {
   if (!pageNumbers.length) {
@@ -33,11 +34,11 @@ async function generateOpenAiAssets({
   now,
   variantInstruction = "",
   contentChangePolicy = "preserve_approved_text",
-  changeScope = "candidate_from_concept"
+  changeScope = "candidate_from_concept",
+  usageAttribution = null
 }) {
   const assets = [];
-  const referenceImages = await resolveReferenceImages(projectDir, imageSpec?.data?.referenceImages || imageSpec?.referenceImages || []);
-  const usesReferenceImages = referenceImages.length > 0;
+  const allReferences = imageSpec?.data?.referenceImages || imageSpec?.referenceImages || [];
   const allPagePlans = buildPagePlans(imageSheetBrief.contentMirror || {}, imageSheetBrief.lessonBrief || {}, pageCount, imageSpec);
   const pagePlans = filterPagePlans(allPagePlans, pageNumbers);
   if (!pagePlans.length) {
@@ -45,12 +46,27 @@ async function generateOpenAiAssets({
   }
   for (const pagePlan of pagePlans) {
     const pageNumber = pagePlan.pageNumber;
+    const pageAttribution = extendUsageAttribution(usageAttribution, {
+      runId: path.basename(runDir),
+      candidateId,
+      pageNumber
+    });
     const role = pageRole(pageNumber, pagePlan);
+    const pageReferences = referencesForPage(allReferences, pageNumber);
+    const referenceImages = await resolveReferenceImages(projectDir, pageReferences);
+    const usesReferenceImages = referenceImages.length > 0;
+    const pageImageSpec = {
+      ...imageSpec,
+      data: {
+        ...(imageSpec?.data || {}),
+        referenceImages: pageReferences
+      }
+    };
     const prompt = promptForPage({
       imageSheetBrief,
       pageNumber,
       role,
-      imageSpec,
+      imageSpec: pageImageSpec,
       variantInstruction,
       pageCount: allPagePlans.length,
       pagePlan,
@@ -89,13 +105,10 @@ async function generateOpenAiAssets({
         model: requestConfig.imageModel,
         proposalId: imageSpec?.proposalId || null,
         durationMs: Date.now() - startedAt,
+        attribution: pageAttribution,
         error
       }, { now });
       throw error;
-    }
-    const image = response.data?.[0] || {};
-    if (!image.b64_json) {
-      throw new Error("OpenAI image response did not include base64 image data.");
     }
     const durationMs = Date.now() - startedAt;
     const usage = response.usage || null;
@@ -106,6 +119,36 @@ async function generateOpenAiAssets({
       quality: requestConfig.imageQuality,
       imageCount: 1
     });
+    await logModelRun(projectDir, {
+      status: "success",
+      source: "image_generation",
+      purpose: "image_generation",
+      route: "image_generation",
+      model: requestConfig.imageModel,
+      proposalId: imageSpec?.proposalId || null,
+      responseId: response.id || null,
+      durationMs,
+      usage,
+      costEstimate,
+      attribution: pageAttribution,
+      metadata: {
+        generationMode: usesReferenceImages ? "image_edit_with_references" : "image_generation",
+        referenceImageCount: referenceImages.length,
+        runId: path.basename(runDir),
+        candidateId,
+        pageNumber,
+        size: requestConfig.imageSize,
+        quality: requestConfig.imageQuality,
+        qualityPreset: requestConfig.imageQualityPreset,
+        openAiImageStreaming: requestConfig.openAiImageStreaming === true,
+        contentChangePolicy,
+        changeScope
+      }
+    }, { now });
+    const image = response.data?.[0] || {};
+    if (!image.b64_json) {
+      throw new Error("OpenAI image response did not include base64 image data.");
+    }
     const asset = await writeImageAsset({
       runDir,
       candidateId,
@@ -137,31 +180,6 @@ async function generateOpenAiAssets({
       ...asset,
       prompt
     });
-    await logModelRun(projectDir, {
-      status: "success",
-      source: "image_generation",
-      purpose: "image_generation",
-      route: "image_generation",
-      model: requestConfig.imageModel,
-      proposalId: imageSpec?.proposalId || null,
-      responseId: response.id || null,
-      durationMs,
-      usage,
-      costEstimate,
-      metadata: {
-        generationMode: usesReferenceImages ? "image_edit_with_references" : "image_generation",
-        referenceImageCount: referenceImages.length,
-        runId: path.basename(runDir),
-        candidateId,
-        pageNumber,
-        size: requestConfig.imageSize,
-        quality: requestConfig.imageQuality,
-        qualityPreset: requestConfig.imageQualityPreset,
-        openAiImageStreaming: requestConfig.openAiImageStreaming === true,
-        contentChangePolicy,
-        changeScope
-      }
-    }, { now });
   }
   return assets;
 }
@@ -178,10 +196,11 @@ async function generateCodexAssets({
   now,
   variantInstruction = "",
   contentChangePolicy = "preserve_approved_text",
-  changeScope = "candidate_from_concept"
+  changeScope = "candidate_from_concept",
+  usageAttribution = null
 }) {
   const assets = [];
-  const referenceImages = await resolveReferenceImages(projectDir, imageSpec?.data?.referenceImages || imageSpec?.referenceImages || []);
+  const allReferences = imageSpec?.data?.referenceImages || imageSpec?.referenceImages || [];
   const allPagePlans = buildPagePlans(imageSheetBrief.contentMirror || {}, imageSheetBrief.lessonBrief || {}, pageCount, imageSpec);
   const pagePlans = filterPagePlans(allPagePlans, pageNumbers);
   if (!pagePlans.length) {
@@ -189,12 +208,26 @@ async function generateCodexAssets({
   }
   for (const pagePlan of pagePlans) {
     const pageNumber = pagePlan.pageNumber;
+    const pageAttribution = extendUsageAttribution(usageAttribution, {
+      runId: path.basename(runDir),
+      candidateId,
+      pageNumber
+    });
     const role = pageRole(pageNumber, pagePlan);
+    const pageReferences = referencesForPage(allReferences, pageNumber);
+    const referenceImages = await resolveReferenceImages(projectDir, pageReferences);
+    const pageImageSpec = {
+      ...imageSpec,
+      data: {
+        ...(imageSpec?.data || {}),
+        referenceImages: pageReferences
+      }
+    };
     const prompt = promptForPage({
       imageSheetBrief,
       pageNumber,
       role,
-      imageSpec,
+      imageSpec: pageImageSpec,
       variantInstruction,
       pageCount: allPagePlans.length,
       pagePlan,
@@ -225,10 +258,33 @@ async function generateCodexAssets({
         provider: "codex_cli",
         proposalId: imageSpec?.proposalId || null,
         durationMs: Date.now() - startedAt,
+        attribution: pageAttribution,
         error
       }, { now });
       throw error;
     }
+    await logModelRun(projectDir, {
+      status: "success",
+      source: "image_generation",
+      purpose: "image_generation",
+      route: "codex_image_generation",
+      model: requestConfig.codexModel,
+      provider: "codex_cli",
+      proposalId: imageSpec?.proposalId || null,
+      responseId: codexResult.sessionId || null,
+      durationMs: codexResult.durationMs,
+      attribution: pageAttribution,
+      metadata: {
+        generationMode: "codex_builtin_image_generation",
+        referenceImageCount: referenceImages.length,
+        codexJobPath: codexResult.jobPath,
+        runId: path.basename(runDir),
+        candidateId,
+        pageNumber,
+        contentChangePolicy,
+        changeScope
+      }
+    }, { now });
     const asset = await writeImageFileAsset({
       runDir,
       candidateId,
@@ -260,24 +316,6 @@ async function generateCodexAssets({
       ...asset,
       prompt
     });
-    await logModelRun(projectDir, {
-      status: "success",
-      source: "image_generation",
-      purpose: "image_generation",
-      route: "codex_image_generation",
-      model: requestConfig.codexModel,
-      provider: "codex_cli",
-      proposalId: imageSpec?.proposalId || null,
-      responseId: codexResult.sessionId || null,
-      durationMs: codexResult.durationMs,
-      metadata: {
-        generationMode: "codex_builtin_image_generation",
-        referenceImageCount: referenceImages.length,
-        codexJobPath: codexResult.jobPath,
-        contentChangePolicy,
-        changeScope
-      }
-    }, { now });
   }
   return assets;
 }

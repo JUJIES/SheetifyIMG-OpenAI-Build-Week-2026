@@ -4,10 +4,13 @@ const ROUTE_PURPOSES = Object.freeze({
   ORCHESTRATOR: "orchestrator",
   LESSON_BRIEF: "lessonbrief",
   CONTENT_MIRROR: "content_mirror",
+  CONTENT_DELTA: "content_delta",
   IMAGE_SPEC: "image_spec",
   CONTENT_WARNINGS: "content_warnings",
+  CHAT_INTENT: "chat_intent_interpretation",
   SEMANTIC_INTERPRETATION: "semantic_interpretation",
   FINAL_CHAT: "final_chat",
+  NARRATION: "narration",
   IMAGE_GENERATION: "image_generation",
   RENDER: "render"
 });
@@ -72,11 +75,20 @@ function routeForPurpose(purpose, requestConfig = {}) {
       reasoningEffort: "medium"
     };
   }
+  if (purpose === ROUTE_PURPOSES.CONTENT_DELTA) {
+    return {
+      purpose,
+      route: "quality_reasoning_delta",
+      model: requestConfig.reasoningModel,
+      promptNames: ["global", "content_delta"],
+      reasoningEffort: "medium"
+    };
+  }
   if (purpose === ROUTE_PURPOSES.IMAGE_SPEC) {
     return {
       purpose,
       route: "quality_reasoning",
-      model: requestConfig.reasoningModel,
+      model: requestConfig.textModel,
       promptNames: ["global", "image_spec"],
       reasoningEffort: "medium"
     };
@@ -85,9 +97,18 @@ function routeForPurpose(purpose, requestConfig = {}) {
     return {
       purpose,
       route: "quality_reasoning",
-      model: requestConfig.reasoningModel,
+      model: requestConfig.textModel,
       promptNames: ["global", "quality_check"],
       reasoningEffort: "medium"
+    };
+  }
+  if (purpose === ROUTE_PURPOSES.CHAT_INTENT) {
+    return {
+      purpose,
+      route: "chat_intent",
+      model: requestConfig.textModel,
+      promptNames: ["chat_intent_inline"],
+      reasoningEffort: "high"
     };
   }
   if (purpose === ROUTE_PURPOSES.SEMANTIC_INTERPRETATION) {
@@ -96,7 +117,7 @@ function routeForPurpose(purpose, requestConfig = {}) {
       route: "semantic_interpretation",
       model: requestConfig.textModel,
       promptNames: ["global", "semantic_interpreter"],
-      reasoningEffort: "low"
+      reasoningEffort: "high"
     };
   }
   if (purpose === ROUTE_PURPOSES.FINAL_CHAT) {
@@ -105,6 +126,15 @@ function routeForPurpose(purpose, requestConfig = {}) {
       route: "orchestrator",
       model: requestConfig.textModel,
       promptNames: ["global", "final_chat"],
+      reasoningEffort: "low"
+    };
+  }
+  if (purpose === ROUTE_PURPOSES.NARRATION) {
+    return {
+      purpose,
+      route: "narration",
+      model: requestConfig.textModel,
+      promptNames: ["chat_narration_inline"],
       reasoningEffort: "low"
     };
   }

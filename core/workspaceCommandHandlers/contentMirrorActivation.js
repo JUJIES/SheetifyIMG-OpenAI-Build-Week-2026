@@ -45,7 +45,7 @@ async function activateContentMirrorVersion(projectDir, payload = {}, options = 
     };
   }
   if (![ARTIFACT_STATUSES.APPROVED, ARTIFACT_STATUSES.DRAFT].includes(artifact.status)) {
-    throw new Error("Diese Konzeptversion kann nicht als Arbeitsstand übernommen werden.");
+    throw new Error("Diese Konzeptversion kann nicht als Arbeitsstand genutzt werden.");
   }
 
   const manifestPath = path.join(projectDir, "project-manifest.json");

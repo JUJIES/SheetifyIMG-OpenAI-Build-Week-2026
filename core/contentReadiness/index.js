@@ -78,28 +78,52 @@ function numberFromToken(token) {
 function requestedTaskConstraint(text) {
   const normalized = normalize(text);
   const matches = [];
+  const maximumSpans = [];
   const regexes = [
-    /\b(genau|exakt)\s+(\d+|ein|eine|einen|eins|zwei|drei|vier|fuenf|funf|fünf)\s+(?:kurze\s+|verschiedene\s+)?aufgaben?\b/g,
-    /\b(\d+|ein|eine|einen|eins|zwei|drei|vier|fuenf|funf|fünf)\s+(?:kurze\s+|verschiedene\s+)?aufgaben?\b/g,
-    /\baufgaben?\s*(?:anzahl|:)?\s*(\d+)\b/g
+    {
+      regex: /\b(maximal|hoechstens|höchstens|bis zu)\s+(\d+|ein|eine|einen|eins|zwei|drei|vier|fuenf|funf|fünf)\s+(?:kurze\s+|verschiedene\s+)?aufgaben?\b/g,
+      kind: "max"
+    },
+    {
+      regex: /\b(genau|exakt)\s+(\d+|ein|eine|einen|eins|zwei|drei|vier|fuenf|funf|fünf)\s+(?:kurze\s+|verschiedene\s+)?aufgaben?\b/g,
+      kind: "exact"
+    },
+    {
+      regex: /\b(mindestens|wenigstens)\s+(\d+|ein|eine|einen|eins|zwei|drei|vier|fuenf|funf|fünf)\s+(?:kurze\s+|verschiedene\s+)?aufgaben?\b/g,
+      kind: "min"
+    },
+    {
+      regex: /\b(\d+|ein|eine|einen|eins|zwei|drei|vier|fuenf|funf|fünf)\s+(?:kurze\s+|verschiedene\s+)?aufgaben?\b/g,
+      kind: "min"
+    },
+    {
+      regex: /\baufgaben?\s*(?:anzahl|:)?\s*(\d+)\b/g,
+      kind: "min"
+    }
   ];
 
-  for (let regexIndex = 0; regexIndex < regexes.length; regexIndex += 1) {
-    const regex = regexes[regexIndex];
+  for (const { regex, kind } of regexes) {
     let match;
     while ((match = regex.exec(normalized))) {
-      const exact = regexIndex === 0;
-      const number = numberFromToken(exact ? match[2] : match[1]);
+      if (kind === "min" && maximumSpans.some((span) => match.index >= span.start && match.index < span.end)) {
+        continue;
+      }
+      const number = numberFromToken(kind === "min" && match.length === 2 ? match[1] : match[2]);
       if (number) {
-        matches.push({ count: number, exact });
+        matches.push({ count: number, kind });
+        if (kind === "max") {
+          maximumSpans.push({ start: match.index, end: match.index + match[0].length });
+        }
       }
     }
   }
-  const exactMatches = matches.filter((match) => match.exact).map((match) => match.count);
-  const allCounts = matches.map((match) => match.count);
+  const exactMatches = matches.filter((match) => match.kind === "exact").map((match) => match.count);
+  const minMatches = matches.filter((match) => match.kind === "min").map((match) => match.count);
+  const maxMatches = matches.filter((match) => match.kind === "max").map((match) => match.count);
   const exactTasks = exactMatches.length ? Math.max(...exactMatches) : null;
-  const minTasks = allCounts.length ? Math.max(...allCounts) : null;
-  return { minTasks, exactTasks };
+  const minTasks = minMatches.length ? Math.max(...minMatches) : null;
+  const maxTasks = maxMatches.length ? Math.min(...maxMatches) : null;
+  return { minTasks, exactTasks, maxTasks };
 }
 
 function requestedConstraints({ events = [], brief = {} } = {}) {
@@ -111,6 +135,7 @@ function requestedConstraints({ events = [], brief = {} } = {}) {
   return {
     minTasks: taskConstraint.minTasks,
     exactTasks: taskConstraint.exactTasks,
+    maxTasks: taskConstraint.maxTasks,
     requiresSolution: mentionsSolution && !excludesSolution,
     requiresMaterial: /\b(materialseite|materialbezug|material|quelle|bild|abbildung|grafik)\b/.test(text),
     mentionsAfb: /\bafb\b|anforderungsbereich/.test(text)
@@ -119,6 +144,35 @@ function requestedConstraints({ events = [], brief = {} } = {}) {
 
 function textValue(entry = {}) {
   return String(entry.prompt || entry.text || entry.body || entry.description || entry.purpose || "").trim();
+}
+
+function splitTaskPromptUnits(prompt = "") {
+  const text = String(prompt || "").trim();
+  if (!text) {
+    return [];
+  }
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length <= 1) {
+    return [text];
+  }
+  const firstLine = lines[0] || "";
+  const firstLineUnit = firstLine.match(/\b(?:questions?|fragen|boxes|felder|prompts?)\b[^:]*:\s*(.+)$/i)?.[1]?.trim() || "";
+  if (!firstLineUnit) {
+    return [text];
+  }
+  const tail = firstLineUnit ? lines.slice(1) : lines;
+  const units = [
+    firstLineUnit,
+    ...tail
+  ].map((line) => line.trim()).filter(Boolean);
+  return units.length ? units : [text];
+}
+
+function visibleTaskUnitCount(tasks = []) {
+  return (Array.isArray(tasks) ? tasks : []).reduce((sum, task) => {
+    const units = splitTaskPromptUnits(textValue(task));
+    return sum + Math.max(1, units.length);
+  }, 0);
 }
 
 function isGenericTask(task = {}) {
@@ -140,6 +194,7 @@ function hasSolutionContent(content = {}) {
 
 function contentReadinessForGeneration(content = {}, context = {}) {
   const tasks = Array.isArray(content.tasks) ? content.tasks : [];
+  const effectiveTaskCount = visibleTaskUnitCount(tasks);
   const readingTexts = Array.isArray(content.readingTexts) ? content.readingTexts : [];
   const imageMaterials = Array.isArray(content.imageMaterials) ? content.imageMaterials : [];
   const constraints = requestedConstraints(context);
@@ -154,10 +209,12 @@ function contentReadinessForGeneration(content = {}, context = {}) {
   if (imageMaterials.some(isGenericMaterial)) {
     reasons.push("Mindestens ein Bildmaterial ist noch ein generischer Platzhalter.");
   }
-  if (constraints.exactTasks && tasks.length !== constraints.exactTasks) {
-    reasons.push(`Der Auftrag verlangt genau ${constraints.exactTasks} Aufgaben, bestätigt sind bisher ${tasks.length}.`);
-  } else if (constraints.minTasks && tasks.length < constraints.minTasks) {
-    reasons.push(`Der Auftrag verlangt ${constraints.minTasks} Aufgaben, bestätigt sind bisher ${tasks.length}.`);
+  if (constraints.exactTasks && effectiveTaskCount !== constraints.exactTasks) {
+    reasons.push(`Der Auftrag verlangt genau ${constraints.exactTasks} Aufgaben, bestätigt sind bisher ${effectiveTaskCount}.`);
+  } else if (constraints.minTasks && effectiveTaskCount < constraints.minTasks) {
+    reasons.push(`Der Auftrag verlangt ${constraints.minTasks} Aufgaben, bestätigt sind bisher ${effectiveTaskCount}.`);
+  } else if (constraints.maxTasks && tasks.length > constraints.maxTasks) {
+    reasons.push(`Der Auftrag verlangt maximal ${constraints.maxTasks} Aufgaben, bestätigt sind bisher ${tasks.length}.`);
   }
   if (constraints.requiresSolution && !hasSolutionContent(content)) {
     reasons.push("Der Auftrag verlangt einen Lösungsteil, aber bestätigte Lösungshinweise fehlen.");
@@ -188,5 +245,6 @@ module.exports = {
   contentReadinessForGeneration,
   contentReadinessMessage,
   requestedConstraints,
+  splitTaskPromptUnits,
   userMessageText
 };

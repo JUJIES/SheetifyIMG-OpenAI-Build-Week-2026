@@ -3,11 +3,16 @@
 const path = require("node:path");
 const { PRODUCTION_SCHEMA_VERSION } = require("../contracts");
 const { readJsonFileIfExists, writeJsonFile } = require("../jsonFile");
+const {
+  createUsageAttribution,
+  extendUsageAttribution
+} = require("../usageAttributionManager");
 
 const DEFAULT_REPO_ROOT = path.resolve(__dirname, "..", "..");
 const DEFAULT_PROJECTS_DIR = path.join(DEFAULT_REPO_ROOT, "projects");
 const CANDIDATE_GENERATION_STATE_FILE = "candidate-generation-state.json";
 const activeJobs = new Map();
+let shuttingDown = false;
 
 async function readJsonIfExists(filePath) {
   return readJsonFileIfExists(filePath);
@@ -201,6 +206,9 @@ async function markCandidateGenerationSeen(projectDir, options = {}) {
 }
 
 async function startCandidateGenerationJob(projectId, input = {}, options = {}) {
+  if (shuttingDown) {
+    throw new Error("SheetifyIMG wird gerade beendet. Bitte starte den Entwurf nach dem Neustart erneut.");
+  }
   const projectsDir = options.projectsDir || DEFAULT_PROJECTS_DIR;
   const projectDir = options.projectDir || path.join(projectsDir, projectId);
   const now = options.now || new Date().toISOString();
@@ -214,6 +222,14 @@ async function startCandidateGenerationJob(projectId, input = {}, options = {}) 
   }
 
   const activeJob = buildActiveJob(input, now);
+  const usageAttribution = extendUsageAttribution(
+    createUsageAttribution(options.usageAttribution, {
+      projectId,
+      operationKind: "candidate_generation",
+      commandId: "generate_image_candidate"
+    }),
+    { jobId: activeJob.jobId }
+  );
   const nextState = {
     ...state,
     activeJob
@@ -237,7 +253,8 @@ async function startCandidateGenerationJob(projectId, input = {}, options = {}) 
         now
       }, {
         ...options,
-        now
+        now,
+        usageAttribution
       });
       const completedAt = new Date().toISOString();
       const currentState = await readRawState(projectDir, { now: completedAt });
@@ -294,9 +311,54 @@ async function startCandidateGenerationJob(projectId, input = {}, options = {}) 
   return publicState(nextState);
 }
 
+function beginCandidateGenerationShutdown() {
+  shuttingDown = true;
+}
+
+function activeCandidateGenerationJobCount() {
+  return activeJobs.size;
+}
+
+async function waitForActiveCandidateGenerationJobs(options = {}) {
+  const timeoutMs = Math.max(1, Number(options.timeoutMs) || 210000);
+  const pending = [...activeJobs.values()]
+    .map((entry) => entry?.promise)
+    .filter(Boolean);
+  if (!pending.length) {
+    return {
+      completed: true,
+      timedOut: false,
+      pendingCount: 0
+    };
+  }
+
+  let timeoutId;
+  const timeout = new Promise((resolve) => {
+    timeoutId = setTimeout(() => resolve("timeout"), timeoutMs);
+  });
+  const result = await Promise.race([
+    Promise.allSettled(pending).then(() => "completed"),
+    timeout
+  ]);
+  clearTimeout(timeoutId);
+  return {
+    completed: result === "completed",
+    timedOut: result === "timeout",
+    pendingCount: activeJobs.size
+  };
+}
+
+function resetCandidateGenerationShutdownForTests() {
+  shuttingDown = false;
+}
+
 module.exports = {
   CANDIDATE_GENERATION_STATE_FILE,
+  activeCandidateGenerationJobCount,
+  beginCandidateGenerationShutdown,
   markCandidateGenerationSeen,
   readCandidateGenerationState,
-  startCandidateGenerationJob
+  resetCandidateGenerationShutdownForTests,
+  startCandidateGenerationJob,
+  waitForActiveCandidateGenerationJobs
 };

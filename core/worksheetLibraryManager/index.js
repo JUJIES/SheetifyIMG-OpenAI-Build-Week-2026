@@ -6,6 +6,7 @@ const { DEFAULT_PRINT_SAFE_MARGIN_MM, renderImagesToPdf } = require("../pdfRende
 const { openProject } = require("../projectManager");
 const { readJsonFile, readJsonFileIfExists, writeJsonFile } = require("../jsonFile");
 const { runCandidateTechnicalQc } = require("../imageQcManager");
+const { updateRunAnalysisReport } = require("../runAnalysisManager");
 
 const DEFAULT_REPO_ROOT = path.resolve(__dirname, "..", "..");
 const DEFAULT_PROJECTS_DIR = path.join(DEFAULT_REPO_ROOT, "projects");
@@ -828,6 +829,7 @@ async function createWorksheetSnapshot(input = {}, options = {}) {
     ? null
     : await findDuplicateByFingerprint(fingerprint, { worksheetsDir });
   if (duplicate) {
+    await updateRunAnalysisReport(projectDir, runId, { now, worksheetsDir });
     return {
       duplicate: true,
       existing: publicWorksheet(duplicate, { repoRoot, worksheetsDir })
@@ -879,6 +881,7 @@ async function createWorksheetSnapshot(input = {}, options = {}) {
   removeItemFromWorksheetState(state, `worksheet:${worksheetId}`);
   targetFolder.children.push(`worksheet:${worksheetId}`);
   await writeWorksheetState(state, { worksheetsDir, now });
+  await updateRunAnalysisReport(projectDir, runId, { now, worksheetsDir });
 
   return {
     duplicate: false,

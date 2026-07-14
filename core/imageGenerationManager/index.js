@@ -24,7 +24,9 @@ const {
   contentReadinessForGeneration,
   contentReadinessMessage
 } = require("../contentReadiness");
+const { assertImageGenerationContract } = require("../imageGenerationContract");
 const { writeJsonFile } = require("../jsonFile");
+const { createUsageAttribution } = require("../usageAttributionManager");
 
 async function readJson(filePath) {
   return JSON.parse(await fs.readFile(filePath, "utf8"));
@@ -98,7 +100,10 @@ async function ensureRun(projectDir, input, options, approvalState) {
   if (runId) {
     const manifest = await readJson(path.join(projectDir, "runs", runId, "run-manifest.json"));
     const sameContent = manifest.sourceArtifacts?.contentMirrorId === approvalState.approvedContentMirror?.id;
-    const lessonBriefArtifact = approvalState.approvedLessonBrief || approvalState.currentLessonBrief || null;
+    const lessonBriefArtifact = approvalState.effectiveLessonBrief
+      || approvalState.approvedLessonBrief
+      || approvalState.currentLessonBrief
+      || null;
     const sameBrief = (manifest.sourceArtifacts?.lessonbriefId || null) === (lessonBriefArtifact?.id || null);
     if (sameContent && sameBrief) {
       return runId;
@@ -119,9 +124,17 @@ function requestedPageNumbers(input = {}) {
 
 async function generateImageCandidate(projectDir, input = {}, options = {}) {
   const now = input.now || options.now || new Date().toISOString();
+  const usageAttribution = createUsageAttribution(options.usageAttribution, {
+    projectId: path.basename(projectDir),
+    operationKind: "candidate_generation",
+    commandId: "generate_image_candidate"
+  });
   const approvalState = await assertCanGenerate(projectDir);
   const approvedContent = await readJson(path.join(projectDir, approvalState.approvedContentMirror.path));
-  const lessonBriefArtifact = approvalState.approvedLessonBrief || approvalState.currentLessonBrief || null;
+  const lessonBriefArtifact = approvalState.effectiveLessonBrief
+    || approvalState.approvedLessonBrief
+    || approvalState.currentLessonBrief
+    || null;
   const approvedBrief = lessonBriefArtifact
     ? await readJson(path.join(projectDir, lessonBriefArtifact.path))
     : {};
@@ -150,13 +163,19 @@ async function generateImageCandidate(projectDir, input = {}, options = {}) {
   const runtimeImageSpec = mergeRuntimeReferenceImages(imageSpec, input.referenceImages, {
     includeImageSpecReferenceImages: input.useImageSpecReferenceImages === true
   });
+  const contractAnalysis = assertImageGenerationContract({
+    contentMirror: approvedContent,
+    lessonBrief: approvedBrief,
+    imageSpec: runtimeImageSpec,
+    requestedPageCount: input.pageCount || null
+  });
 
   const runId = await ensureRun(projectDir, input, { ...options, now }, approvalState);
   const runDir = path.join(projectDir, "runs", runId);
   const runManifest = await readJson(path.join(runDir, "run-manifest.json"));
   const imageSheetBrief = await readJson(path.join(runDir, "brief.imagesheet.json"));
   const candidateId = input.candidateId || nextCandidateId(runManifest);
-  const pageCount = clampPageCount(Number(input.pageCount) || runtimeImageSpec.data?.pageCount || runtimeImageSpec.pageCount || pageCountFromContent(imageSheetBrief.contentMirror || {}, runtimeImageSpec, imageSheetBrief.lessonBrief || {}));
+  const pageCount = clampPageCount(Number(input.pageCount) || contractAnalysis.pageCount || runtimeImageSpec.data?.pageCount || runtimeImageSpec.pageCount || pageCountFromContent(imageSheetBrief.contentMirror || {}, runtimeImageSpec, imageSheetBrief.lessonBrief || {}));
   const pageNumbers = requestedPageNumbers(input);
   const variantInstruction = String(input.variantInstruction || input.message || "").trim();
   const contentChangePolicy = normalizeContentChangePolicy(input.contentChangePolicy);
@@ -168,8 +187,8 @@ async function generateImageCandidate(projectDir, input = {}, options = {}) {
     openAiImageStreaming: input.openAiImageStreaming
   });
   const assets = requestConfig.mode === "codex_cli"
-    ? await generateCodexAssets({ projectDir, runDir, candidateId, imageSheetBrief, imageSpec: runtimeImageSpec, pageCount, pageNumbers, requestConfig, now, variantInstruction, contentChangePolicy, changeScope })
-    : await generateOpenAiAssets({ projectDir, runDir, candidateId, imageSheetBrief, imageSpec: runtimeImageSpec, pageCount, pageNumbers, requestConfig, now, variantInstruction, contentChangePolicy, changeScope });
+    ? await generateCodexAssets({ projectDir, runDir, candidateId, imageSheetBrief, imageSpec: runtimeImageSpec, pageCount, pageNumbers, requestConfig, now, variantInstruction, contentChangePolicy, changeScope, usageAttribution })
+    : await generateOpenAiAssets({ projectDir, runDir, candidateId, imageSheetBrief, imageSpec: runtimeImageSpec, pageCount, pageNumbers, requestConfig, now, variantInstruction, contentChangePolicy, changeScope, usageAttribution });
   const generationMode = requestConfig.mode === "codex_cli"
     ? "codex_builtin_image_generation"
     : assets.some((asset) => asset.metadata?.generationMode === "image_edit_with_references")
@@ -180,7 +199,11 @@ async function generateImageCandidate(projectDir, input = {}, options = {}) {
     role: reference.role || "style_reference",
     path: reference.path || null,
     purpose: reference.purpose || null,
-    scope: reference.scope || "next_candidate"
+    scope: reference.scope || "next_candidate",
+    source: reference.source || null,
+    sourceLabel: reference.sourceLabel || reference.label || null,
+    targetPage: Number(reference.targetPage || reference.page || 0) || null,
+    userDetails: reference.userDetails || reference.details || null
   }));
   const chatMessage = await narrateChatMoment(projectDir, {
     kind: "candidate_created",
@@ -225,7 +248,8 @@ async function generateImageCandidate(projectDir, input = {}, options = {}) {
     }
   }, {
     now,
-    uiEvent: "candidate_created"
+    uiEvent: "candidate_created",
+    usageAttribution
   });
 
   let candidate = await registerCandidate(projectDir, runId, {

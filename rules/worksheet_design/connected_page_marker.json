@@ -1,0 +1,37 @@
+{
+  "id": "worksheet_design.connected_page_marker",
+  "version": 1,
+  "scope": "worksheet_design",
+  "stages": ["image_spec"],
+  "priority": 84,
+  "title": "Mehrseiten-Hinweis oben rechts stabil halten",
+  "appliesWhen": {
+    "always": true
+  },
+  "instructions": [
+    "Bei verbundenen mehrseitigen Arbeitsblaettern ist der Seitenhinweis ein app-eigenes Layout-Element, kein Inhalts- oder Abschnittstitel.",
+    "Der Marker muss auf allen verbundenen Seiten denselben Anker haben: oben rechts im sicheren Seitenrand.",
+    "Vorlagen- und Layoutreferenzen duerfen den Stil des Markers beeinflussen, aber nicht seine Position verschieben."
+  ],
+  "imageSpecInstructions": [
+    "Plane keine konkurrierenden Kopf-, Fuss- oder Seitenlabels fuer `Seite X von Y`; der kleine Seitenhinweis wird spaeter app-eigen gesetzt.",
+    "Halte oben rechts im sicheren Seitenrand Platz fuer einen kleinen Seitenmarker, wenn ein zusammenhaengender Mehrseitenentwurf entsteht."
+  ],
+  "imagePromptInstructions": [
+    "Bei verbundenen Mehrseiten den app-eigenen Seitenhinweis oben rechts im sicheren Seitenrand setzen.",
+    "Auf allen Seiten denselben Seitenhinweis-Anker nutzen: gleicher rechter Rand und gleiche obere Kante.",
+    "Stil darf zur Vorlage passen; Position nicht durch Layout-/Vorlagenreferenzen verschieben, nicht in Footer, Inhaltskasten oder Abschnittstitel setzen."
+  ],
+  "examples": [
+    {
+      "bad": "Seite 1 von 3 oben rechts, Seite 2 von 3 im Footer, Seite 3 von 3 in einer Titelbox.",
+      "good": "Alle Seiten zeigen `Seite X von 3` klein oben rechts im gleichen Seitenrand.",
+      "reason": "Der Marker orientiert in einer zusammenhaengenden Reihe und darf nicht mit der wechselnden Seitenkomposition wandern."
+    },
+    {
+      "bad": "Eine Vorlage hat die Seitenzahl unten; der neue Entwurf uebernimmt das.",
+      "good": "Der Entwurf uebernimmt Stil/Randlogik der Vorlage, setzt `Seite X von Y` aber trotzdem oben rechts.",
+      "reason": "Der Seitenhinweis ist ein app-eigener Anker und staerker als die Vorlagengeometrie."
+    }
+  ]
+}

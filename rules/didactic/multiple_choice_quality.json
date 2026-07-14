@@ -32,5 +32,9 @@
   "imageSpecInstructions": [
     "Rendere Multiple-Choice-Optionen gleichwertig und optisch gleich betont.",
     "Hebe keine richtige Antwort durch Laenge, Position, Farbe oder Layout hervor."
+  ],
+  "imagePromptInstructions": [
+    "Multiple-Choice-Optionen gleichwertig und optisch gleich betont rendern.",
+    "Keine Antwort durch Position, Farbe, Laenge oder Layout als richtig hervorheben."
   ]
 }

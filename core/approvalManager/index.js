@@ -40,6 +40,13 @@ async function getApprovalState(projectDir) {
   const approvedContentMirror = currentContentMirror
     ? currentContentMirror.status === ARTIFACT_STATUSES.APPROVED ? currentContentMirror : null
     : latestApprovedArtifact(index, ARTIFACT_TYPES.CONTENT_MIRROR);
+  const lessonBriefCoveredByContent = Boolean(approvedContentMirror && !approvedLessonBrief);
+  const effectiveLessonBrief = approvedLessonBrief || (approvedContentMirror ? currentLessonBrief : null);
+  const lessonBriefStatus = approvedLessonBrief
+    ? ARTIFACT_STATUSES.APPROVED
+    : lessonBriefCoveredByContent
+      ? "covered_by_content"
+      : currentLessonBrief?.status || "missing";
   const compatibilityApprovedContent = await pathExists(path.join(projectDir, "content", "approved.content-mirror.json"));
   const reason = approvedContentMirror
     ? null
@@ -49,9 +56,12 @@ async function getApprovalState(projectDir) {
 
   return {
     approvedLessonBrief,
+    effectiveLessonBrief,
     approvedContentMirror,
     currentLessonBrief,
     currentContentMirror,
+    lessonBriefCoveredByContent,
+    lessonBriefStatus,
     compatibilityApprovedContent,
     canGenerate: Boolean(approvedContentMirror),
     reason

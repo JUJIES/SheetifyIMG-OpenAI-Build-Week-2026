@@ -1,0 +1,69 @@
+{
+  "id": "worksheet_design.label_ownership",
+  "version": 4,
+  "scope": "worksheet_design",
+  "stages": ["content_mirror", "image_spec"],
+  "priority": 88,
+  "title": "Benennungen eindeutig, aber nicht redundant",
+  "appliesWhen": {
+    "always": true
+  },
+  "instructions": [
+    "Sichtbare Labels, Kategorien und Blocktitel duerfen eine Information nur auf einer passenden Ebene benennen.",
+    "Wenn ein Aufgabenblock, Materialblock, Abschnitt, eine Station, Stufe oder Kategorie bereits benannt ist, duerfen einzelne Aufgaben oder Items dieses Label nicht als Praefix wiederholen.",
+    "Wenn ein uebergeordneter Aufgabenblock mehrere Aufgaben enthaelt, startet die sichtbare Aufgabenzaehlung innerhalb dieses Blocks neu.",
+    "Wenn ein Aufgabenblock nur eine Aufgabe enthaelt, erzeuge keinen Unterblock mit `1.`; behandle das Label als Teil der Aufgabe oder als eigenen Stationsmarker.",
+    "Kombiniere nicht zwei konkurrierende Benennungssysteme wie '1. Station A' oder '3. Stufe 2'; nutze entweder das Blocklabel oder die lokale Aufgabennummer im Block.",
+    "Nutze kurze, menschliche Benennungen, die Orientierung schaffen, aber keinen Konzept- oder Strukturjargon sichtbar machen."
+  ],
+  "contentInstructions": [
+    "Plane Labels als Abschnittstitel, Blocktitel oder strukturierte Metadaten wie `groupLabel`; der Aufgabenprompt beginnt mit der eigentlichen Aufgabe.",
+    "Schreibe keine fuehrenden Labels wie 'Stufe 2 - mittel:', 'Station A:' oder 'Material 1:' in jede Aufgabe, wenn der umgebende Block diese Information schon traegt.",
+    "Nutze in Layout- und Platzierungshinweisen neutrale Formulierungen wie `Seite mit Lesetext` oder `Seite mit Aufgaben`; solche Rollen sind interne Planung, keine sichtbaren Titel."
+  ],
+  "imageSpecInstructions": [
+    "Rendere Blocklabels nur bei echten Mehrfachbloecken als Blockueberschrift; bei Einzelaufgaben kann das Label als knapper Aufgabenpraefix erscheinen.",
+    "Nummeriere Aufgaben innerhalb eines Mehrfachblocks lokal ab 1; bei Einzelgruppen keine Unteraufgabe `1.` unter dem Label erzeugen.",
+    "Bei Einzelstationen reicht das Stationslabel ohne zusaetzliche Zahl.",
+    "Wenn freigegebener Text bereits ein sichtbares Label enthaelt, erfinde keine zweite sichtbare Ueberschrift mit derselben Bedeutung.",
+    "Seitenrollen bleiben interne Kompositionshinweise; sichtbare Titel muessen konkrete fachliche Texttitel oder Aufgabenblock-Titel sein."
+  ],
+  "imagePromptInstructions": [
+    "Blocklabels nur einmal setzen: bei Mehrfachbloecken als Blockueberschrift, bei Einzelaufgaben als knapper Aufgabenpraefix.",
+    "Aufgaben innerhalb eines Mehrfachblocks lokal nummerieren; keine Unteraufgabe `1.` erzeugen, wenn der Block nur eine Aufgabe enthaelt.",
+    "Keine Stations- oder Stufenpraefixe in jeder Aufgabenzeile wiederholen.",
+    "Keine zweite sichtbare Ueberschrift mit derselben Bedeutung erfinden; Seitenrollen nicht als sichtbare Titel rendern."
+  ],
+  "examples": [
+    {
+      "bad": "Stufe 2 - mittel\n4. Stufe 2 - mittel: Ein Bus faehrt 12 m/s ...",
+      "good": "Stufe 2 - mittel\n1. Ein Bus faehrt 12 m/s ...",
+      "reason": "Die Aufgabe erbt die Schwierigkeit aus dem Blocklabel und die Zaehlung startet im Block neu."
+    },
+    {
+      "bad": "Stufe 1 - leicht\n1. ...\n2. ...\nStufe 2 - mittel\n3. ...\n4. ...",
+      "good": "Stufe 1 - leicht\n1. ...\n2. ...\nStufe 2 - mittel\n1. ...\n2. ...",
+      "reason": "Aufgaben werden innerhalb jedes Blocks lokal gezaehlt."
+    },
+    {
+      "bad": "Beobachten\n1. Betrachte die Bildkarten.\nZuordnen\n1. Verbinde die Begriffe.\nErklaeren\n1. Schreibe zwei Saetze.",
+      "good": "1. Beobachten: Betrachte die Bildkarten.\n2. Zuordnen: Verbinde die Begriffe.\n3. Erklaeren: Schreibe zwei Saetze.",
+      "reason": "Einzelgruppen sind keine echten Unteraufgabenbloecke; sonst entsteht eine redundante 1.-1.-1.-Struktur."
+    },
+    {
+      "bad": "1. Station A\n2. Station B\n3. Station C",
+      "good": "Station A\nStation B\nStation C",
+      "reason": "Stationslabels sind bereits eindeutige Bezeichnungen; zusaetzliche Nummern waeren redundant."
+    },
+    {
+      "bad": "Materialseite\nMaterial\nAufgaben",
+      "good": "Die Hanse\nIm Mittelalter ...\nAufgaben",
+      "reason": "Der Text bekommt einen fachlichen Titel; die Aufgaben brauchen keinen zweiten Seitenrollentitel."
+    },
+    {
+      "bad": "Station A\n1. Station A: Untersuche die Skizze.",
+      "good": "Station A: Untersuche die Skizze.",
+      "reason": "Bei einer Einzelstation reicht das Stationslabel als eindeutiger Marker; eine Unteraufgabe 1 waere redundant."
+    }
+  ]
+}

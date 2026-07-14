@@ -5,13 +5,13 @@ function dynamicDecisionPrompt(commandId, label = "") {
     return "Soll ich einen weiteren mehrseitigen Entwurf mit allen geplanten Seiten erstellen?";
   }
   if (commandId === "generate_image_candidate" && /variante/i.test(label)) {
-    return "Soll ich einen weiteren Entwurf mit demselben freigegebenen Konzept erzeugen?";
+    return "Soll ich einen weiteren Entwurf mit demselben Arbeitsblatt-Konzept erzeugen?";
   }
   if (commandId === "generate_content_mirror_proposal" && /überarbeiten|ueberarbeiten|aktualisieren/i.test(label)) {
     return "Soll ich das Arbeitsblatt-Konzept mit deiner Änderung überarbeiten?";
   }
   if (commandId === "adopt_content_mirror_proposal" && /aktualisieren/i.test(label)) {
-    return "Die Konzept-Aktualisierung liegt vor. Soll ich sie übernehmen? Danach erstellst du den nächsten Entwurf auf dieser neuen Grundlage.";
+    return "Das überarbeitete Arbeitsblatt-Konzept liegt vor. Soll ich daraus den nächsten Entwurf vorbereiten?";
   }
   return null;
 }
@@ -24,13 +24,13 @@ function dynamicDecisionLabel(commandId, label = "") {
     return /weitere/i.test(label) ? "Weiteren mehrseitigen Entwurf erstellen" : "Mehrseitigen Entwurf erstellen";
   }
   if (commandId === "generate_image_candidate" && /variante/i.test(label)) {
-    return "Weiteren Entwurf erzeugen";
+    return "Weitere Entwurfsvariante erzeugen";
   }
   if (commandId === "generate_content_mirror_proposal" && /überarbeiten|ueberarbeiten|aktualisieren/i.test(label)) {
     return "Konzept überarbeiten";
   }
   if (commandId === "adopt_content_mirror_proposal" && /aktualisieren/i.test(label)) {
-    return "Konzept aktualisieren";
+    return "Mit diesem Konzept weiterarbeiten";
   }
   return null;
 }
@@ -45,48 +45,44 @@ const COMMAND_UI = Object.freeze({
     decisionLabel: "Ja, direkt anlegen"
   },
   adopt_lessonbrief_proposal: {
-    decisionPrompt: "Der Konzept-Vorschlag liegt vor. Soll ich ihn übernehmen?",
-    decisionLabel: "Ja, übernehmen"
+    decisionPrompt: "Der interne Konzeptstand liegt vor. Soll ich daraus das vollständige Arbeitsblatt-Konzept ausformulieren?",
+    decisionLabel: "Ja, Konzept ausformulieren"
   },
   generate_content_mirror_proposal: {
     decisionPrompt: "Soll ich daraus das vollständige Arbeitsblatt-Konzept ausformulieren?",
     decisionLabel: "Ja, Konzept ausformulieren"
   },
   create_content_draft: {
-    decisionPrompt: "Soll ich daraus direkt die Aufgabenstruktur und Materialseite anlegen?",
+    decisionPrompt: "Soll ich daraus direkt Lesetext/Material und Aufgabenstruktur anlegen?",
     decisionLabel: "Ja, direkt anlegen"
   },
   adopt_content_mirror_proposal: {
-    decisionPrompt: "Das Arbeitsblatt-Konzept liegt vor. Wenn es passt, übernehme ich es als Grundlage für Entwürfe.",
-    decisionLabel: "Ja, Konzept passt"
+    decisionPrompt: "Das Arbeitsblatt-Konzept liegt vor. Soll ich mit diesem Stand weiterarbeiten?",
+    decisionLabel: "Mit diesem Konzept weiterarbeiten"
   },
   generate_candidate_from_content_proposal: {
-    decisionPrompt: "Wenn das Konzept passt, kann ich direkt einen Entwurf erstellen. Dafür kommt vorher die Kostenbestätigung.",
+    decisionPrompt: "Soll ich aus diesem Arbeitsblatt-Konzept einen Entwurf erstellen? Dafür kommt vorher die Kostenbestätigung.",
     decisionLabel: "Entwurf erstellen"
   },
-  adopt_content_warnings_proposal: {
-    decisionPrompt: "Die Prüfhinweise sind vorbereitet. Soll ich sie übernehmen?",
-    decisionLabel: "Ja, übernehmen"
-  },
   approve_current_content: {
-    decisionPrompt: "Das Arbeitsblatt-Konzept wirkt bereit. Soll ich es als Grundlage für Entwürfe freigeben?",
-    decisionLabel: "Ja, freigeben"
+    decisionPrompt: "Das Arbeitsblatt-Konzept wirkt bereit. Soll ich mit diesem Stand weiterarbeiten?",
+    decisionLabel: "Mit diesem Konzept weiterarbeiten"
   },
   prepare_image_spec: {
-    decisionPrompt: "Ich kann kurz prüfen, ob die geplante Visualisierung eine Referenz oder Vorlage braucht. Soll ich das vorbereiten?",
-    decisionLabel: "Visualisierung prüfen"
+    decisionPrompt: "Soll ich prüfen, ob der nächste Entwurf eine Referenz oder Vorlage braucht?",
+    decisionLabel: "Referenzbedarf prüfen"
   },
   prepare_reference_asset: {
-    decisionPrompt: "Für diese Visualisierung kann ich jetzt die passende Referenz oder Vorlage vorbereiten. Soll ich das machen?",
-    decisionLabel: "Referenz/Vorlage vorbereiten"
+    decisionPrompt: "Für diese Visualisierung kann ich ein hochgeladenes Referenzbild nutzen. Soll ich das machen?",
+    decisionLabel: "Referenzbild nutzen"
   },
   prepare_web_reference_asset: {
-    decisionPrompt: "Hier ist eine Webreferenz sinnvoll. Soll ich eine passende offene Bildreferenz suchen und für die Generierung anhängen?",
-    decisionLabel: "Webreferenz suchen"
+    decisionPrompt: "Hier kann eine offene Bildreferenz helfen. Soll ich eine passende Wikimedia-Bildreferenz suchen und für die Generierung anhängen?",
+    decisionLabel: "Bildreferenz suchen"
   },
   adopt_image_spec: {
-    decisionPrompt: "Die Vorbereitung für den nächsten Entwurf liegt vor. Soll ich sie für die Bildgenerierung nutzen?",
-    decisionLabel: "Vorbereitung passt"
+    decisionPrompt: "Soll ich den internen Stand für die Bildgenerierung nutzen?",
+    decisionLabel: "Internen Stand nutzen"
   },
   deposit_worksheet: {
     decisionPrompt: "Soll ich diesen Entwurf als Arbeitsblatt in der Ablage speichern?",

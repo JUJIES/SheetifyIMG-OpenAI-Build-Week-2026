@@ -18,7 +18,7 @@ const {
 } = require("./shared");
 
 async function generateCompleteConceptProposal(context) {
-  const { projectId, payload, input, now } = context;
+  const { projectId, projectDir, payload, input, now } = context;
   const sharedInput = {
     ...payload,
     message: payload.message || input.message || "Formuliere ein vollständiges Arbeitsblatt-Konzept mit Text, Aufgaben und Bildidee.",
@@ -35,6 +35,7 @@ async function generateCompleteConceptProposal(context) {
     silent: true,
     now
   }, handlerOptions(context));
+  await approveCurrentBrief(projectDir, handlerOptions(context));
   return generateProposal(projectId, PROPOSAL_KINDS.CONTENT_MIRROR, {
     ...sharedInput,
     message: payload.message || input.message || "Formuliere daraus jetzt das vollständige sichtbare Arbeitsblatt-Konzept.",
@@ -54,13 +55,23 @@ async function generateLessonBriefProposal(context) {
   }, handlerOptions(context));
 }
 
-function adoptLessonBriefProposal(context) {
-  const { projectId, payload, input, now } = context;
-  return adoptProposal(projectId, PROPOSAL_KINDS.LESSON_BRIEF, {
+async function adoptLessonBriefProposal(context) {
+  const { projectId, projectDir, payload, input, now } = context;
+  const result = await adoptProposal(projectId, PROPOSAL_KINDS.LESSON_BRIEF, {
     payload,
-    silent: payload.silent === true || input.silent === true,
+    silent: payload.silent === true || input.silent === true || payload.continueToContent === true,
     now
   }, handlerOptions(context));
+  if (payload.continueToContent === true) {
+    await approveCurrentBrief(projectDir, handlerOptions(context));
+    return generateProposal(projectId, PROPOSAL_KINDS.CONTENT_MIRROR, {
+      ...payload,
+      message: payload.message || input.message || "Formuliere daraus jetzt das vollständige sichtbare Arbeitsblatt-Konzept.",
+      silent: false,
+      now
+    }, handlerOptions(context));
+  }
+  return result;
 }
 
 function generateContentMirrorProposal(context) {

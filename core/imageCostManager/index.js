@@ -3,6 +3,48 @@
 const USD_PER_MILLION = 1_000_000;
 
 const OPENAI_TEXT_PRICING = {
+  "gpt-5.6-sol": {
+    id: "gpt-5.6-sol",
+    label: "GPT-5.6 Sol",
+    currency: "usd",
+    source: "openai_api_pricing",
+    sourceDate: "2026-07-13",
+    contextTier: "short_context",
+    ratesPerMillionTokens: {
+      input: 5,
+      cachedInput: 0.5,
+      cacheWrite: 6.25,
+      output: 30
+    }
+  },
+  "gpt-5.6-terra": {
+    id: "gpt-5.6-terra",
+    label: "GPT-5.6 Terra",
+    currency: "usd",
+    source: "openai_api_pricing",
+    sourceDate: "2026-07-13",
+    contextTier: "short_context",
+    ratesPerMillionTokens: {
+      input: 2.5,
+      cachedInput: 0.25,
+      cacheWrite: 3.125,
+      output: 15
+    }
+  },
+  "gpt-5.6-luna": {
+    id: "gpt-5.6-luna",
+    label: "GPT-5.6 Luna",
+    currency: "usd",
+    source: "openai_api_pricing",
+    sourceDate: "2026-07-13",
+    contextTier: "short_context",
+    ratesPerMillionTokens: {
+      input: 1,
+      cachedInput: 0.1,
+      cacheWrite: 1.25,
+      output: 6
+    }
+  },
   "gpt-5.5": {
     id: "gpt-5.5",
     label: "GPT-5.5",
@@ -100,6 +142,33 @@ const OPENAI_IMAGE_PRICING = {
   }
 };
 
+const OPENAI_TRANSCRIPTION_PRICING = {
+  "gpt-4o-transcribe": {
+    id: "gpt-4o-transcribe",
+    label: "GPT-4o Transcribe",
+    currency: "usd",
+    source: "openai_api_pricing",
+    sourceDate: "2026-07-13",
+    ratesPerMillionTokens: {
+      input: 2.5,
+      output: 10
+    },
+    estimatedRatePerMinute: 0.006
+  },
+  "gpt-4o-mini-transcribe": {
+    id: "gpt-4o-mini-transcribe",
+    label: "GPT-4o mini Transcribe",
+    currency: "usd",
+    source: "openai_api_pricing",
+    sourceDate: "2026-07-13",
+    ratesPerMillionTokens: {
+      input: 1.25,
+      output: 5
+    },
+    estimatedRatePerMinute: 0.003
+  }
+};
+
 const OPENAI_IMAGE_OUTPUT_ESTIMATES = {
   "gpt-image-2": {
     model: "gpt-image-2",
@@ -154,6 +223,18 @@ function pricingForTextModel(model) {
   for (const modelId of modelIds) {
     if (normalized === modelId || normalized.startsWith(`${modelId}-`)) {
       return OPENAI_TEXT_PRICING[modelId];
+    }
+  }
+  return null;
+}
+
+function pricingForTranscriptionModel(model) {
+  const normalized = String(model || "").trim().toLowerCase();
+  const modelIds = Object.keys(OPENAI_TRANSCRIPTION_PRICING)
+    .sort((left, right) => right.length - left.length);
+  for (const modelId of modelIds) {
+    if (normalized === modelId || normalized.startsWith(`${modelId}-`)) {
+      return OPENAI_TRANSCRIPTION_PRICING[modelId];
     }
   }
   return null;
@@ -287,13 +368,16 @@ function textTokenBreakdownFromUsage(usage = {}) {
   const cachedInputTokens = numberOrZero(usage.input_cached_tokens)
     || numberOrZero(usage.cached_input_tokens)
     || numberOrZero(inputDetails.cached_tokens);
-  const uncachedInputTokens = Math.max(0, inputTokens - cachedInputTokens);
+  const cacheWriteTokens = numberOrZero(inputDetails.cache_write_tokens)
+    || numberOrZero(usage.cache_write_tokens);
+  const uncachedInputTokens = Math.max(0, inputTokens - cachedInputTokens - cacheWriteTokens);
 
   return {
     inputTokens,
     outputTokens,
     totalTokens,
     cachedInputTokens,
+    cacheWriteTokens,
     uncachedInputTokens,
     outputReasoningTokens: numberOrZero(outputDetails.reasoning_tokens)
   };
@@ -337,6 +421,13 @@ function estimateOpenAiTextCost({ usage, model } = {}) {
       costUsd: costForTokens(tokens.cachedInputTokens, rates.cachedInput)
     },
     {
+      id: "cache_write",
+      label: "Cache write",
+      tokens: tokens.cacheWriteTokens,
+      ratePerMillion: rates.cacheWrite,
+      costUsd: costForTokens(tokens.cacheWriteTokens, rates.cacheWrite)
+    },
+    {
       id: "output",
       label: "Output",
       tokens: tokens.outputTokens,
@@ -356,6 +447,7 @@ function estimateOpenAiTextCost({ usage, model } = {}) {
     currency: pricing.currency,
     usageAvailable: true,
     estimatedCostAvailable: true,
+    estimationBasis: "api_usage_tokens",
     estimatedCostUsd: roundMoney(estimatedCostUsd),
     tokens,
     components: components.map((component) => ({
@@ -363,6 +455,81 @@ function estimateOpenAiTextCost({ usage, model } = {}) {
       costUsd: roundMoney(component.costUsd)
     }))
   };
+}
+
+function estimateOpenAiTranscriptionCost({ usage, model, durationMs } = {}) {
+  const pricing = pricingForTranscriptionModel(model);
+  const inputTokens = numberOrZero(usage?.input_tokens);
+  const outputTokens = numberOrZero(usage?.output_tokens);
+  const totalTokens = numberOrZero(usage?.total_tokens) || inputTokens + outputTokens;
+  const durationMinutes = numberOrZero(durationMs) / 60_000;
+  if (!pricing) {
+    return {
+      provider: "openai",
+      model: model || null,
+      usageAvailable: Boolean(totalTokens || durationMinutes),
+      estimatedCostAvailable: false,
+      reason: "No local pricing rule for this transcription model.",
+      tokens: totalTokens ? { inputTokens, outputTokens, totalTokens } : null,
+      durationMs: numberOrZero(durationMs) || null
+    };
+  }
+
+  if (totalTokens) {
+    const components = [
+      {
+        id: "input",
+        label: "Transcription input",
+        tokens: inputTokens,
+        ratePerMillion: pricing.ratesPerMillionTokens.input,
+        costUsd: costForTokens(inputTokens, pricing.ratesPerMillionTokens.input)
+      },
+      {
+        id: "output",
+        label: "Transcription output",
+        tokens: outputTokens,
+        ratePerMillion: pricing.ratesPerMillionTokens.output,
+        costUsd: costForTokens(outputTokens, pricing.ratesPerMillionTokens.output)
+      }
+    ].filter((component) => component.tokens > 0);
+    return {
+      provider: "openai",
+      model: model || null,
+      pricingModel: pricing.id,
+      pricingSource: pricing.source,
+      pricingSourceDate: pricing.sourceDate,
+      currency: pricing.currency,
+      usageAvailable: true,
+      estimatedCostAvailable: true,
+      estimationBasis: "api_usage_tokens",
+      estimatedCostUsd: roundMoney(components.reduce((sum, component) => sum + component.costUsd, 0)),
+      tokens: { inputTokens, outputTokens, totalTokens },
+      durationMs: numberOrZero(durationMs) || null,
+      components: components.map((component) => ({
+        ...component,
+        costUsd: roundMoney(component.costUsd)
+      }))
+    };
+  }
+
+  if (durationMinutes) {
+    return {
+      provider: "openai",
+      model: model || null,
+      pricingModel: pricing.id,
+      pricingSource: pricing.source,
+      pricingSourceDate: pricing.sourceDate,
+      currency: pricing.currency,
+      usageAvailable: false,
+      estimatedCostAvailable: true,
+      estimationBasis: "recorded_duration",
+      estimatedCostUsd: roundMoney(durationMinutes * pricing.estimatedRatePerMinute),
+      durationMs: numberOrZero(durationMs),
+      estimatedRatePerMinute: pricing.estimatedRatePerMinute
+    };
+  }
+
+  return null;
 }
 
 function estimateOpenAiImageCost({ usage, model, size, quality, imageCount = 1 } = {}) {
@@ -438,6 +605,7 @@ function estimateOpenAiImageCost({ usage, model, size, quality, imageCount = 1 }
     quality: quality || null,
     usageAvailable: true,
     estimatedCostAvailable: true,
+    estimationBasis: "api_usage_tokens",
     estimatedCostUsd: roundMoney(estimatedCostUsd),
     tokens,
     components: components.map((component) => ({
@@ -451,11 +619,14 @@ module.exports = {
   OPENAI_TEXT_PRICING,
   OPENAI_IMAGE_OUTPUT_ESTIMATES,
   OPENAI_IMAGE_PRICING,
+  OPENAI_TRANSCRIPTION_PRICING,
   estimateOpenAiImagePresetCost,
   estimateOpenAiImageCost,
   estimateOpenAiTextCost,
+  estimateOpenAiTranscriptionCost,
   pricingForModel,
   pricingForTextModel,
+  pricingForTranscriptionModel,
   textTokenBreakdownFromUsage,
   tokenBreakdownFromUsage
 };

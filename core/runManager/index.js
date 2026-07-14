@@ -70,7 +70,10 @@ async function writeProjectManifest(projectDir, manifest) {
 }
 
 async function writeImageSheetBrief({ projectDir, runDir, approvalState, now }) {
-  const lessonBriefArtifact = approvalState.approvedLessonBrief || approvalState.currentLessonBrief || null;
+  const lessonBriefArtifact = approvalState.effectiveLessonBrief
+    || approvalState.approvedLessonBrief
+    || approvalState.currentLessonBrief
+    || null;
   const lessonBrief = lessonBriefArtifact
     ? await readJson(path.join(projectDir, lessonBriefArtifact.path))
     : null;
@@ -102,7 +105,10 @@ async function createRun(projectDir, options = {}) {
   const approvalState = await assertCanGenerate(projectDir);
   const projectManifest = await readProjectManifest(projectDir);
   const approvedContent = await readJson(path.join(projectDir, approvalState.approvedContentMirror.path));
-  const lessonBriefArtifact = approvalState.approvedLessonBrief || approvalState.currentLessonBrief || null;
+  const lessonBriefArtifact = approvalState.effectiveLessonBrief
+    || approvalState.approvedLessonBrief
+    || approvalState.currentLessonBrief
+    || null;
   const approvedBrief = lessonBriefArtifact
     ? await readJson(path.join(projectDir, lessonBriefArtifact.path))
     : {};

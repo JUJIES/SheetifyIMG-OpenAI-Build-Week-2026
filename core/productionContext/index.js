@@ -56,7 +56,9 @@ function messageSnapshot(messages = []) {
     role: message.role === "assistant" ? "assistant" : "user",
     content: message.content,
     createdAt: message.createdAt || null,
-    attachments: visualFeedbackSnapshot(message.attachments || [])
+    contextRefs: message.contextRefs || null,
+    revisionTarget: message.revisionTarget || null,
+    attachments: attachmentSnapshot(message.attachments || [])
   }));
 }
 
@@ -77,11 +79,35 @@ function visualFeedbackSnapshot(attachments = []) {
     .filter((attachment) => attachment.kind === "visual_feedback")
     .map((attachment) => ({
       id: attachment.id || null,
+      kind: "visual_feedback",
       label: attachment.label || null,
       path: attachment.path || null,
       source: attachment.source || null,
       userInstructionRequired: attachment.userInstructionRequired === true
     }));
+}
+
+function inputUploadSnapshot(attachments = []) {
+  return attachments
+    .filter((attachment) => attachment.kind === "input_upload")
+    .map((attachment) => ({
+      id: attachment.id || null,
+      kind: "input_upload",
+      label: attachment.label || attachment.originalName || null,
+      originalName: attachment.originalName || null,
+      mimeType: attachment.mimeType || null,
+      size: attachment.size || null,
+      path: attachment.path || null,
+      artifactId: attachment.artifactId || attachment.source?.artifactId || null,
+      source: attachment.source || null
+    }));
+}
+
+function attachmentSnapshot(attachments = []) {
+  return [
+    ...visualFeedbackSnapshot(attachments),
+    ...inputUploadSnapshot(attachments)
+  ];
 }
 
 function firstIncompleteStep(workspace = {}) {
@@ -134,6 +160,7 @@ function buildProductionContext({ workspace = {}, messages = [], input = {}, rou
     userMessage: String(input.message || "").trim() || null,
     canvasFocus,
     visualFeedback: visualFeedbackSnapshot(input.attachments || []),
+    inputUploads: inputUploadSnapshot(input.attachments || []),
     activeArtifact: activeArtifactFromCanvas(workspace, canvasFocus),
     project: workspace.project || null,
     teachingContext: workspace.teachingContext || null,

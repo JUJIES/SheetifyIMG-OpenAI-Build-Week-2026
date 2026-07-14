@@ -12,6 +12,7 @@ const { createContentMirrorVersion } = require("../contentMirrorManager");
 const { createContentWarningsVersion, normalizeWarnings } = require("../contentWarningManager");
 const { logModelRun, sanitizeErrorMessage } = require("../modelRunLogger");
 const { estimateOpenAiTextCost } = require("../imageCostManager");
+const { measureModelRequest } = require("../modelRequestMetrics");
 const { ROUTE_PURPOSES, routeForPurpose } = require("../modelRouter");
 const { composePrompts } = require("../promptRegistry");
 const { productionContextToPrompt } = require("../productionContext");
@@ -19,7 +20,16 @@ const { openProject } = require("../projectManager");
 const { requestedConstraints } = require("../contentReadiness");
 const { narrateChatMoment } = require("../chatNarrationManager");
 const { inferReferencePolicy, mergeReferencePolicies } = require("../referencePolicy");
-const { pagePlanForImageSpec } = require("../pagePlanManager");
+const { explicitPageCountFromText, pagePlanForImageSpec } = require("../pagePlanManager");
+const { normalizeReadingTexts } = require("../readingTextManager");
+const { normalizeExpectedAnswer, normalizeSolutionNotes } = require("../solutionAnchorManager");
+const { normalizeTaskLabelFields } = require("../taskLabelManager");
+const { createUsageAttribution } = require("../usageAttributionManager");
+const {
+  applyContentDelta,
+  compactContextForContentDelta,
+  contentDeltaSchema
+} = require("../contentDeltaManager");
 const {
   appliedRulesForImageSpec,
   formatSelectedRulesForPrompt,
@@ -34,6 +44,21 @@ const PROPOSAL_KINDS = Object.freeze({
   CONTENT_MIRROR: "content_mirror",
   CONTENT_WARNINGS: "content_warnings",
   IMAGE_SPEC: "image_spec"
+});
+const RECENT_MESSAGE_BUDGET = 16;
+const IMPORTANT_RECENT_MESSAGE_EXTRA_BUDGET = 8;
+const ASSISTANT_MESSAGE_TAIL_CHAR_LIMIT = 700;
+const ASSISTANT_MESSAGE_OLDER_CHAR_LIMIT = 320;
+const IMAGE_SPEC_TEXT_LIMITS = Object.freeze({
+  purpose: 180,
+  visualBrief: 280,
+  layoutIntent: 360,
+  styleNotes: 240,
+  placement: 180,
+  learningFunction: 220,
+  listItem: 180,
+  mustShowItems: 8,
+  avoidItems: 8
 });
 
 async function pathExists(filePath) {
@@ -103,11 +128,19 @@ function latestByKind(proposals, kind, status = "proposed") {
   return proposals
     .filter((proposal) => proposal.kind === kind)
     .filter((proposal) => proposal.status === status)
-    .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")))[0] || null;
+    .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || ""))
+      || String(right.proposalId || "").localeCompare(String(left.proposalId || "")))[0] || null;
 }
 
 async function readProposalState(projectDir) {
   const proposals = await readProposals(projectDir);
+  const manifest = await readJsonIfExists(path.join(projectDir, "project-manifest.json"));
+  const currentContentMirrorId = manifest?.currentArtifacts?.contentMirrorId || null;
+  const activeImageSpec = proposals
+    .filter((proposal) => proposal.kind === PROPOSAL_KINDS.IMAGE_SPEC && proposal.status === "adopted")
+    .filter((proposal) => !currentContentMirrorId || proposal.source?.currentContentMirrorId === currentContentMirrorId)
+    .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || ""))
+      || String(right.proposalId || "").localeCompare(String(left.proposalId || "")))[0] || null;
   return {
     counts: {
       total: proposals.length,
@@ -118,7 +151,7 @@ async function readProposalState(projectDir) {
     latestContentMirror: summarizeProposal(latestByKind(proposals, PROPOSAL_KINDS.CONTENT_MIRROR)),
     latestContentWarnings: summarizeProposal(latestByKind(proposals, PROPOSAL_KINDS.CONTENT_WARNINGS)),
     latestImageSpec: summarizeProposal(latestByKind(proposals, PROPOSAL_KINDS.IMAGE_SPEC)),
-    activeImageSpec: summarizeProposal(latestByKind(proposals, PROPOSAL_KINDS.IMAGE_SPEC, "adopted"))
+    activeImageSpec: summarizeProposal(activeImageSpec)
   };
 }
 
@@ -142,15 +175,15 @@ function summarizeProposal(proposal) {
 
 function titleFromProposal(proposal) {
   if (proposal.kind === PROPOSAL_KINDS.LESSON_BRIEF) {
-    return proposal.data?.topic || "Konzept-Vorschlag";
+    return proposal.data?.topic || "Arbeitsblatt-Konzept";
   }
   if (proposal.kind === PROPOSAL_KINDS.CONTENT_MIRROR) {
-    return proposal.data?.title || "Konzept-Vorschlag";
+    return proposal.data?.title || "Arbeitsblatt-Konzept";
   }
   if (proposal.kind === PROPOSAL_KINDS.IMAGE_SPEC) {
-    return proposal.data?.purpose || "Entwurfsvorbereitung";
+    return proposal.data?.purpose || "Bildplanung";
   }
-  return proposal.data?.summary || "Prüfhinweise";
+  return proposal.data?.summary || "Konzept-Feedback";
 }
 
 function stringOrNull(value) {
@@ -198,6 +231,23 @@ function safeImageSpecIntentText(value, fallback) {
   return text;
 }
 
+function compactImageSpecText(value, maxChars) {
+  const text = String(value || "").trim();
+  if (!text || text.length <= maxChars) {
+    return text;
+  }
+  const limit = Math.max(1, maxChars - 4);
+  const clipped = text.slice(0, limit).replace(/\s+\S*$/, "").trim();
+  return `${clipped || text.slice(0, limit).trim()} ...`;
+}
+
+function compactImageSpecItems(values, maxItems, maxChars) {
+  return visibleImageSpecStrings(values)
+    .map((value) => compactImageSpecText(value, maxChars))
+    .filter(Boolean)
+    .slice(0, maxItems);
+}
+
 function inferReferenceRole(text) {
   const normalized = normalizedSearchText(text);
   if (/\b(layout|aufbau|komposition|struktur|anordnung)\b/.test(normalized)) {
@@ -220,6 +270,24 @@ function normalizeReferencePath(value) {
 function referenceImagesFromContext(context = {}) {
   const references = [];
   const seen = new Set();
+  for (const entry of [
+    ...(Array.isArray(context.referenceImages) ? context.referenceImages : []),
+    ...(Array.isArray(context.runtimeReferenceImages) ? context.runtimeReferenceImages : [])
+  ]) {
+    const refPath = normalizeReferencePath(entry?.path || entry?.sourcePath);
+    if (!refPath || seen.has(refPath)) {
+      continue;
+    }
+    seen.add(refPath);
+    references.push({
+      id: entry.id || `ref_${String(references.length + 1).padStart(2, "0")}`,
+      role: entry.role || "style_reference",
+      path: refPath,
+      purpose: entry.purpose || "Referenzbild",
+      scope: entry.scope || "next_candidate",
+      source: entry.source || null
+    });
+  }
   for (const message of context.recentMessages || []) {
     for (const attachment of message.attachments || []) {
       if (attachment.kind !== "visual_feedback") {
@@ -235,6 +303,7 @@ function referenceImagesFromContext(context = {}) {
         role: inferReferenceRole(`${message.message || ""} ${attachment.label || ""}`),
         path: refPath,
         purpose: attachment.label || "Referenzbild aus dem Chat",
+        scope: attachment.scope || "next_candidate",
         source: attachment.source || null
       });
     }
@@ -251,6 +320,7 @@ function normalizeReferenceImages(values = [], context = {}) {
         role: stringOrNull(entry.role) || "style_reference",
         path: refPath,
         purpose: stringOrNull(entry.purpose) || "Referenzbild",
+        scope: stringOrNull(entry.scope) || "next_candidate",
         source: entry.source || null
       } : null;
     })
@@ -271,6 +341,7 @@ function normalizeReferenceImages(values = [], context = {}) {
       role: entry.role || "style_reference",
       path: entry.path,
       purpose: entry.purpose || "Referenzbild",
+      scope: entry.scope || "next_candidate",
       source: entry.source || null
     }));
 }
@@ -304,37 +375,137 @@ function validateLessonBrief(data = {}, project) {
   return brief;
 }
 
+function normalizeOutputPreference(value = {}) {
+  return {
+    pages: Number(value.pages) > 0 ? Number(value.pages) : null,
+    layout: stringOrNull(value.layout) || "auto",
+    hierarchy: stringOrNull(value.hierarchy) || "auto"
+  };
+}
+
+function normalizePageNumber(value) {
+  const page = Number(value || 0);
+  return Number.isInteger(page) && page > 0 ? page : null;
+}
+
+function contextTextForOutputPreference(content = {}, context = {}) {
+  const teacherMessages = [
+    ...(context.teacherInput?.messages || []).map((entry) => entry.message),
+    ...(context.recentMessages || []).map((entry) => entry.message)
+  ];
+  return [
+    content.title,
+    content.outputPreference?.layout,
+    content.outputPreference?.hierarchy,
+    ...teacherMessages,
+    ...(Array.isArray(content.solutionNotes) ? content.solutionNotes : []),
+    ...(Array.isArray(content.readingTexts) ? content.readingTexts.flatMap((entry) => [entry.title, entry.body]) : []),
+    ...(Array.isArray(content.imageMaterials)
+      ? content.imageMaterials.flatMap((entry) => [entry.prompt, entry.purpose, entry.placement])
+      : [])
+  ].filter(Boolean).join("\n");
+}
+
+function inferContentOutputPreference(content = {}, context = {}) {
+  const existing = normalizeOutputPreference(content.outputPreference || {});
+  const text = contextTextForOutputPreference(content, context);
+  const normalized = normalizedSearchText(text);
+  const explicitPages = existing.pages || explicitPageCountFromText(text) || null;
+  const wantsTaskSheet = /\b(aufgabenseite|aufgabenblatt|reines aufgabenblatt|nur aufgaben|task sheet|worksheet with tasks|single task sheet)\b/.test(normalized);
+  const wantsMinimalHierarchy = /\b(keine doppelte|keine redundante|redundante hierarchie|nur eine hauptuberschrift|nur eine hauptueberschrift|ueberschrift reicht|uberschrift reicht|minimal)\b/.test(normalized);
+  const inferredPages = explicitPages || (wantsTaskSheet ? 1 : null);
+  return {
+    pages: inferredPages,
+    layout: existing.layout !== "auto"
+      ? existing.layout
+      : inferredPages === 1 && ((Array.isArray(content.tasks) && content.tasks.length > 0) || wantsTaskSheet)
+        ? "single_task_sheet"
+        : wantsTaskSheet
+          ? "task_sheet"
+          : "auto",
+    hierarchy: existing.hierarchy !== "auto"
+      ? existing.hierarchy
+      : wantsMinimalHierarchy || wantsTaskSheet
+        ? "minimal"
+        : "auto"
+  };
+}
+
+const EXCLUDED_UNSAFE_TERMS = "(?:sezier\\w*|schweineauge\\w*|schweineaugen|rinderauge\\w*|rinderaugen|tierauge\\w*|tieraugen|messer\\w*|skalpell\\w*|metzger\\w*|schneidewerkzeug\\w*|praeparation\\w*|präparation\\w*|feuer|kerze\\w*)";
+const EXCLUDED_UNSAFE_PREFIX = "(?:kein(?:e|en|er|es)?|ohne|nicht\\s+mit|niemals\\s+mit|ausdruecklich\\s+ohne|ausdrücklich\\s+ohne)";
+const EXCLUDED_UNSAFE_CHUNK = `\\b${EXCLUDED_UNSAFE_PREFIX}\\s+(?:(?:[\\p{L}-]+)\\s+){0,4}${EXCLUDED_UNSAFE_TERMS}\\b`;
+const EXCLUDED_UNSAFE_LIST = new RegExp(
+  `${EXCLUDED_UNSAFE_CHUNK}(?:\\s*(?:,|und|oder)\\s*${EXCLUDED_UNSAFE_CHUNK})*[.!;,]?`,
+  "giu"
+);
+const EXCLUDED_UNSAFE_SUBSTITUTION = new RegExp(
+  `\\b(?:statt|anstelle\\s+von)\\s+(?:einer\\s+|einem\\s+|dem\\s+|der\\s+)?${EXCLUDED_UNSAFE_TERMS}\\b`,
+  "giu"
+);
+
+function removeExcludedUnsafeMentions(value) {
+  const text = stringOrNull(value);
+  if (!text) {
+    return text;
+  }
+  return text
+    .replace(EXCLUDED_UNSAFE_LIST, "")
+    .replace(EXCLUDED_UNSAFE_SUBSTITUTION, "mit sicherem Modell")
+    .replace(/\s+([.,;:!?])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .replace(/,\s*\./g, ".")
+    .replace(/\.\s*\./g, ".")
+    .trim();
+}
+
 function validateContentMirror(data = {}, project) {
-  const readingTexts = (Array.isArray(data.readingTexts) ? data.readingTexts : []).map((entry, index) => ({
-    id: stringOrNull(entry.id) || `text_${index + 1}`,
-    title: stringOrNull(entry.title) || `Material ${index + 1}`,
-    body: stringOrNull(entry.body) || ""
-  })).filter((entry) => entry.body);
-  const tasks = (Array.isArray(data.tasks) ? data.tasks : []).map((task, index) => ({
-    id: stringOrNull(task.id) || `task_${index + 1}`,
-    prompt: stringOrNull(task.prompt) || stringOrNull(task.text) || "Bearbeite die Aufgabe.",
-    expectedAnswer: stringOrNull(task.expectedAnswer) || "",
-    materialRefs: arrayOfStrings(task.materialRefs),
-    difficulty: stringOrNull(task.difficulty) || "mittel"
-  })).filter((task) => task.prompt);
+  const rawReadingTexts = Array.isArray(data.readingTexts) ? data.readingTexts : [];
+  const readingTexts = normalizeReadingTexts(rawReadingTexts, {
+    cleanText: removeExcludedUnsafeMentions
+  }).map((entry, index) => ({
+    ...entry,
+    page: normalizePageNumber(rawReadingTexts[index]?.page || rawReadingTexts[index]?.pageNumber)
+  }));
+  const tasks = (Array.isArray(data.tasks) ? data.tasks : []).map((task, index) => {
+    const normalizedTask = normalizeTaskLabelFields(task, index, {
+      cleanText: removeExcludedUnsafeMentions,
+      fallbackPrompt: "Bearbeite die Aufgabe."
+    });
+    return {
+      id: normalizedTask.id,
+      page: normalizePageNumber(task.page || task.pageNumber),
+      groupLabel: normalizedTask.groupLabel,
+      prompt: normalizedTask.prompt,
+      expectedAnswer: normalizeExpectedAnswer(task.expectedAnswer, {
+        cleanText: removeExcludedUnsafeMentions
+      }),
+      materialRefs: arrayOfStrings(task.materialRefs),
+      difficulty: stringOrNull(task.difficulty) || "mittel"
+    };
+  }).filter((task) => task.prompt);
   const imageMaterials = (Array.isArray(data.imageMaterials) ? data.imageMaterials : []).map((material, index) => ({
     id: stringOrNull(material.id) || `image_${index + 1}`,
-    prompt: stringOrNull(material.prompt) || stringOrNull(material.description) || "",
-    purpose: stringOrNull(material.purpose) || "Arbeitsblatt-Material",
-    placement: stringOrNull(material.placement) || "auto"
+    page: normalizePageNumber(material.page || material.pageNumber),
+    prompt: removeExcludedUnsafeMentions(material.prompt) || removeExcludedUnsafeMentions(material.description) || "",
+    purpose: removeExcludedUnsafeMentions(material.purpose) || "Arbeitsblatt-Material",
+    placement: removeExcludedUnsafeMentions(material.placement) || "auto"
   })).filter((material) => material.prompt);
   const content = {
     title: stringOrNull(data.title) || project.title,
+    outputPreference: normalizeOutputPreference(data.outputPreference || {}),
     readingTexts,
     tasks: tasks.length ? tasks : [{
       id: "task_1",
+      groupLabel: "",
       prompt: "Bearbeite die Aufgabe anhand des Materials.",
       expectedAnswer: "",
       materialRefs: [],
       difficulty: "mittel"
     }],
     imageMaterials,
-    solutionNotes: arrayOfStrings(data.solutionNotes)
+    solutionNotes: normalizeSolutionNotes(data.solutionNotes, {
+      cleanText: removeExcludedUnsafeMentions
+    })
   };
   if (!content.title || content.tasks.length === 0) {
     throw new Error("Content mirror proposal is missing title or tasks.");
@@ -343,7 +514,19 @@ function validateContentMirror(data = {}, project) {
 }
 
 function proposalContextEvents(context = {}) {
-  return (context.teacherInput?.messages || []).map((entry) => ({
+  const messages = [
+    ...(context.teacherInput?.messages || []),
+    ...(context.recentMessages || []).filter((entry) => entry.role === "user")
+  ];
+  const seen = new Set();
+  return messages.filter((entry) => {
+    const key = messageDedupeKey(entry);
+    if (!key || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  }).map((entry) => ({
     type: EVENT_TYPES.USER_MESSAGE,
     payload: {
       message: entry.message || ""
@@ -352,15 +535,19 @@ function proposalContextEvents(context = {}) {
 }
 
 function normalizeContentMirrorForContext(content, context = {}) {
+  const contentWithOutputPreference = {
+    ...content,
+    outputPreference: inferContentOutputPreference(content, context)
+  };
   const constraints = requestedConstraints({
     events: proposalContextEvents(context),
     brief: context.currentBrief || {}
   });
   if (constraints.requiresSolution) {
-    return content;
+    return contentWithOutputPreference;
   }
   return {
-    ...content,
+    ...contentWithOutputPreference,
     solutionNotes: []
   };
 }
@@ -379,22 +566,45 @@ function validateImageSpec(data = {}, project, context = {}, ruleSelection = {})
   const textPolicy = "approved_text_only";
   const style = stringOrNull(data.style) || "clean_scientific";
   const topic = stringOrNull(data.topic) || project.topic || project.title;
-  const purpose = visibleImageSpecText(data.purpose, "Arbeitsblattseite aus freigegebenem Konzept");
-  const placement = visibleImageSpecText(data.placement, "DIN-A4-Arbeitsblattseite");
-  const visualBrief = safeImageSpecIntentText(
-    data.visualBrief || data.finalPrompt,
-    `Visuelle Umsetzung einer vollstaendigen DIN-A4-Arbeitsblattseite zum Thema ${topic}.`
+  const purpose = compactImageSpecText(
+    visibleImageSpecText(data.purpose, "Arbeitsblattseite aus Arbeitsblatt-Konzept"),
+    IMAGE_SPEC_TEXT_LIMITS.purpose
   );
-  const layoutIntent = safeImageSpecIntentText(
-    data.layoutIntent,
-    "Klare A4-Arbeitsblattseite mit Titelbereich, Material-/Bildbereich, Aufgabenbereich und gut scanbarer Hierarchie."
+  const placement = compactImageSpecText(
+    visibleImageSpecText(data.placement, "DIN-A4-Arbeitsblattseite"),
+    IMAGE_SPEC_TEXT_LIMITS.placement
   );
-  const styleNotes = safeImageSpecIntentText(
-    data.styleNotes,
-    "Ruhig, druckfreundlich, gut lesbar, schulisch, ohne dekorative Ueberladung."
+  const visualBrief = compactImageSpecText(
+    safeImageSpecIntentText(
+      data.visualBrief || data.finalPrompt,
+      `Visuelle Umsetzung einer vollstaendigen DIN-A4-Arbeitsblattseite zum Thema ${topic}.`
+    ),
+    IMAGE_SPEC_TEXT_LIMITS.visualBrief
   );
-  const mustShow = visibleImageSpecStrings(data.mustShow);
-  const avoid = visibleImageSpecStrings(data.avoid);
+  const layoutIntent = compactImageSpecText(
+    safeImageSpecIntentText(
+      data.layoutIntent,
+      "Klare A4-Arbeitsblattseite mit Titelbereich, Material-/Bildbereich, Aufgabenbereich und gut scanbarer Hierarchie."
+    ),
+    IMAGE_SPEC_TEXT_LIMITS.layoutIntent
+  );
+  const styleNotes = compactImageSpecText(
+    safeImageSpecIntentText(
+      data.styleNotes,
+      "Ruhig, druckfreundlich, gut lesbar, schulisch, ohne dekorative Ueberladung."
+    ),
+    IMAGE_SPEC_TEXT_LIMITS.styleNotes
+  );
+  const mustShow = compactImageSpecItems(
+    data.mustShow,
+    IMAGE_SPEC_TEXT_LIMITS.mustShowItems,
+    IMAGE_SPEC_TEXT_LIMITS.listItem
+  );
+  const avoid = compactImageSpecItems(
+    data.avoid,
+    IMAGE_SPEC_TEXT_LIMITS.avoidItems,
+    IMAGE_SPEC_TEXT_LIMITS.listItem
+  );
   const appliedRules = appliedRulesForImageSpec(ruleSelection);
 
   const referenceImages = normalizeReferenceImages(data.referenceImages, context);
@@ -418,7 +628,10 @@ function validateImageSpec(data = {}, project, context = {}, ruleSelection = {})
     styleNotes,
     topic,
     placement,
-    learningFunction: stringOrNull(data.learningFunction) || "Material veranschaulichen",
+    learningFunction: compactImageSpecText(
+      visibleImageSpecText(data.learningFunction, "Material veranschaulichen"),
+      IMAGE_SPEC_TEXT_LIMITS.learningFunction
+    ),
     pageRole: stringOrNull(data.pageRole) || null,
     pageNumber: Number(data.pageNumber) > 0 ? Number(data.pageNumber) : null,
     imageMaterialId: stringOrNull(data.imageMaterialId) || null,
@@ -479,17 +692,33 @@ function contentMirrorSchema() {
   return {
     type: "object",
     additionalProperties: false,
-    required: ["title", "readingTexts", "tasks", "imageMaterials", "solutionNotes"],
+    required: ["title", "outputPreference", "readingTexts", "tasks", "imageMaterials", "solutionNotes"],
     properties: {
       title: { type: "string" },
+      outputPreference: {
+        type: "object",
+        additionalProperties: false,
+        required: ["pages", "layout", "hierarchy"],
+        properties: {
+          pages: { type: ["number", "null"] },
+          layout: { type: "string" },
+          hierarchy: { type: "string" }
+        }
+      },
       readingTexts: {
         type: "array",
         items: {
           type: "object",
           additionalProperties: false,
-          required: ["id", "title", "body"],
+          required: ["id", "page", "pageNumber", "role", "title", "body"],
           properties: {
             id: { type: "string" },
+            page: { type: ["number", "null"] },
+            pageNumber: { type: ["number", "null"] },
+            role: {
+              type: "string",
+              enum: ["reading_text", "info_box", "source_text", "work_instruction"]
+            },
             title: { type: "string" },
             body: { type: "string" }
           }
@@ -500,9 +729,12 @@ function contentMirrorSchema() {
         items: {
           type: "object",
           additionalProperties: false,
-          required: ["id", "prompt", "expectedAnswer", "materialRefs", "difficulty"],
+          required: ["id", "page", "pageNumber", "groupLabel", "prompt", "expectedAnswer", "materialRefs", "difficulty"],
           properties: {
             id: { type: "string" },
+            page: { type: ["number", "null"] },
+            pageNumber: { type: ["number", "null"] },
+            groupLabel: { type: "string" },
             prompt: { type: "string" },
             expectedAnswer: { type: "string" },
             materialRefs: { type: "array", items: { type: "string" } },
@@ -515,9 +747,11 @@ function contentMirrorSchema() {
         items: {
           type: "object",
           additionalProperties: false,
-          required: ["id", "prompt", "purpose", "placement"],
+          required: ["id", "page", "pageNumber", "prompt", "purpose", "placement"],
           properties: {
             id: { type: "string" },
+            page: { type: ["number", "null"] },
+            pageNumber: { type: ["number", "null"] },
             prompt: { type: "string" },
             purpose: { type: "string" },
             placement: { type: "string" }
@@ -635,9 +869,7 @@ function imageSpecSchema() {
               "none",
               "user_upload",
               "web_reference_search",
-              "user_upload_or_reference_search",
-              "app_template",
-              "app_template_or_user_upload"
+              "user_upload_or_reference_search"
             ]
           },
           suggestedSearchQuery: { type: "string" },
@@ -656,11 +888,20 @@ function imageSpecSchema() {
   };
 }
 
-function schemaForKind(kind) {
+function usesContentDelta(kind, input = {}) {
+  return kind === PROPOSAL_KINDS.CONTENT_MIRROR
+    && input.revisionMode === "patch"
+    && input.contentRevisionStrategy !== "full_snapshot";
+}
+
+function schemaForKind(kind, input = {}) {
   if (kind === PROPOSAL_KINDS.LESSON_BRIEF) {
     return { name: "sheetifyimg_lessonbrief_proposal", schema: lessonBriefSchema() };
   }
   if (kind === PROPOSAL_KINDS.CONTENT_MIRROR) {
+    if (usesContentDelta(kind, input)) {
+      return { name: "sheetifyimg_content_delta_proposal", schema: contentDeltaSchema() };
+    }
     return { name: "sheetifyimg_content_mirror_proposal", schema: contentMirrorSchema() };
   }
   if (kind === PROPOSAL_KINDS.IMAGE_SPEC) {
@@ -675,22 +916,104 @@ function compactAttachments(attachments = []) {
     .map((attachment) => ({
       kind: attachment.kind,
       label: attachment.label || null,
+      originalName: attachment.originalName || attachment.source?.originalName || null,
+      mimeType: attachment.mimeType || attachment.source?.mimeType || null,
+      artifactId: attachment.artifactId || attachment.source?.artifactId || null,
       path: attachment.path || null,
       source: attachment.source || null
     }));
 }
 
+function compactContextRefs(contextRefs = null) {
+  if (!contextRefs || typeof contextRefs !== "object") {
+    return null;
+  }
+  const inputUploads = (Array.isArray(contextRefs.inputUploads) ? contextRefs.inputUploads : [])
+    .map((entry) => ({
+      kind: "input_upload",
+      label: entry.label || entry.originalName || null,
+      originalName: entry.originalName || null,
+      mimeType: entry.mimeType || null,
+      artifactId: entry.artifactId || null,
+      path: entry.path || null,
+      modelInput: entry.modelInput || null
+    }))
+    .filter((entry) => entry.label || entry.path || entry.artifactId);
+  if (!inputUploads.length) {
+    return null;
+  }
+  return {
+    kind: contextRefs.kind || "input_upload_analysis",
+    sourceUserMessage: String(contextRefs.sourceUserMessage || "").trim() || null,
+    inputUploads
+  };
+}
+
+function truncateContextText(value, maxChars) {
+  const text = String(value || "").trim();
+  if (!text || text.length <= maxChars) {
+    return text;
+  }
+  const clipped = text.slice(0, maxChars).replace(/\s+\S*$/, "").trim();
+  return `${clipped || text.slice(0, maxChars).trim()} ...`;
+}
+
+function hasImportantRecentContext(message = {}) {
+  return Boolean(message.contextRefs)
+    || (Array.isArray(message.attachments) && message.attachments.length > 0);
+}
+
+function budgetRecentMessage(message = {}, isTailMessage = false) {
+  if (message.role !== "assistant") {
+    return message;
+  }
+  const maxChars = isTailMessage
+    ? ASSISTANT_MESSAGE_TAIL_CHAR_LIMIT
+    : ASSISTANT_MESSAGE_OLDER_CHAR_LIMIT;
+  const compactedMessage = truncateContextText(message.message, maxChars);
+  return {
+    ...message,
+    message: compactedMessage,
+    compacted: compactedMessage !== String(message.message || "").trim() ? true : undefined
+  };
+}
+
+function budgetRecentMessages(messages = []) {
+  const tailStart = Math.max(0, messages.length - RECENT_MESSAGE_BUDGET);
+  const selectedIndexes = new Set();
+  for (let index = tailStart; index < messages.length; index += 1) {
+    selectedIndexes.add(index);
+  }
+  let extraImportantCount = 0;
+  for (let index = tailStart - 1; index >= 0; index -= 1) {
+    if (extraImportantCount >= IMPORTANT_RECENT_MESSAGE_EXTRA_BUDGET) {
+      break;
+    }
+    if (hasImportantRecentContext(messages[index])) {
+      selectedIndexes.add(index);
+      extraImportantCount += 1;
+    }
+  }
+  return messages
+    .map((message, index) => selectedIndexes.has(index)
+      ? budgetRecentMessage(message, index >= tailStart)
+      : null)
+    .filter(Boolean);
+}
+
 function recentMessagesFromEvents(events = []) {
-  return events
+  const messages = events
     .filter((event) => event.type === EVENT_TYPES.USER_MESSAGE || event.type === EVENT_TYPES.ASSISTANT_MESSAGE)
     .map((event) => ({
       role: event.type === EVENT_TYPES.ASSISTANT_MESSAGE ? "assistant" : "user",
       createdAt: event.createdAt || null,
       message: String(event.payload?.message || "").trim(),
+      contextRefs: compactContextRefs(event.payload?.contextRefs || null),
+      revisionTarget: event.payload?.revisionTarget || null,
       attachments: compactAttachments(event.payload?.attachments || [])
     }))
-    .filter((entry) => entry.message || entry.attachments.length)
-    .slice(-16);
+    .filter((entry) => entry.message || entry.attachments.length);
+  return budgetRecentMessages(messages);
 }
 
 function inputMessagesFromEvents(events = []) {
@@ -699,12 +1022,46 @@ function inputMessagesFromEvents(events = []) {
     .map((event) => ({
       createdAt: event.createdAt || null,
       message: String(event.payload?.message || "").trim(),
+      revisionTarget: event.payload?.revisionTarget || null,
       attachments: compactAttachments(event.payload?.attachments || [])
     }))
     .filter((entry) => entry.message || entry.attachments.length);
 }
 
+function messageDedupeKey(entry = {}) {
+  const message = String(entry.message || "").trim().replace(/\s+/g, " ").toLowerCase();
+  const createdAt = String(entry.createdAt || "").trim();
+  return `${createdAt}\u0000${message}`;
+}
+
+function teacherInputMessagesFromEvents(events = [], recentMessages = null) {
+  const recent = Array.isArray(recentMessages) ? recentMessages : recentMessagesFromEvents(events);
+  const recentUserMessageKeys = new Set(
+    recent
+      .filter((entry) => entry.role === "user")
+      .map(messageDedupeKey)
+  );
+  return inputMessagesFromEvents(events)
+    .filter((entry) => !recentUserMessageKeys.has(messageDedupeKey(entry)));
+}
+
+function inputAnalysesFromEvents(events = []) {
+  return events
+    .filter((event) => event.type === EVENT_TYPES.ASSISTANT_MESSAGE)
+    .map((event) => {
+      const contextRefs = compactContextRefs(event.payload?.contextRefs || null);
+      return contextRefs ? {
+        createdAt: event.createdAt || null,
+        message: String(event.payload?.message || "").trim(),
+        contextRefs
+      } : null;
+    })
+    .filter((entry) => entry?.message)
+    .slice(-8);
+}
+
 function projectContext({ project, currentBrief, currentContent, currentWarnings, events = [] }) {
+  const recentMessages = recentMessagesFromEvents(events);
   return {
     project: {
       projectId: project.projectId,
@@ -715,12 +1072,54 @@ function projectContext({ project, currentBrief, currentContent, currentWarnings
       projectType: project.projectType
     },
     teacherInput: {
-      messages: inputMessagesFromEvents(events)
+      messages: teacherInputMessagesFromEvents(events, recentMessages)
     },
-    recentMessages: recentMessagesFromEvents(events),
+    inputAnalyses: inputAnalysesFromEvents(events),
+    recentMessages,
     currentBrief,
     currentContent,
     currentWarnings
+  };
+}
+
+function proposalBasisId(input = {}) {
+  return stringOrNull(input.basisProposalId || input.proposalBasisId);
+}
+
+function contentProposalBasisFromInput(proposals = [], kind, input = {}) {
+  const basisProposalId = proposalBasisId(input);
+  if (!basisProposalId || kind !== PROPOSAL_KINDS.CONTENT_MIRROR) {
+    return null;
+  }
+  const proposal = proposals.find((entry) => entry.proposalId === basisProposalId) || null;
+  if (!proposal) {
+    throw new Error(`Basis-Vorschlag existiert nicht: ${basisProposalId}`);
+  }
+  if (proposal.kind !== PROPOSAL_KINDS.CONTENT_MIRROR) {
+    throw new Error(`Basis-Vorschlag ${basisProposalId} ist kein Arbeitsblatt-Konzept.`);
+  }
+  if (proposal.status !== "proposed") {
+    throw new Error(`Basis-Vorschlag ${basisProposalId} ist nicht mehr offen.`);
+  }
+  return proposal;
+}
+
+function contextWithContentProposalBasis(context = {}, proposal = null) {
+  if (!proposal) {
+    return context;
+  }
+  return {
+    ...context,
+    proposalBasis: {
+      proposalId: proposal.proposalId,
+      kind: proposal.kind,
+      status: proposal.status,
+      title: proposal.title || titleFromProposal(proposal),
+      summary: proposal.summary || "",
+      source: proposal.source || null
+    },
+    basisContent: proposal.data || null,
+    currentContent: proposal.data || context.currentContent
   };
 }
 
@@ -732,12 +1131,27 @@ function withDeterministicPagePlan(context = {}) {
   };
 }
 
-function purposeForKind(kind) {
+function contextWithoutPreviousConceptContent(context = {}) {
+  const { currentContent: omittedCurrentContent, basisContent: omittedBasisContent, ...safeContext } = context;
+  return {
+    ...safeContext,
+    previousConceptBoundary: {
+      contentMirrorId: omittedCurrentContent?.artifactId || null,
+      conceptVersion: omittedCurrentContent?.version || null,
+      contentOmitted: true,
+      reason: "The previous Entwurf is a design reference only; its worksheet content is not a generation source."
+    }
+  };
+}
+
+function purposeForKind(kind, input = {}) {
   if (kind === PROPOSAL_KINDS.LESSON_BRIEF) {
     return ROUTE_PURPOSES.LESSON_BRIEF;
   }
   if (kind === PROPOSAL_KINDS.CONTENT_MIRROR) {
-    return ROUTE_PURPOSES.CONTENT_MIRROR;
+    return usesContentDelta(kind, input)
+      ? ROUTE_PURPOSES.CONTENT_DELTA
+      : ROUTE_PURPOSES.CONTENT_MIRROR;
   }
   if (kind === PROPOSAL_KINDS.IMAGE_SPEC) {
     return ROUTE_PURPOSES.IMAGE_SPEC;
@@ -745,8 +1159,59 @@ function purposeForKind(kind) {
   return ROUTE_PURPOSES.CONTENT_WARNINGS;
 }
 
-function userPromptForKind(kind, message) {
+function userPromptForKind(kind, message, input = {}) {
   const trimmed = String(message || "").trim();
+  if (kind === PROPOSAL_KINDS.CONTENT_MIRROR && input.revisionMode === "followup_concept") {
+    return [
+      "Erzeuge ein neues vollstaendiges Arbeitsblatt-Konzept fuer den Folgebogen aus der unmittelbar vorherigen Aushandlung.",
+      "Nutze das aktuelle Arbeitsblatt-Konzept nur als Projektkontext und thematische Anschlussstelle.",
+      "Erhalte nicht automatisch Titel, Lesetexte, Aufgaben oder Bildmaterialien des bisherigen Bogens.",
+      "Wenn der Gespraechskontext einen zweiten Arbeitsbogen, Folgebogen oder Projektbogen 1 nennt, muss der neue sichtbare Titel diesen Folgeschritt benennen.",
+      "Baue die konkreten Marker-, Farbcode-, Bereichs-, Block- und Schildideen als sichtbare Inhalte, Aufgaben und Bildbedarf des neuen Konzepts ein.",
+      "Der Fokus soll auf Planung, Abstecken und sauberem Uebertragen in Minecraft Education liegen, nicht auf direktem Bauen.",
+      trimmed ? `Lehrkraftnachricht und Kontext: ${trimmed}` : ""
+    ].filter(Boolean).join("\n");
+  }
+  if (kind === PROPOSAL_KINDS.CONTENT_MIRROR && input.revisionMode === "new_concept_from_context") {
+    return [
+      "Erzeuge ein neues vollstaendiges Arbeitsblatt-Konzept aus dem bisherigen Projekt- und Chatkontext.",
+      "Nutze das aktuelle Arbeitsblatt-Konzept nur als Kontext, Anschlussstelle und Qualitaetsrahmen.",
+      "Erhalte nicht automatisch Titel, Lesetexte, Aufgaben oder Bildmaterialien des bisherigen Konzepts.",
+      input.contentRelationship === "independent_design_reference"
+        ? "Der genannte Entwurf ist ausschliesslich eine spaetere Designreferenz. Uebernimm keinerlei Titel, Texte, Aufgaben, Antworten oder Bildmaterial-Inhalte daraus."
+        : "",
+      "Die neue Fassung soll als eigenstaendiger Konzeptvorschlag pruefbar sein.",
+      "Wenn die Lehrkraft eine neue Version, einen Folgebogen, eine naechste Stunde oder eine abgewandelte Konzeptvariante meint, muss der sichtbare Titel diese neue Richtung benennen.",
+      "Baue die unmittelbar ausgehandelten Ideen als sichtbare Inhalte, Aufgaben und Bildbedarf des neuen Konzepts ein.",
+      trimmed ? `Lehrkraftnachricht und Kontext: ${trimmed}` : ""
+    ].filter(Boolean).join("\n");
+  }
+  if (kind === PROPOSAL_KINDS.CONTENT_MIRROR && input.revisionMode === "patch") {
+    if (usesContentDelta(kind, input)) {
+      return [
+        "Erzeuge nur die minimalen strukturierten Aenderungsoperationen fuer das bestehende Arbeitsblatt-Konzept.",
+        input.basisProposalId
+          ? `Nutze den offenen Konzeptvorschlag ${input.basisProposalId} als Bearbeitungsbasis.`
+          : "Nutze currentContent als verbindliche Bearbeitungsbasis.",
+        "Aendere ausschliesslich die von der Lehrkraft angesprochenen Felder und erhalte alle anderen Werte unveraendert.",
+        input.revisionTarget ? `Revision target: ${JSON.stringify(input.revisionTarget)}` : "",
+        trimmed ? `Lehrkraftnachricht: ${trimmed}` : ""
+      ].filter(Boolean).join("\n");
+    }
+    return [
+      "Fuehre eine gezielte Patch-Ueberarbeitung des bestehenden Arbeitsblatt-Konzepts aus.",
+      input.basisProposalId
+        ? `Nutze den offenen Konzeptvorschlag ${input.basisProposalId} als Bearbeitungsbasis, nicht automatisch die gespeicherte Konzeptversion.`
+        : "",
+      "Aendere nur die Teile, die durch die Lehrkraftnachricht betroffen sind.",
+      "Lasse Titel, Texte, Aufgaben, Loesungshinweise, Bildmaterialien, Zielgruppe, Struktur und Umfang unveraendert, sofern sie nicht ausdruecklich angesprochen werden.",
+      input.preserveUnmentionedConceptParts === false
+        ? "Wenn eine groessere Neuformulierung wirklich noetig ist, darfst du sie knapp begruenden."
+        : "Schreibe das Konzept nicht komplett neu und erfinde keine neuen Aufgaben oder Texte.",
+      input.revisionTarget ? `Revision target: ${JSON.stringify(input.revisionTarget)}` : "",
+      trimmed ? `Lehrkraftnachricht: ${trimmed}` : ""
+    ].filter(Boolean).join("\n");
+  }
   if (trimmed) {
     return trimmed;
   }
@@ -757,9 +1222,9 @@ function userPromptForKind(kind, message) {
     return "Erzeuge Aufgaben, Material und Loesungshinweise fuer das Arbeitsblatt-Konzept.";
   }
   if (kind === PROPOSAL_KINDS.IMAGE_SPEC) {
-    return "Leite intern die Entwurfsvorbereitung aus dem freigegebenen Arbeitsblatt-Konzept ab.";
+    return "Leite intern die Bildplanung aus dem Arbeitsblatt-Konzept ab.";
   }
-  return "Erzeuge Pruefhinweise fuer das aktuelle Arbeitsblatt-Konzept.";
+  return "Erzeuge internes Konzept-Feedback fuer das aktuelle Arbeitsblatt-Konzept.";
 }
 
 function parseStructuredResponse(response) {
@@ -772,20 +1237,27 @@ function parseStructuredResponse(response) {
 
 async function modelProposalData(kind, project, context, input, runtime, logContext = {}) {
   const requestConfig = getOpenAiRequestConfig();
-  const structured = schemaForKind(kind);
-  const route = routeForPurpose(purposeForKind(kind), requestConfig);
+  const contentDelta = usesContentDelta(kind, input);
+  const structured = schemaForKind(kind, input);
+  const route = routeForPurpose(purposeForKind(kind, input), requestConfig);
   const baseModelContext = kind === PROPOSAL_KINDS.IMAGE_SPEC
     ? withDeterministicPagePlan(context)
-    : context;
+    : contentDelta
+      ? compactContextForContentDelta(context)
+      : input.contentRelationship === "independent_design_reference"
+        ? contextWithoutPreviousConceptContent(context)
+        : context;
+  const runtimeReferenceImages = normalizeReferenceImages(input.referenceImages || [], {});
   const ruleSelection = await selectRulesForProposal({
     kind,
     project,
-    context: baseModelContext,
+    context,
     input,
     repoRoot: logContext.repoRoot
   });
   const modelContext = {
     ...baseModelContext,
+    ...(runtimeReferenceImages.length ? { runtimeReferenceImages } : {}),
     ruleSelection: ruleSelectionSource(ruleSelection)
   };
   const selectedRulesPrompt = formatSelectedRulesForPrompt(ruleSelection);
@@ -810,12 +1282,17 @@ async function modelProposalData(kind, project, context, input, runtime, logCont
           },
           userMessage: String(input.message || "").trim() || null,
           canvasFocus: input.canvasFocus || null,
+          revisionTarget: input.revisionTarget || null,
+          revisionMode: input.revisionMode || null,
+          contentRelationship: input.contentRelationship || null,
+          basisProposalId: input.basisProposalId || null,
+          preserveUnmentionedConceptParts: input.preserveUnmentionedConceptParts === true,
           projectState: modelContext
         })
       },
       {
         role: "user",
-        content: userPromptForKind(kind, input.message)
+        content: userPromptForKind(kind, input.message, input)
       }
     ],
     text: {
@@ -831,6 +1308,9 @@ async function modelProposalData(kind, project, context, input, runtime, logCont
   if (route.reasoningEffort && route.reasoningEffort !== "none") {
     responseBody.reasoning = { effort: route.reasoningEffort };
   }
+  const requestShape = measureModelRequest(responseBody, {
+    contextSections: modelContext
+  });
 
   let response;
   try {
@@ -844,7 +1324,11 @@ async function modelProposalData(kind, project, context, input, runtime, logCont
         route: route.route,
         promptNames: route.promptNames,
         model: route.model || requestConfig.textModel,
+        reasoningEffort: route.reasoningEffort,
         durationMs: Date.now() - startedAt,
+        requestShape,
+        metadata: { generationMode: contentDelta ? "content_delta" : "full_snapshot" },
+        attribution: logContext.usageAttribution,
         uiEvent: input.uiEvent || "proposal_generation",
         error
       }, { now: input.now || logContext.now });
@@ -857,18 +1341,6 @@ async function modelProposalData(kind, project, context, input, runtime, logCont
     usage,
     model: responseModel
   });
-  const raw = parseStructuredResponse(response);
-  let data = kind === PROPOSAL_KINDS.LESSON_BRIEF
-    ? validateLessonBrief(raw, project)
-    : kind === PROPOSAL_KINDS.CONTENT_MIRROR
-      ? validateContentMirror(raw, project)
-      : kind === PROPOSAL_KINDS.IMAGE_SPEC
-        ? validateImageSpec(raw, project, modelContext, ruleSelection)
-      : validateWarnings(raw);
-  if (kind === PROPOSAL_KINDS.CONTENT_MIRROR) {
-    data = normalizeContentMirrorForContext(data, context);
-  }
-
   if (logContext.projectDir) {
     await logModelRun(logContext.projectDir, {
       status: "success",
@@ -877,16 +1349,35 @@ async function modelProposalData(kind, project, context, input, runtime, logCont
       route: route.route,
       promptNames: route.promptNames,
       model: responseModel,
+      reasoningEffort: route.reasoningEffort,
       responseId: response.id || null,
       durationMs: Date.now() - startedAt,
       usage,
       costEstimate,
+      requestShape,
+      metadata: { generationMode: contentDelta ? "content_delta" : "full_snapshot" },
+      attribution: logContext.usageAttribution,
       uiEvent: input.uiEvent || "proposal_generation"
     }, { now: input.now || logContext.now });
+  }
+  const raw = parseStructuredResponse(response);
+  const deltaResult = contentDelta
+    ? applyContentDelta(context.currentContent || {}, raw)
+    : null;
+  let data = kind === PROPOSAL_KINDS.LESSON_BRIEF
+    ? validateLessonBrief(raw, project)
+    : kind === PROPOSAL_KINDS.CONTENT_MIRROR
+      ? validateContentMirror(deltaResult?.content || raw, project)
+      : kind === PROPOSAL_KINDS.IMAGE_SPEC
+        ? validateImageSpec(raw, project, modelContext, ruleSelection)
+      : validateWarnings(raw);
+  if (kind === PROPOSAL_KINDS.CONTENT_MIRROR) {
+    data = normalizeContentMirrorForContext(data, context);
   }
 
   return {
     data,
+    changeSet: deltaResult?.changeSet || null,
     ruleSelection,
     provider: {
       name: "openai",
@@ -948,31 +1439,43 @@ async function supersedeOpenSiblingProposals(projectDir, adoptedProposal, option
 
 function proposalSummaryText(kind, data) {
   if (kind === PROPOSAL_KINDS.LESSON_BRIEF) {
-    return `Konzept-Vorschlag zu "${data.topic}"`;
+    return `Arbeitsblatt-Konzept zu "${data.topic}"`;
   }
   if (kind === PROPOSAL_KINDS.CONTENT_MIRROR) {
     return `Arbeitsblatt-Konzept mit ${data.tasks.length} Aufgaben und ${data.imageMaterials.length} Bildmaterialien`;
   }
   if (kind === PROPOSAL_KINDS.IMAGE_SPEC) {
-    return `Entwurfsvorbereitung zu "${data.topic}"`;
+    return `Bildplanung zu "${data.topic}"`;
   }
-  return `Pruefvorschlag mit ${data.warnings.length} Hinweisen`;
+  return `Konzept-Feedback mit ${data.warnings.length} Hinweisen`;
 }
 
 function adoptCommandForKind(kind, context = {}) {
   if (kind === PROPOSAL_KINDS.LESSON_BRIEF) {
-    return { command: "adopt_lessonbrief_proposal", label: "Konzept übernehmen" };
+    return { command: "adopt_lessonbrief_proposal", label: "Arbeitsblatt-Konzept ausformulieren" };
   }
   if (kind === PROPOSAL_KINDS.CONTENT_MIRROR) {
     return {
       command: "adopt_content_mirror_proposal",
-      label: context.currentContent ? "Konzept aktualisieren" : "Konzept übernehmen"
+      label: "Mit diesem Konzept weiterarbeiten"
     };
   }
   if (kind === PROPOSAL_KINDS.IMAGE_SPEC) {
-    return { command: "adopt_image_spec", label: "Entwurf vorbereiten" };
+    return { command: "adopt_image_spec", label: "Bildplanung intern speichern" };
   }
-  return { command: "adopt_content_warnings_proposal", label: "Prüfhinweise übernehmen" };
+  return { command: "adopt_content_warnings_proposal", label: "Konzept-Feedback intern speichern" };
+}
+
+function readyActionForKind(kind, context = {}) {
+  if (kind === PROPOSAL_KINDS.CONTENT_MIRROR) {
+    return {
+      command: "generate_candidate_from_content_proposal",
+      label: "Entwurf erstellen",
+      requiresConfirmation: true,
+      confirmationKind: "image_generation_provider"
+    };
+  }
+  return adoptCommandForKind(kind, context);
 }
 
 function retryActionsForFailedProposal(kind) {
@@ -1004,7 +1507,7 @@ function referencePolicyMessage(referencePolicy = null) {
     return "";
   }
   if (referencePolicy.level === "deterministic") {
-    return ` ${referencePolicy.reason} Dafür sollte die App eine feste Vorlage oder ein festes Asset nutzen, nicht das Bildmodell frei zeichnen lassen.`;
+    return ` ${referencePolicy.reason} Im normalen Ablauf sollte daraus kein scheinbar funktionsfähiges Element frei gezeichnet werden; arbeite mit Platzhalter oder nutze ein eigenes Referenzbild.`;
   }
   if (referencePolicy.level === "required") {
     return ` Für diese Visualisierung wäre eine Referenz sinnvoll: ${referencePolicy.reason} Du kannst eine passende Referenz anhängen oder trotzdem direkt einen ersten Entwurf erstellen.`;
@@ -1067,28 +1570,56 @@ function contentProposalConcern(content = {}, context = {}) {
 function contentProposalAssessmentFallback(proposal = {}, context = {}) {
   const content = proposal.data || {};
   const title = content.title || context.project?.title || "das Konzept";
+  const revisionMode = proposal.source?.revisionMode || "";
+  const isRevision = Boolean(revisionMode || proposal.source?.currentContentMirrorId);
+  const intro = revisionMode === "followup_concept"
+    ? `Ich habe daraus einen neuen Konzeptvorschlag für den Folgebogen vorbereitet:`
+    : revisionMode === "new_concept_from_context"
+      ? `Ich habe daraus einen neuen Konzeptvorschlag vorbereitet:`
+    : isRevision
+      ? `Ich habe daraus eine angepasste Konzeptfassung vorbereitet:`
+      : `Ich sehe bei „${title}“ eine tragfähige Richtung:`;
   return [
-    `Ich sehe bei „${title}“ eine tragfähige Richtung: ${contentProposalStrength(content)}`,
+    `${intro} ${contentProposalStrength(content)}`,
     contentProposalConcern(content, context),
-    "Möchtest du dieses Arbeitsblatt-Konzept übernehmen oder noch etwas anpassen?"
+    "Daraus kann direkt ein Entwurf entstehen, oder du passt den Vorschlag noch weiter an."
   ].join(" ");
 }
 
 async function appendAssistantProposalMessage(projectDir, proposal, now, context = {}) {
-  const adoptCommand = adoptCommandForKind(proposal.kind, context);
+  const readyAction = readyActionForKind(proposal.kind, context);
+  const nextCandidateReferenceImages = normalizeReferenceImages(
+    proposal.source?.nextCandidateReferenceImages || [],
+    {}
+  );
   const actionPayload = proposal.kind === PROPOSAL_KINDS.CONTENT_MIRROR
-    ? { proposalId: proposal.proposalId, approve: true }
-    : { proposalId: proposal.proposalId };
-  const suggestedActions = [{
-    command: adoptCommand.command,
-    label: adoptCommand.label,
-    payload: actionPayload
-  }];
+    ? {
+        proposalId: proposal.proposalId,
+        approve: true,
+        ...(nextCandidateReferenceImages.length ? { referenceImages: nextCandidateReferenceImages } : {})
+      }
+    : proposal.kind === PROPOSAL_KINDS.LESSON_BRIEF
+      ? { proposalId: proposal.proposalId, continueToContent: true, silent: true }
+      : { proposalId: proposal.proposalId };
+  const suggestedActions = proposal.kind === PROPOSAL_KINDS.CONTENT_WARNINGS
+    ? []
+    : [{
+      command: readyAction.command,
+      label: readyAction.label,
+      payload: actionPayload
+    }];
   const fallback = proposal.kind === PROPOSAL_KINDS.CONTENT_MIRROR
-    ? contentProposalAssessmentFallback(proposal, context)
+    ? [
+        contentProposalAssessmentFallback(proposal, context),
+        nextCandidateReferenceImages.length
+          ? "Die gewünschte visuelle Referenz ist für den nächsten Entwurf vorgemerkt."
+          : ""
+      ].filter(Boolean).join(" ")
     : proposal.kind === PROPOSAL_KINDS.IMAGE_SPEC
-      ? `Ich habe die Entwurfsvorbereitung aus dem freigegebenen Arbeitsblatt-Konzept abgeleitet.${referencePolicyMessage(proposal.data?.referencePolicy)} Wenn das passt, übernehme ich sie als Grundlage für die Bildgenerierung.`
-      : `${proposalSummaryText(proposal.kind, proposal.data)} ist vorbereitet. Soll ich das übernehmen?`;
+      ? `Ich habe die Bildplanung aus dem Arbeitsblatt-Konzept abgeleitet.${referencePolicyMessage(proposal.data?.referencePolicy)} Wenn das passt, nutze ich sie intern für die Bildgenerierung.`
+    : proposal.kind === PROPOSAL_KINDS.CONTENT_WARNINGS
+        ? `${proposalSummaryText(proposal.kind, proposal.data)} ist notiert. Du kannst Änderungen frei im Chat beschreiben oder mit dem Arbeitsblatt-Konzept weiterarbeiten.`
+      : `${proposalSummaryText(proposal.kind, proposal.data)} ist vorbereitet. Soll ich daraus weiterarbeiten?`;
   const message = await narrateChatMoment(projectDir, {
     kind: "proposal_ready",
     fallback,
@@ -1110,7 +1641,8 @@ async function appendAssistantProposalMessage(projectDir, proposal, now, context
     }
   }, {
     now,
-    uiEvent: "proposal_ready"
+    uiEvent: "proposal_ready",
+    usageAttribution: context.usageAttribution
   });
   await appendEvent(projectDir, {
     type: EVENT_TYPES.ASSISTANT_MESSAGE,
@@ -1134,6 +1666,10 @@ async function generateProposal(projectId, kind, input = {}, options = {}) {
   const projectsDir = options.projectsDir || DEFAULT_PROJECTS_DIR;
   const projectDir = path.join(projectsDir, projectId);
   const now = input.now || options.now || new Date().toISOString();
+  const usageAttribution = createUsageAttribution(options.usageAttribution, {
+    projectId,
+    operationKind: "proposal_generation"
+  });
   const project = await openProject(projectId, { projectsDir });
   if (project.projectType !== PROJECT_TYPES.SINGLE_WORKSHEET) {
     throw new Error("AI proposals are only supported for single worksheet projects.");
@@ -1141,7 +1677,12 @@ async function generateProposal(projectId, kind, input = {}, options = {}) {
 
   const runtime = getAiRuntimeStatus();
   const current = await readCurrentState(projectDir);
-  const context = projectContext({ project, ...current });
+  const existingProposals = await readProposals(projectDir);
+  const basisProposal = contentProposalBasisFromInput(existingProposals, kind, input);
+  const context = contextWithContentProposalBasis(
+    projectContext({ project, ...current }),
+    basisProposal
+  );
   if (runtime.status !== "ready") {
     throw new Error(runtime.fallbackReason || "OpenAI is not configured.");
   }
@@ -1150,7 +1691,8 @@ async function generateProposal(projectId, kind, input = {}, options = {}) {
     proposalData = await modelProposalData(kind, project, context, input, runtime, {
       repoRoot,
       projectDir,
-      now
+      now,
+      usageAttribution
     });
   } catch (error) {
     if (!input.silent) {
@@ -1169,6 +1711,10 @@ async function generateProposal(projectId, kind, input = {}, options = {}) {
   }
   const proposals = await readProposals(projectDir);
   const proposalId = nextProposalId(proposals);
+  const nextCandidateReferenceImages = normalizeReferenceImages(
+    input.nextCandidateReferenceImages || [],
+    {}
+  );
   const proposal = await saveProposal(projectDir, {
     schemaVersion: PRODUCTION_SCHEMA_VERSION,
     proposalId,
@@ -1183,9 +1729,17 @@ async function generateProposal(projectId, kind, input = {}, options = {}) {
     source: {
       projectId,
       userMessage: String(input.message || "").trim() || null,
+      revisionMode: input.revisionMode || null,
+      contentRelationship: input.contentRelationship || null,
+      revisionTarget: input.revisionTarget || null,
+      basisProposalId: basisProposal?.proposalId || null,
+      preserveUnmentionedConceptParts: input.preserveUnmentionedConceptParts === true,
+      contentRevisionStrategy: proposalData.changeSet ? "delta" : (input.contentRevisionStrategy || "full_snapshot"),
+      changeSet: proposalData.changeSet || null,
       currentLessonBriefId: project.manifest?.currentArtifacts?.lessonbriefId || null,
       currentContentMirrorId: project.manifest?.currentArtifacts?.contentMirrorId || null,
-      ruleSelection: ruleSelectionSource(proposalData.ruleSelection)
+      ruleSelection: ruleSelectionSource(proposalData.ruleSelection),
+      ...(nextCandidateReferenceImages.length ? { nextCandidateReferenceImages } : {})
     },
     data: proposalData.data
   });
@@ -1194,7 +1748,8 @@ async function generateProposal(projectId, kind, input = {}, options = {}) {
     await appendAssistantProposalMessage(projectDir, proposal, now, {
       project,
       ...current,
-      ...context
+      ...context,
+      usageAttribution
     });
   }
   await appendHistoryEvent(projectDir, {
@@ -1246,11 +1801,32 @@ async function adoptProposal(projectId, kind, input = {}, options = {}) {
       createdFrom: [proposalId]
     });
   } else if (kind === PROPOSAL_KINDS.CONTENT_MIRROR) {
+    const revisionKind = proposal.source?.changeSet?.strategy === "delta"
+      ? "delta"
+      : ["new_concept_from_context", "followup_concept"].includes(proposal.source?.revisionMode)
+        ? "new_concept"
+        : "full_snapshot";
     result = await createContentMirrorVersion(projectDir, proposal.data, {
       ...options,
       now,
-      createdFrom: [proposalId]
+      createdFrom: [proposalId],
+      parentContentMirrorId: proposal.source?.currentContentMirrorId || null,
+      revisionKind,
+      changeSummary: proposal.source?.changeSet?.summary || proposal.summary || null,
+      imageSpecStrategy: proposal.source?.changeSet?.imageSpecStrategy || "regenerate"
     });
+    if (
+      revisionKind === "delta"
+      && !proposal.source?.basisProposalId
+      && proposal.source?.changeSet?.imageSpecStrategy === "reuse"
+      && proposal.source?.currentContentMirrorId
+    ) {
+      result.imageSpecRebase = await rebaseAdoptedImageSpec(projectDir, {
+        fromContentMirrorId: proposal.source.currentContentMirrorId,
+        toContentMirrorId: result.artifactId,
+        now
+      });
+    }
   } else if (kind === PROPOSAL_KINDS.IMAGE_SPEC) {
     result = {
       proposalId,
@@ -1276,8 +1852,10 @@ async function adoptProposal(projectId, kind, input = {}, options = {}) {
   await supersedeOpenSiblingProposals(projectDir, proposal, { now });
   if (!input.silent) {
     const fallback = kind === PROPOSAL_KINDS.IMAGE_SPEC
-      ? "Die Entwurfsvorbereitung ist übernommen. Daraus kann jetzt ein Bild-Entwurf erzeugt werden."
-      : `${proposalSummaryText(kind, proposal.data)} wurde als ${kind === PROPOSAL_KINDS.CONTENT_WARNINGS ? "Prüfstand" : "Arbeitsblatt-Konzept"} übernommen.`;
+      ? "Die Bildplanung ist intern gespeichert. Daraus kann jetzt ein Bild-Entwurf entstehen."
+      : kind === PROPOSAL_KINDS.CONTENT_WARNINGS
+        ? `${proposalSummaryText(kind, proposal.data)} wurde intern gespeichert.`
+        : `Mit ${proposalSummaryText(kind, proposal.data)} wird weitergearbeitet.`;
     const message = await narrateChatMoment(projectDir, {
       kind: "proposal_adopted",
       fallback,
@@ -1285,7 +1863,8 @@ async function adoptProposal(projectId, kind, input = {}, options = {}) {
       commandId: adoptCommandForKind(kind).command
     }, {
       now,
-      uiEvent: "proposal_adopted"
+      uiEvent: "proposal_adopted",
+      usageAttribution: options.usageAttribution
     });
     await appendEvent(projectDir, {
       type: EVENT_TYPES.ASSISTANT_MESSAGE,
@@ -1330,10 +1909,97 @@ async function readActiveImageSpec(projectDir, proposalId = null) {
   return summarizeProposal(proposal);
 }
 
+function persistentImageSpecReferences(references = []) {
+  return (Array.isArray(references) ? references : []).filter((reference) => {
+    const scope = String(reference?.scope || "").toLowerCase();
+    const role = String(reference?.role || "").toLowerCase();
+    return ["all_candidates", "every_candidate", "persistent"].includes(scope)
+      || ["layout_reference", "style_reference", "style_layout_reference"].includes(role);
+  });
+}
+
+async function readActiveImageSpecForContent(projectDir, contentMirrorId) {
+  if (!contentMirrorId) {
+    return null;
+  }
+  const proposals = await readProposals(projectDir);
+  const proposal = proposals
+    .filter((entry) => entry.kind === PROPOSAL_KINDS.IMAGE_SPEC && entry.status === "adopted")
+    .filter((entry) => entry.source?.currentContentMirrorId === contentMirrorId)
+    .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || ""))
+      || String(right.proposalId || "").localeCompare(String(left.proposalId || "")))[0] || null;
+  return summarizeProposal(proposal);
+}
+
+async function rebaseAdoptedImageSpec(projectDir, options = {}) {
+  const source = await readActiveImageSpecForContent(projectDir, options.fromContentMirrorId);
+  if (!source) {
+    return null;
+  }
+  const proposals = await readProposals(projectDir);
+  const proposalId = nextProposalId(proposals);
+  const now = options.now || new Date().toISOString();
+  const proposal = await saveProposal(projectDir, {
+    schemaVersion: PRODUCTION_SCHEMA_VERSION,
+    proposalId,
+    kind: PROPOSAL_KINDS.IMAGE_SPEC,
+    status: "adopted",
+    title: source.title,
+    summary: source.summary,
+    createdAt: now,
+    adoptedAt: now,
+    adoptedArtifactId: proposalId,
+    createdBy: {
+      name: "deterministic",
+      model: null,
+      mode: "deterministic_rebase",
+      route: "content_delta_rebase",
+      purpose: ROUTE_PURPOSES.IMAGE_SPEC
+    },
+    source: {
+      ...(source.source || {}),
+      currentContentMirrorId: options.toContentMirrorId,
+      rebasedFromProposalId: source.proposalId,
+      rebasedFromContentMirrorId: options.fromContentMirrorId
+    },
+    data: {
+      ...(source.data || {}),
+      referenceImages: persistentImageSpecReferences(source.data?.referenceImages)
+    }
+  });
+  await appendHistoryEvent(projectDir, {
+    type: "image_spec_rebased_for_content_delta",
+    createdAt: now,
+    proposalId,
+    rebasedFromProposalId: source.proposalId,
+    fromContentMirrorId: options.fromContentMirrorId,
+    toContentMirrorId: options.toContentMirrorId
+  });
+  return summarizeProposal(proposal);
+}
+
 module.exports = {
   PROPOSAL_KINDS,
   adoptProposal,
   generateProposal,
   readActiveImageSpec,
-  readProposalState
+  readActiveImageSpecForContent,
+  readProposalState,
+  __testing: {
+    budgetRecentMessages,
+    compactContextRefs,
+    contextWithoutPreviousConceptContent,
+    inputAnalysesFromEvents,
+    proposalContextEvents,
+    projectContext,
+    recentMessagesFromEvents,
+    teacherInputMessagesFromEvents,
+    applyContentDelta,
+    contentDeltaSchema,
+    contentMirrorSchema,
+    persistentImageSpecReferences,
+    usesContentDelta,
+    validateContentMirror,
+    validateImageSpec
+  }
 };

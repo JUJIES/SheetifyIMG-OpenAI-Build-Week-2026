@@ -17,6 +17,7 @@ const {
 } = require("../artifactManager");
 const { openProject } = require("../projectManager");
 const { narrateChatMoment } = require("../chatNarrationManager");
+const { createUsageAttribution } = require("../usageAttributionManager");
 
 const DEFAULT_REPO_ROOT = path.resolve(__dirname, "..", "..");
 const DEFAULT_PROJECTS_DIR = path.join(DEFAULT_REPO_ROOT, "projects");
@@ -58,9 +59,78 @@ async function updateProjectTimestamp(projectDir, now) {
   });
 }
 
+function suggestedActionFromCommand(command = {}) {
+  if (!command?.id && !command?.command) {
+    return null;
+  }
+  return {
+    command: command.id || command.command,
+    label: command.label || command.decisionLabel || command.id || command.command,
+    payload: command.defaultPayload || command.payload || {},
+    requiresConfirmation: command.requiresConfirmation === true,
+    confirmationKind: command.confirmationKind || null,
+    reason: command.reason || null
+  };
+}
+
+async function uploadSuggestedActions(projectId, fileEntry = {}, options = {}) {
+  const isImageUpload = String(fileEntry.mimeType || "").startsWith("image/");
+  if (isImageUpload) {
+    const { buildWorkspace } = require("../workspaceManager");
+    const workspace = await buildWorkspace(projectId, {
+      repoRoot: options.repoRoot || DEFAULT_REPO_ROOT,
+      projectsDir: options.projectsDir || DEFAULT_PROJECTS_DIR,
+      worksheetsDir: options.worksheetsDir
+    });
+    const referenceCommand = (workspace.commands || []).find((command) => command.id === "prepare_reference_asset" && command.enabled);
+    const referenceAction = suggestedActionFromCommand(referenceCommand);
+    if (referenceAction) {
+      return {
+        kind: "input_reference_ready",
+        fallback: `Ich habe "${fileEntry.originalName}" erhalten. Ich kann das Bild als Referenz fuer den naechsten Entwurf nutzen.`,
+        actions: [referenceAction]
+      };
+    }
+  }
+  return {
+    kind: "input_received",
+    fallback: `Ich habe "${fileEntry.originalName}" erhalten. Soll ich daraus ein Arbeitsblatt-Konzept vorschlagen?`,
+    actions: [{
+      command: "generate_lessonbrief_proposal",
+      label: "Ja, Arbeitsblatt-Konzept vorschlagen",
+      payload: { completeConcept: true }
+    }]
+  };
+}
+
+function inputUploadAttachment(fileEntry = {}) {
+  const originalName = fileEntry.originalName || path.basename(fileEntry.path || "");
+  const mimeType = fileEntry.mimeType || "application/octet-stream";
+  const size = Number(fileEntry.size || 0) || 0;
+  return {
+    id: fileEntry.artifactId || fileEntry.path || originalName,
+    kind: "input_upload",
+    label: originalName || "Datei",
+    originalName,
+    mimeType,
+    size,
+    path: fileEntry.path,
+    artifactId: fileEntry.artifactId || null,
+    source: {
+      kind: "input_upload",
+      artifactId: fileEntry.artifactId || null,
+      path: fileEntry.path,
+      originalName,
+      mimeType,
+      size
+    }
+  };
+}
+
 async function addInputUpload(projectId, input = {}, options = {}) {
   const projectsDir = options.projectsDir || DEFAULT_PROJECTS_DIR;
   const projectDir = path.join(projectsDir, projectId);
+  const appendChatReceipt = options.appendChatReceipt !== false;
   await openProject(projectId, { projectsDir });
 
   const fileName = safeFileName(input.fileName);
@@ -74,6 +144,10 @@ async function addInputUpload(projectId, input = {}, options = {}) {
   }
 
   const now = options.now || new Date().toISOString();
+  const usageAttribution = createUsageAttribution(options.usageAttribution, {
+    projectId,
+    operationKind: "input_upload"
+  });
   const index = await readArtifactIndex(projectDir);
   const version = nextArtifactVersion(index, ARTIFACT_TYPES.INPUT_BATCH);
   const artifactId = artifactIdFor(ARTIFACT_TYPES.INPUT_BATCH, version);
@@ -131,33 +205,45 @@ async function addInputUpload(projectId, input = {}, options = {}) {
       size: buffer.length
     }
   }, { now });
-  const suggestedActions = [{
-    command: "generate_lessonbrief_proposal",
-    label: "Ja, Arbeitsblatt-Konzept vorschlagen",
-    payload: {}
-  }];
-  const assistantMessage = await narrateChatMoment(projectDir, {
-    kind: "input_received",
-    fallback: `Ich habe "${fileName}" erhalten. Soll ich daraus ein Arbeitsblatt-Konzept vorschlagen?`,
-    suggestedActions,
-    workspace: {
-      project: { projectId },
-      recentMessages: []
-    }
-  }, {
-    now,
-    uiEvent: "input_received"
-  });
-  await appendEvent(projectDir, {
-    type: EVENT_TYPES.ASSISTANT_MESSAGE,
-    createdAt: now,
-    step: "input",
-    payload: {
-      mode: "narration",
-      message: assistantMessage,
-      suggestedActions
-    }
-  }, { now });
+  if (appendChatReceipt) {
+    await appendEvent(projectDir, {
+      type: EVENT_TYPES.USER_MESSAGE,
+      createdAt: now,
+      step: "input",
+      payload: {
+        mode: "upload",
+        message: "",
+        uiEvent: "input_upload",
+        operationId: usageAttribution.operationId,
+        attachments: [inputUploadAttachment(fileEntry)]
+      }
+    }, { now });
+    const uploadResponse = await uploadSuggestedActions(projectId, fileEntry, options);
+    const suggestedActions = uploadResponse.actions;
+    const assistantMessage = await narrateChatMoment(projectDir, {
+      kind: uploadResponse.kind,
+      fallback: uploadResponse.fallback,
+      suggestedActions,
+      workspace: {
+        project: { projectId },
+        recentMessages: []
+      }
+    }, {
+      now,
+      uiEvent: "input_received",
+      usageAttribution
+    });
+    await appendEvent(projectDir, {
+      type: EVENT_TYPES.ASSISTANT_MESSAGE,
+      createdAt: now,
+      step: "input",
+      payload: {
+        mode: "narration",
+        message: assistantMessage,
+        suggestedActions
+      }
+    }, { now });
+  }
   await updateProjectTimestamp(projectDir, now);
 
   return {

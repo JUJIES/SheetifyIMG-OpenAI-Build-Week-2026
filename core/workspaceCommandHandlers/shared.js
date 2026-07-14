@@ -30,7 +30,8 @@ function handlerOptions(context) {
   return {
     repoRoot: context.repoRoot,
     projectsDir: context.projectsDir,
-    now: context.now
+    now: context.now,
+    usageAttribution: context.usageAttribution
   };
 }
 
@@ -115,7 +116,7 @@ async function assertProposalMatchesCurrentState(projectDir, proposalId, kind) {
     const sourceContentId = proposal.source?.currentContentMirrorId || null;
     const currentContentId = manifest.currentArtifacts?.contentMirrorId || null;
     if (sourceContentId && currentContentId && sourceContentId !== currentContentId) {
-      throw new Error("Diese Entwurfsvorbereitung gehört zu einem älteren Konzeptstand. Bitte aus dem aktuellen Konzept neu vorbereiten.");
+      throw new Error("Diese Bildplanung gehört zu einem älteren Konzeptstand. Bitte aus dem aktuellen Konzept neu ableiten.");
     }
   }
 }

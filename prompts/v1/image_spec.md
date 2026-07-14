@@ -76,6 +76,17 @@ Die ImageSpec soll klar zwischen Inhalt und visueller Umsetzung trennen:
   sichtbare Loesungen, Namens-/Datumsfelder.
 - `referencePolicy`: Referenz- oder Vorlagenentscheidung.
 
+Kompaktheit ist Teil der Qualitaet:
+
+- Halte `visualBrief`, `layoutIntent`, `styleNotes`, `placement` und
+  `learningFunction` knapp. In der Regel reicht je ein praeziser Satz.
+- Nutze `mustShow` und `avoid` als kurze Listen mit hoechstens 6 bis 8
+  strukturellen oder visuellen Punkten.
+- Wiederhole keine freigegebenen Aufgaben, Lesetexte, Materialtexte oder
+  Loesungshinweise. Die App fuegt diesen sichtbaren Text spaeter selbst ein.
+- Schreibe keine langen Absicherungslisten. Benenne nur, was fuer die spaetere
+  Bildgenerierung wirklich steuernd ist.
+
 Der spaetere Bildprompt wird von der App aus freigegebenem Text,
 deterministischem Seitenplan und ImageSpec zusammengesetzt. Schreibe deshalb
 keinen eigenen finalen Prompt und behandle die ImageSpec nicht als direkte
@@ -86,11 +97,19 @@ Wenn im Produktionskontext visuelle Chat-Anhaenge vorhanden sind, fuehre sie in
 selbst erfundene Dateinamen. Setze die Rolle passend:
 
 - `style_reference` fuer Stil, Farbigkeit, Linienfuehrung, Look
-- `layout_reference` fuer Seitenaufbau, Rhythmus, Platzierung
-- `content_reference` nur wenn der Bildinhalt selbst fachlich uebernommen werden soll
+- `layout_reference` fuer Seitenaufbau, Komposition, Rhythmus und Platzierung
+- `style_layout_reference` fuer eine bewusste Reihen-/Vorlagenreferenz, bei der
+  Stil und Aufbau eines Entwurfs adaptiv auf ein Folgeblatt uebertragen werden
+- `material_image` fuer konkretes sichtbares Bildmaterial wie Karte, QR-Code,
+  Koordinatensystem, Diagramm, Screenshot oder Foto, das lokal ins
+  Arbeitsblatt eingebaut werden soll
+- `content_reference` nur wenn Motiv, Gegenstand oder fachliche Struktur
+  uebernommen werden sollen, aber nicht als Stil-, Layout- oder Materialbild
 
-Referenzbilder duerfen den Stil oder Aufbau steuern, aber sie duerfen nie den
-freigegebenen Arbeitsblatttext ersetzen oder neue sichtbare Inhalte erzwingen.
+Referenzbilder sind funktionsgebunden. Sie duerfen den freigegebenen
+Arbeitsblatttext nicht ersetzen, keine Inhalte anderer Seiten erzwingen und
+keine Bild-/Materialslots schaffen, die der aktuelle Seitenvertrag nicht
+erlaubt.
 
 Entscheide explizit, ob eine Referenz sinnvoll ist. Das ist ein echter
 Qualitaetsschritt, keine Stichwortliste.
@@ -104,7 +123,7 @@ Anforderungsprofil:
   Straßenschild, Stadtbild, historisches Objekt, Spezialgeraet?
 - Wuerde das Bildmodell ohne Referenz wahrscheinlich nur ein generisches oder
   fachlich unsicheres Bild erzeugen?
-- Kann eine Webreferenz, ein User-Upload oder eine App-Vorlage die
+- Kann eine offene Bildreferenz oder ein User-Upload die
   Unterrichtsqualitaet sichtbar verbessern?
 
 Setze `referencePolicy` entsprechend:
@@ -118,11 +137,12 @@ Setze `referencePolicy` entsprechend:
 - `level: "required"` wenn ohne Referenz hohe fachliche oder visuelle
   Fehlerwahrscheinlichkeit besteht.
 - `level: "deterministic"` wenn ein Element technisch exakt bleiben muss, z. B.
-  QR-Code oder Barcode.
+  QR-Code oder Barcode. Im normalen Workflow gibt es dafuer aktuell keine
+  App-Vorlage; plane dann vorsichtig mit Platzhalter/Vermeidung statt
+  scheinbarer Funktionalitaet.
 
 Waehle `preferredSource`:
 
-- `app_template` fuer App-erzeugbare Praezision wie QR oder Koordinatensystem.
 - `web_reference_search` oder `user_upload_or_reference_search` fuer reale,
   lokale oder spezielle Motive.
 - `user_upload` wenn nur eine vom Nutzer bereitgestellte Vorlage sinnvoll ist.

@@ -19,6 +19,7 @@ const SOURCE_TYPES = Object.freeze({
 
 const ARTIFACT_TYPES = Object.freeze({
   INPUT_BATCH: "input_batch",
+  VOICE_INPUT: "voice_input",
   LESSON_BRIEF: "lessonbrief",
   CONTENT_MIRROR: "content_mirror",
   WARNINGS: "warnings",
@@ -59,6 +60,8 @@ const EVENT_TYPES = Object.freeze({
   USER_MESSAGE: "user_message",
   ASSISTANT_MESSAGE: "assistant_message",
   INPUT_BATCH_CREATED: "input_batch_created",
+  VOICE_INPUT_CREATED: "voice_input_created",
+  VOICE_TRANSCRIBED: "voice_transcribed",
   ARTIFACT_CREATED: "artifact_created",
   ARTIFACT_UPDATED: "artifact_updated",
   ARTIFACT_APPROVED: "artifact_approved",

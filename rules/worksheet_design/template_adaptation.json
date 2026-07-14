@@ -1,0 +1,51 @@
+{
+  "id": "worksheet_design.template_adaptation",
+  "version": 1,
+  "scope": "worksheet_design",
+  "stages": ["image_spec"],
+  "priority": 82,
+  "title": "Vorlagen adaptiv als Rohblatt nutzen",
+  "appliesWhen": {
+    "textTerms": [
+      "vorlage",
+      "reihenvorlage",
+      "folgeblatt",
+      "gleicher aufbau",
+      "gleicher stil",
+      "wie aus einem guss",
+      "layoutreferenz",
+      "stil und aufbau",
+      "style_layout_reference",
+      "template_reference"
+    ]
+  },
+  "instructions": [
+    "Eine Vorlagenreferenz ist eine Rohblattvorlage, keine 1:1-Kopie der alten Seitenstruktur.",
+    "Uebernehme aus der Vorlage vor allem Randlogik, Header-/Titelstil, Seitenmarker-Stil, Linien-/Boxenstil, Weissraum, Schriftanmutung, Farbwelt und visuellen Rhythmus.",
+    "Anzahl, Art und Reihenfolge der Inhaltsbereiche folgen dem aktuellen Seitenvertrag und dem freigegebenen Inhalt.",
+    "Bild-, Karten-, Diagramm-, Lesetext- oder Aufgabenbereiche aus der Vorlage nur uebernehmen, wenn die aktive Seite diese Bereiche explizit vorsieht.",
+    "Nicht passende Vorlagenbereiche weglassen oder in passenden Aufgaben-, Schreib- oder Arbeitsraum umwandeln."
+  ],
+  "imageSpecInstructions": [
+    "Beschreibe Vorlagen als adaptiven Stil-/Aufbauanker, nicht als starre Blockanzahl.",
+    "Markiere, welche Seitenelemente aus der Vorlage nur optional sind und vom aktuellen Seitenvertrag abhaengen.",
+    "Bei reinen Aufgabenseiten keine Bild- oder Materialslots aus der Vorlage einplanen, wenn die aktive Seite kein freigegebenes Bildmaterial hat."
+  ],
+  "imagePromptInstructions": [
+    "Vorlage als Rohblattvorlage nutzen: Header-/Titelstil, Randlogik, Schriftanmutung, Linien-/Boxenstil, Weissraum und Rhythmus uebernehmen.",
+    "Blockanzahl, Aufgabenstruktur, Lesetextbereiche und Bild-/Materialslots folgen dem aktiven Seitenvertrag, nicht blind der Vorlage.",
+    "Nicht passende Vorlagenbereiche weglassen oder in passenden Aufgaben-/Schreibraum umwandeln; keine alten Texte, Aufgaben, Labels oder Bildinhalte uebernehmen."
+  ],
+  "examples": [
+    {
+      "bad": "Die Vorlage hat drei Aufgabenbloecke, also bekommt das Folgeblatt wieder drei Aufgabenbloecke, obwohl das neue Konzept nur einen Aufgabenblock vorsieht.",
+      "good": "Das Folgeblatt uebernimmt Header, Randlogik, Linien- und Schriftstil, nutzt aber die eine Aufgabenstruktur aus dem neuen Konzept.",
+      "reason": "Vorlagen stabilisieren die Rohblattgestaltung, nicht die alte Inhaltsstruktur."
+    },
+    {
+      "bad": "Eine Leseseite mit grosser Illustration wird als Vorlage fuer eine reine Aufgabenseite genutzt und der Bildslot bleibt sichtbar.",
+      "good": "Die reine Aufgabenseite uebernimmt Header, Raender und Typografie; der alte Bildslot wird weggelassen oder zu Schreibraum.",
+      "reason": "Der aktive Seitenvertrag ist staerker als die Vorlage."
+    }
+  ]
+}

@@ -9,6 +9,8 @@ const { getAiRuntimeStatus, getOpenAiRequestConfig } = require("../aiConfig");
 const { createResponse, extractOutputText } = require("../openaiClient");
 const { logModelRun } = require("../modelRunLogger");
 const { estimateOpenAiTextCost } = require("../imageCostManager");
+const { measureModelRequest } = require("../modelRequestMetrics");
+const { ROUTE_PURPOSES, routeForPurpose } = require("../modelRouter");
 const { personaInstructions, responsePlanForMoment } = require("../chatPersonaManager");
 const { presentWorkflowEvent } = require("../chatEventPresenter");
 
@@ -29,6 +31,24 @@ const OLD_WORKFLOW_TERMS = [
     pattern: /\bPDF\b.{0,60}\b(?:herunterlad|download|erstell|mach|generier|nutz|ausgeb)|\b(?:herunterlad|download|erstell|mach|generier|nutz|ausgeb).{0,60}\bPDF\b/i
   }
 ];
+const OFFER_ONLY_MOMENTS = new Set([
+  "local_action_offer",
+  "suggested_action"
+]);
+const EXECUTED_MOMENTS = new Set([
+  "candidate_created",
+  "input_received",
+  "proposal_adopted",
+  "proposal_ready",
+  "workflow_followup"
+]);
+const RESULT_LANGUAGE_WITHOUT_COMMAND = [
+  /\b(?:wurde|wird|ist|sei)\s+(?:erstellt|erzeugt|generiert|überarbeitet|ueberarbeitet|ausformuliert|abgelegt|gespeichert|vorbereitet|angelegt|gemacht)\b/i,
+  /\b(?:Arbeitsblatt-Konzept|Konzeptfassung|Konzept|Entwurf|Arbeitsblatt|Referenz|Bildreferenz)\b.{0,90}\b(?:fertig|abgelegt|gespeichert|erstellt|erzeugt|generiert|überarbeitet|ueberarbeitet|ausformuliert|vorbereitet|angelegt|gemacht)\b/i,
+  /\bich\s+habe\b.{0,100}\b(?:erstellt|erzeugt|generiert|überarbeitet|ueberarbeitet|ausformuliert|abgelegt|gespeichert|vorbereitet|angelegt|gemacht)\b/i,
+  /\b(?:liegt|steht)\s+(?:vor|bereit)\b/i
+];
+const EXECUTED_VISIBILITY_LANGUAGE = /\b(?:Arbeitsblatt-Konzept|Konzept|Konzeptversion|Konzeptfassung|Entwurf|Entwürfe|Arbeitsblatt|Referenz|Bildreferenz|Input|Basis|Bestätigung|Bestaetigung|nächste|naechste|weitergearbeitet|genutzt|fertig|abgelegt|vorbereitet|ausformuliert|angelegt|erstellt|erzeugt|gespeichert)\b/i;
 
 function nonEmpty(value) {
   return String(value || "").trim();
@@ -190,7 +210,7 @@ function compactMoment(moment = {}) {
   const proposalKind = moment.proposal?.kind || null;
   const stateFacts = [];
   if (proposalKind === "image_spec" && (moment.kind === "proposal_ready" || moment.kind === "proposal_adopted")) {
-    stateFacts.push("Entwurfsvorbereitung ist intern vorbereitet/übernommen; es wurde dadurch noch kein Bild-Entwurf erzeugt.");
+    stateFacts.push("Interne Bildplanung ist vorbereitet/gespeichert; es wurde dadurch noch kein Bild-Entwurf erzeugt.");
   }
   if (moment.kind === "candidate_created") {
     stateFacts.push("Der Bild-Entwurf ist bereits fertig erzeugt; keine Bestätigung mehr verlangen.");
@@ -198,10 +218,10 @@ function compactMoment(moment = {}) {
   if (moment.kind === "workflow_followup") {
     stateFacts.push("Die commandId beschreibt eine bereits ausgeführte Workflow-Aktion, nicht eine noch offene Entscheidung.");
     if (moment.commandId === "activate_content_mirror_version") {
-      stateFacts.push("Die gewünschte Konzeptversion ist bereits als aktuelle Basis gesetzt. Nicht fragen, ob sie noch übernommen, freigegeben oder angepasst werden soll.");
+      stateFacts.push("Die gewünschte Konzeptversion ist bereits als Arbeitsbasis gesetzt. Nicht fragen, ob sie noch übernommen oder freigegeben werden soll.");
     }
     if (moment.commandId === "adopt_content_mirror_proposal") {
-      stateFacts.push("Das Arbeitsblatt-Konzept ist bereits übernommen und freigegeben. Nicht fragen, ob es noch übernommen oder freigegeben werden soll.");
+      stateFacts.push("Das Arbeitsblatt-Konzept ist bereits als Arbeitsbasis gespeichert. Nicht fragen, ob es noch übernommen oder freigegeben werden soll.");
     }
     if (moment.action?.command === "generate_image_candidate") {
       stateFacts.push("Der Entwurfs-Schritt ist nur als nächste Aktion vorbereitet; die Bildgenerierung startet erst nach bewusster Bestätigung.");
@@ -244,7 +264,7 @@ function normalizeNarrationSurface(value) {
   const text = nonEmpty(value)
     .replace(/^["“”]+|["“”]+$/g, "")
     .replace(/\s+[–—]\s+/g, "; ")
-    .replace(/\bKandidatenvorbereitung\b/g, "Entwurfsvorbereitung")
+    .replace(/\bKandidatenvorbereitung\b/g, "Bildplanung")
     .replace(/\bKandidatenerzeugung\b/g, "Entwurfserstellung")
     .replace(/\bKandidaten-Schritt\b/g, "Entwurfs-Schritt")
     .replace(/\bKandidatenschritt\b/g, "Entwurfsschritt")
@@ -274,7 +294,38 @@ function normalizeNarrationSurface(value) {
     : text;
 }
 
-function validateNarrationPolicy(value) {
+function hasExecutedWorkflowMoment(moment = null) {
+  if (!moment || typeof moment !== "object") {
+    return false;
+  }
+  return Boolean(moment.commandId) || EXECUTED_MOMENTS.has(moment.kind);
+}
+
+function hasOnlyOfferedAction(moment = null) {
+  if (!moment || typeof moment !== "object") {
+    return false;
+  }
+  return OFFER_ONLY_MOMENTS.has(moment.kind) && !hasExecutedWorkflowMoment(moment);
+}
+
+function violatesActionConsistency(message, moment = null) {
+  if (!moment) {
+    return null;
+  }
+  const text = nonEmpty(message);
+  if (!text) {
+    return "empty";
+  }
+  if (hasOnlyOfferedAction(moment) && RESULT_LANGUAGE_WITHOUT_COMMAND.some((pattern) => pattern.test(text))) {
+    return "offered_action_spoke_as_result";
+  }
+  if (hasExecutedWorkflowMoment(moment) && !EXECUTED_VISIBILITY_LANGUAGE.test(text)) {
+    return "executed_action_missing_visible_state";
+  }
+  return null;
+}
+
+function validateNarrationPolicy(value, moment = null) {
   const text = nonEmpty(value);
   if (!text) {
     return { ok: false, reason: "empty" };
@@ -287,12 +338,16 @@ function validateNarrationPolicy(value) {
       return { ok: false, reason: rule.reason };
     }
   }
+  const actionConsistencyReason = violatesActionConsistency(text, moment);
+  if (actionConsistencyReason) {
+    return { ok: false, reason: actionConsistencyReason };
+  }
   return { ok: true, reason: null };
 }
 
-function sanitizeNarration(value) {
+function sanitizeNarration(value, moment = null) {
   const text = normalizeNarrationSurface(value);
-  const validation = validateNarrationPolicy(text);
+  const validation = validateNarrationPolicy(text, moment);
   if (!validation.ok) {
     return null;
   }
@@ -319,16 +374,16 @@ function narrationInstructions() {
     "Nutze nicht mehr die alten Nutzerbegriffe Auswahl übernehmen, PDF erstellen, PDF herunterladen oder Export.",
     "Entwürfe sind Bildentwürfe. Ein PDF entsteht erst beim Ablegen als Arbeitsblatt.",
     "Keine internen Begriffe wie Lesson Brief, Content Mirror, ImageSpec, Tool Call oder Run.",
-    "Die Vorbereitung für Entwürfe ist noch kein Entwurf. Sage nie, ein Entwurf sei übernommen oder fertig, solange moment.kind proposal_ready/proposal_adopted und proposal.kind image_spec ist.",
+    "Interne Bildplanung ist noch kein Entwurf. Sage nie, ein Entwurf sei übernommen oder fertig, solange moment.kind proposal_ready/proposal_adopted und proposal.kind image_spec ist.",
     "Bei moment.kind suggested_action oder local_action_offer in der Input-Phase: Wenn eine Lehrkraft eine Arbeitsblattidee nennt, beginne mit einer sehr kurzen Mini-Zusammenfassung der Idee und einer konkreten Stärke, bevor du den nächsten Schritt nennst.",
-    "Bei moment.kind proposal_ready und proposal.kind content_mirror: Schreibe eine kurze didaktische Einschätzung zum Arbeitsblatt-Konzept. Satz 1: was aus Aufgaben, Text oder Bildidee gut trägt. Satz 2: eine mögliche Unschärfe oder Schwäche mit Begründung aus dem Konzept. Satz 3: Frage, ob die Lehrkraft es übernehmen oder noch etwas anpassen möchte.",
+    "Bei moment.kind proposal_ready und proposal.kind content_mirror: Mache klar, dass jetzt ein sichtbarer Konzeptvorschlag vorliegt. Schreibe eine kurze didaktische Einschätzung zum Arbeitsblatt-Konzept. Satz 1: was aus Aufgaben, Text oder Bildidee gut trägt. Satz 2: eine mögliche Unschärfe oder Schwäche mit Begründung aus dem Konzept. Satz 3: biete einen Entwurf aus diesem Konzept oder eine weitere Anpassung an; verlange keinen separaten Übernahme- oder Freigabeschritt.",
     "Bei dieser Konzept-Einschätzung keine Schnelloptionen oder Alternativbuttons vorschlagen. Die Lehrkraft kann natürlich im Chat nachschärfen.",
     "Bei moment.kind candidate_created ist die Bildgenerierung bereits abgeschlossen. Bitte keine Bestätigung mehr verlangen und nicht sagen, der User müsse die Bildgenerierung bestätigen.",
     "Bei moment.kind candidate_created beschreibe das fertige Ergebnis. Nicht schreiben: ich lege jetzt an, ich starte, ich erzeuge jetzt oder ich erstelle jetzt.",
     "Bei moment.kind workflow_followup ist die genannte Workflow-Aktion bereits erledigt. Frage nicht, ob die erledigte Aktion noch übernommen, freigegeben oder ausgeführt werden soll.",
-    "Bei commandId activate_content_mirror_version: Schreibe, dass die gewünschte Konzeptversion jetzt die aktuelle Basis ist, und nenne höchstens den nächsten Entwurfs-Schritt.",
-    "Bei commandId adopt_content_mirror_proposal: Schreibe, dass das Arbeitsblatt-Konzept übernommen und freigegeben ist, und nenne höchstens den nächsten Entwurfs-Schritt.",
-    "Wenn die Vorbereitung für Entwürfe eine referencePolicy hat, erklaere knapp und natuerlich, ob eine Referenz oder Vorlage hilfreich ist. Sage Referenz, Vorlage oder Bildvorlage, nicht ImageSpec.",
+    "Bei commandId activate_content_mirror_version: Schreibe, dass die gewünschte Konzeptversion jetzt für den nächsten Schritt genutzt wird, und nenne höchstens den nächsten Entwurfs-Schritt.",
+    "Bei commandId adopt_content_mirror_proposal: Schreibe, dass mit diesem Arbeitsblatt-Konzept weitergearbeitet wird, und nenne höchstens den nächsten Entwurfs-Schritt.",
+    "Wenn die interne Bildplanung eine referencePolicy hat, erklaere knapp und natuerlich, ob eine Referenz oder Vorlage hilfreich ist. Sage Referenz, Vorlage oder Bildvorlage, nicht ImageSpec.",
     "Raw-IDs wie candidate_01 nur nutzen, wenn sie im Fallback unvermeidbar sind; besser: Entwurf 01 oder dieser Entwurf.",
     "Erfinde keine abgeschlossenen Aktionen, keine Dateien, keine Freigaben und keine neuen Buttons.",
     "Wenn requiresPaidConfirmation true ist, erwähne knapp, dass die Bildgenerierung bewusst bestätigt werden muss.",
@@ -352,15 +407,15 @@ function narrationSchema() {
   };
 }
 
-function parseNarration(response) {
+function parseNarration(response, moment = null) {
   const text = extractOutputText(response);
   if (!text) {
     return null;
   }
   try {
-    return sanitizeNarration(JSON.parse(text).message);
+    return sanitizeNarration(JSON.parse(text).message, moment);
   } catch {
-    return sanitizeNarration(text);
+    return sanitizeNarration(text, moment);
   }
 }
 
@@ -382,7 +437,8 @@ function contradictsCompletedActivation(message, moment = {}) {
 
 async function narrateChatMoment(projectDir, moment = {}, options = {}) {
   const deterministicMessage = presentWorkflowEvent(moment);
-  const fallback = sanitizeNarration(deterministicMessage || moment.fallback) || "Ich habe den nächsten Schritt vorbereitet.";
+  const fallback = sanitizeNarration(deterministicMessage || moment.fallback, moment)
+    || "Der nächste sichere Schritt ist als Aktion verfügbar.";
   if (deterministicMessage) {
     return fallback;
   }
@@ -392,25 +448,35 @@ async function narrateChatMoment(projectDir, moment = {}, options = {}) {
   }
 
   const startedAt = Date.now();
-  const model = requestConfig.textModel;
+  const route = routeForPurpose(ROUTE_PURPOSES.NARRATION, requestConfig);
+  const model = route.model || requestConfig.textModel;
+  let modelCallLogged = false;
+  const payload = compactMoment(moment);
+  const responseBody = {
+    model,
+    instructions: narrationInstructions(),
+    input: [{
+      role: "user",
+      content: JSON.stringify(payload, null, 2)
+    }],
+    text: {
+      format: {
+        type: "json_schema",
+        name: "sheetifyimg_chat_narration",
+        strict: true,
+        schema: narrationSchema()
+      }
+    },
+    reasoning: route.reasoningEffort && route.reasoningEffort !== "none"
+      ? { effort: route.reasoningEffort }
+      : undefined,
+    store: false
+  };
+  const requestShape = measureModelRequest(responseBody, {
+    contextSections: payload
+  });
   try {
-    const response = await createResponse({
-      model,
-      instructions: narrationInstructions(),
-      input: [{
-        role: "user",
-        content: JSON.stringify(compactMoment(moment), null, 2)
-      }],
-      text: {
-        format: {
-          type: "json_schema",
-          name: "sheetifyimg_chat_narration",
-          strict: true,
-          schema: narrationSchema()
-        }
-      },
-      store: false
-    }, {
+    const response = await createResponse(responseBody, {
       ...requestConfig,
       timeoutMs: timeoutMs(process.env, requestConfig.timeoutMs)
     });
@@ -420,36 +486,45 @@ async function narrateChatMoment(projectDir, moment = {}, options = {}) {
       usage,
       model: responseModel
     });
-    const parsedMessage = parseNarration(response);
-    const message = parsedMessage && !contradictsCompletedActivation(parsedMessage, moment)
-      ? parsedMessage
-      : fallback;
     await logModelRun(projectDir, {
       status: "success",
       source: "chat_narration",
       purpose: moment.kind || "chat_narration",
-      route: "narration",
-      promptNames: ["chat_narration_inline"],
+      route: route.route,
+      promptNames: route.promptNames,
       model: responseModel,
+      reasoningEffort: route.reasoningEffort,
       responseId: response.id || null,
       durationMs: Date.now() - startedAt,
       usage,
       costEstimate,
+      requestShape,
+      attribution: options.usageAttribution,
       uiEvent: options.uiEvent || moment.kind || "chat_narration"
     }, { now: options.now });
+    modelCallLogged = true;
+    const parsedMessage = parseNarration(response, moment);
+    const message = parsedMessage && !contradictsCompletedActivation(parsedMessage, moment)
+      ? parsedMessage
+      : fallback;
     return message;
   } catch (error) {
-    await logModelRun(projectDir, {
-      status: "error",
-      source: "chat_narration",
-      purpose: moment.kind || "chat_narration",
-      route: "narration",
-      promptNames: ["chat_narration_inline"],
-      model,
-      durationMs: Date.now() - startedAt,
-      uiEvent: options.uiEvent || moment.kind || "chat_narration",
-      error
-    }, { now: options.now });
+    if (!modelCallLogged) {
+      await logModelRun(projectDir, {
+        status: "error",
+        source: "chat_narration",
+        purpose: moment.kind || "chat_narration",
+        route: route.route,
+        promptNames: route.promptNames,
+        model,
+        reasoningEffort: route.reasoningEffort,
+        durationMs: Date.now() - startedAt,
+        requestShape,
+        attribution: options.usageAttribution,
+        uiEvent: options.uiEvent || moment.kind || "chat_narration",
+        error
+      }, { now: options.now });
+    }
     return fallback;
   }
 }
@@ -459,5 +534,6 @@ module.exports = {
   sanitizeNarration,
   normalizeNarrationSurface,
   validateNarrationPolicy,
-  contradictsCompletedActivation
+  contradictsCompletedActivation,
+  violatesActionConsistency
 };

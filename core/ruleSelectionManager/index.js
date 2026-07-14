@@ -6,6 +6,8 @@ const path = require("node:path");
 const DEFAULT_REPO_ROOT = path.resolve(__dirname, "..", "..");
 const RULES_DIR = "rules";
 const MAX_SELECTED_RULES = 12;
+const MAX_PROMPT_EXAMPLES_PER_RULE = 2;
+const MAX_APPLIED_RULE_DIRECTIVE_CHARS = 220;
 
 function normalizeText(value) {
   return String(value || "")
@@ -50,6 +52,34 @@ function arrayOfStrings(values) {
     .filter(Boolean);
 }
 
+function stringOrNull(value) {
+  const text = String(value || "").trim();
+  return text || null;
+}
+
+function compactExampleText(value) {
+  return stringOrNull(value)?.replace(/\s*\n+\s*/g, " / ").replace(/\s{2,}/g, " ") || null;
+}
+
+function normalizeRuleExamples(values) {
+  return (Array.isArray(values) ? values : [])
+    .map((entry) => {
+      if (typeof entry === "string") {
+        return {
+          bad: null,
+          good: compactExampleText(entry),
+          reason: null
+        };
+      }
+      return {
+        bad: compactExampleText(entry?.bad),
+        good: compactExampleText(entry?.good),
+        reason: compactExampleText(entry?.reason)
+      };
+    })
+    .filter((entry) => entry.bad || entry.good || entry.reason);
+}
+
 function validateRule(rawRule = {}, filePath = "") {
   const id = String(rawRule.id || "").trim();
   const scope = String(rawRule.scope || "").trim();
@@ -68,6 +98,8 @@ function validateRule(rawRule = {}, filePath = "") {
     instructions: arrayOfStrings(rawRule.instructions),
     contentInstructions: arrayOfStrings(rawRule.contentInstructions),
     imageSpecInstructions: arrayOfStrings(rawRule.imageSpecInstructions),
+    imagePromptInstructions: arrayOfStrings(rawRule.imagePromptInstructions),
+    examples: normalizeRuleExamples(rawRule.examples),
     appliesWhen: rawRule.appliesWhen || {}
   };
 }
@@ -119,8 +151,8 @@ function contextTexts({ project = {}, context = {}, input = {} } = {}) {
     brief.outputPreference?.layout,
     brief.outputPreference?.style,
     content.title,
-    ...(content.readingTexts || []).flatMap((entry) => [entry.title, entry.body]),
-    ...(content.tasks || []).flatMap((entry) => [entry.id, entry.prompt, entry.expectedAnswer, ...(entry.materialRefs || [])]),
+    ...(content.readingTexts || []).flatMap((entry) => [entry.role, entry.title, entry.body]),
+    ...(content.tasks || []).flatMap((entry) => [entry.id, entry.groupLabel, entry.prompt, entry.expectedAnswer, ...(entry.materialRefs || [])]),
     ...(content.imageMaterials || []).flatMap((entry) => [entry.id, entry.prompt, entry.purpose, entry.placement]),
     ...(context.recentMessages || []).flatMap((entry) => [entry.message]),
     ...(context.teacherInput?.messages || []).flatMap((entry) => [entry.message]),
@@ -132,7 +164,7 @@ function contextTexts({ project = {}, context = {}, input = {} } = {}) {
 
 function inferTaskTypes(text) {
   const taskTypes = new Set();
-  if (/\b(zuordn|verbinde|matching|match|draw lines|linien|phrase pairs|phrasenpaare)\b/.test(text)) {
+  if (/\b(zuordn\w*|ordne\w*|einordn\w*|kartenpaare|verbinde\w*|matching|match|draw lines|phrase pairs|phrasenpaare|verbindungslinien|linien verbinden|mit linien verbinden)\b/.test(text)) {
     taskTypes.add("matching");
   }
   if (/\b(multiple choice|single choice|kreuze an|ankreuzen|waehle aus|choose the correct|tick the correct|antwortmoeglichkeiten)\b/.test(text)) {
@@ -170,12 +202,24 @@ function forcedRuleIds(input = {}) {
   }).map((value) => String(value || "").trim()).filter(Boolean));
 }
 
-function ruleMatchReason(rule, stage, signals, forcedIds) {
+function testRulesEnabled(input = {}) {
+  const envValue = normalizeText(process.env.SHEETIFYIMG_ENABLE_TEST_RULES || "");
+  return input.enableTestRules === true
+    || input.allowTestRules === true
+    || envValue === "1"
+    || envValue === "true"
+    || envValue === "yes";
+}
+
+function ruleMatchReason(rule, stage, signals, forcedIds, allowTestRules = false) {
   if (!rule.stages.includes(stage)) {
     return null;
   }
   if (forcedIds.has(rule.id)) {
     return "forced";
+  }
+  if (rule.testOnly === true && !allowTestRules) {
+    return null;
   }
 
   const appliesWhen = rule.appliesWhen || {};
@@ -207,6 +251,19 @@ function promptInstructionsForRule(rule, stage) {
     .filter(Boolean);
 }
 
+function compactInstructionText(value) {
+  return stringOrNull(value)?.replace(/\s*\n+\s*/g, " / ").replace(/\s{2,}/g, " ") || "";
+}
+
+function compactDirective(value, maxChars = MAX_APPLIED_RULE_DIRECTIVE_CHARS) {
+  const text = compactInstructionText(value);
+  if (!text || text.length <= maxChars) {
+    return text;
+  }
+  const shortened = text.slice(0, maxChars).replace(/\s+\S*$/, "").trim();
+  return shortened ? `${shortened} ...` : text.slice(0, maxChars);
+}
+
 function selectedRuleSummary(rule, stage, reason) {
   return {
     id: rule.id,
@@ -216,7 +273,9 @@ function selectedRuleSummary(rule, stage, reason) {
     priority: rule.priority,
     reason,
     testOnly: rule.testOnly === true,
-    instructions: promptInstructionsForRule(rule, stage)
+    instructions: promptInstructionsForRule(rule, stage),
+    imagePromptInstructions: rule.imagePromptInstructions || [],
+    examples: rule.examples || []
   };
 }
 
@@ -230,9 +289,10 @@ async function selectRulesForProposal({ kind, project = {}, context = {}, input 
     taskTypes: inferTaskTypes(text)
   };
   const forcedIds = forcedRuleIds(input);
+  const allowTestRules = testRulesEnabled(input);
   const selected = [];
   for (const rule of catalog) {
-    const reason = ruleMatchReason(rule, stage, signals, forcedIds);
+    const reason = ruleMatchReason(rule, stage, signals, forcedIds, allowTestRules);
     if (!reason) {
       continue;
     }
@@ -265,18 +325,35 @@ function formatSelectedRulesForPrompt(selection = {}) {
     for (const instruction of rule.instructions || []) {
       lines.push(`  - ${instruction}`);
     }
+    for (const example of (rule.examples || []).slice(0, MAX_PROMPT_EXAMPLES_PER_RULE)) {
+      lines.push("  - Beispiel:");
+      if (example.bad) {
+        lines.push(`    Schlecht: ${example.bad}`);
+      }
+      if (example.good) {
+        lines.push(`    Gut: ${example.good}`);
+      }
+      if (example.reason) {
+        lines.push(`    Warum: ${example.reason}`);
+      }
+    }
   }
   return lines.join("\n");
 }
 
 function appliedRulesForImageSpec(selection = {}) {
   return (Array.isArray(selection.selected) ? selection.selected : [])
-    .filter((rule) => rule.instructions?.length)
+    .filter((rule) => rule.id)
     .map((rule) => ({
       id: rule.id,
+      version: rule.version || 1,
       scope: rule.scope,
       title: rule.title,
-      instructions: rule.instructions
+      directive: compactDirective(
+        (rule.imagePromptInstructions || [])[0]
+          || (rule.instructions || [])[0]
+          || rule.title
+      )
     }));
 }
 

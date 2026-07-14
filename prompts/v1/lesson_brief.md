@@ -11,6 +11,8 @@ Beruecksichtige:
 - Zielgruppe
 - Metadaten aus der Projektanlage wie Titel, Fach, Thema und Klassenstufe
 - vorhandenen Projektstand
+- Upload-Auswertungen und relevante Chat-Genese aus `projectState.inputAnalyses`
+  und `projectState.recentMessages`
 - gewuenschten Arbeitsblatttyp
 - Materialbedarf
 - Uebungs-, Pruefungs- oder Erarbeitungscharakter
