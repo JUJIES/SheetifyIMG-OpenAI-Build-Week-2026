@@ -94,6 +94,18 @@ async function main() {
   assert.equal(config.projectsDir, path.join(runtimeDir, "projects"));
   assert.equal(config.worksheetsDir, path.join(runtimeDir, "worksheets"));
   assert.equal(config.exposeBillingStatus, false);
+  assert.equal(config.planningFlow, "v2");
+  assert.equal(resolveServerConfig({
+    repoRoot,
+    env: productionEnv(runtimeDir, { SHEETIFYIMG_PLANNING_FLOW: "legacy" })
+  }).planningFlow, "legacy");
+  assert.throws(
+    () => resolveServerConfig({
+      repoRoot,
+      env: productionEnv(runtimeDir, { SHEETIFYIMG_PLANNING_FLOW: "v3" })
+    }),
+    /must be "v2" or "legacy"/
+  );
 
   await fs.writeFile(envFile, [
     `OPENAI_API_KEY=${fakeSecret}`,
@@ -109,6 +121,7 @@ async function main() {
     "OPENAI_ADMIN_KEY",
     "PROJECTS_DIR",
     "WORKSHEETS_DIR",
+    "SHEETIFYIMG_PLANNING_FLOW",
     "SHEETIFYIMG_HTTPS_KEY",
     "SHEETIFYIMG_HTTPS_CERT"
   ]) {
@@ -197,6 +210,7 @@ async function main() {
     const billingResponse = await fetch(`${baseUrl}/api/billing/status`);
     assert.equal(billingResponse.status, 404);
 
+    assert.match(output(), /"planningFlow":"v2"/);
     assert.doesNotMatch(output(), new RegExp(fakeSecret.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   } finally {
     if (child.exitCode === null) {

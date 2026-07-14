@@ -8,7 +8,11 @@ const { PROPOSAL_KINDS, adoptProposal, generateProposal } = require("../aiPropos
 const { readEvents } = require("../eventLog");
 const { defaultBriefDraft, defaultContentDraft } = require("../workspaceCommandDrafts");
 const { activateContentMirrorVersion } = require("./contentMirrorActivation");
-const { PLANNING_FLOWS, resolvePlanningFlow } = require("../planningFlowConfig");
+const {
+  DEFAULT_PLANNING_FLOW,
+  PLANNING_FLOWS,
+  resolvePlanningFlow
+} = require("../planningFlowConfig");
 const {
   approveCurrentBrief,
   approveCurrentContent,
@@ -28,7 +32,7 @@ function withoutClientPlanningFlow(payload = {}) {
   return trustedPayload;
 }
 
-function contentProposalInput(payload = {}, planningFlow = PLANNING_FLOWS.LEGACY) {
+function contentProposalInput(payload = {}, planningFlow = DEFAULT_PLANNING_FLOW) {
   const trustedPayload = withoutClientPlanningFlow(payload);
   const useV2 = planningFlow === PLANNING_FLOWS.V2;
   return {

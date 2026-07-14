@@ -7,7 +7,7 @@ const { buildWorkspace } = require("../workspaceManager");
 const { validateWorkflowCommand } = require("../workflowState");
 const { refreshStatusSnapshot } = require("../statusSnapshot");
 const { runWorkspaceCommandHandler } = require("../workspaceCommandHandlers");
-const { resolvePlanningFlow } = require("../planningFlowConfig");
+const { DEFAULT_PLANNING_FLOW, resolvePlanningFlow } = require("../planningFlowConfig");
 const {
   createUsageAttribution,
   extendUsageAttribution
@@ -57,7 +57,7 @@ async function appendWorkspaceCommandTrace(
   afterWorkspace = {},
   now,
   usageAttribution = null,
-  planningFlow = "legacy"
+  planningFlow = DEFAULT_PLANNING_FLOW
 ) {
   const command = input.command || input.id;
   const payload = input.payload || {};

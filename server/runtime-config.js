@@ -3,6 +3,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { loadEnvFile, loadLocalEnv } = require("../core/localEnv");
+const { resolvePlanningFlow } = require("../core/planningFlowConfig");
 
 const RUNTIME_MODES = Object.freeze({
   DEVELOPMENT: "development",
@@ -184,6 +185,7 @@ function resolveServerConfig(options = {}) {
     ),
     exposeBillingStatus: booleanValue(env.SHEETIFYIMG_EXPOSE_BILLING_STATUS, !production),
     releaseCommit: nonEmpty(env.SHEETIFYIMG_RELEASE_COMMIT) || null,
+    planningFlow: resolvePlanningFlow({ env }),
     requireOpenAi
   });
 }
@@ -197,6 +199,7 @@ function safeServerConfig(config) {
     publicUrlConfigured: Boolean(config.publicUrl),
     runtimeConfigured: Boolean(config.runtimeDir),
     billingStatusExposed: config.exposeBillingStatus,
+    planningFlow: config.planningFlow,
     releaseCommit: config.releaseCommit
   };
 }

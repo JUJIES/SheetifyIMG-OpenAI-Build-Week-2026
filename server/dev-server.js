@@ -860,7 +860,8 @@ async function handleApi(request, response) {
     sendJson(response, 200, await sendChatMessage(workspaceChatMatch[1], body, {
       repoRoot,
       projectsDir,
-      worksheetsDir
+      worksheetsDir,
+      trustedPlanningFlowOverride: serverConfig.planningFlow
     }));
     return;
   }
@@ -917,6 +918,7 @@ async function handleApi(request, response) {
       repoRoot,
       projectsDir,
       worksheetsDir,
+      trustedPlanningFlowOverride: serverConfig.planningFlow,
       traceCommand: true
     }));
     return;
