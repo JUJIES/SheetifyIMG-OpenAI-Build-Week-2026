@@ -38,8 +38,9 @@ button.ghost { color: #475467; background: #f2f4f7; }
 button.compact { min-height: 38px; font-size: 12px; }
 .generated-card { margin-top: 22px; }
 .generated-card-head, .section-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.generated-downloads { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .generated-preview { margin-top: 22px; padding: 16px; border-radius: 16px; background: #eef1f5; overflow: auto; }
-.generated-preview svg { display: block; width: min(100%, 760px); height: auto; margin: 0 auto; border-radius: 12px; }
+.generated-preview img { display: block; width: min(100%, 760px); height: auto; margin: 0 auto; border-radius: 12px; box-shadow: 0 14px 35px rgba(16,24,39,.12); }
 .generated-secret { margin: 14px 0 0; color: var(--muted); font-size: 11px; text-align: center; }
 .passes-section, .requests-section { margin-top: 28px; }
 .inbox-note { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 20px; padding: 15px 16px; border-radius: 14px; background: #f7f9fc; }

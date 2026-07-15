@@ -33,6 +33,11 @@ function button(label, url) {
   return `<p style="margin:28px 0"><a href="${escapeHtml(url)}" style="display:inline-block;padding:12px 18px;border-radius:10px;background:${BRAND.accent};color:#fff;text-decoration:none;font-weight:700">${escapeHtml(label)}</a></p>`;
 }
 
+function cardImage(contentId, alt) {
+  if (!contentId) return "";
+  return `<p style="margin:26px 0"><img src="cid:${escapeHtml(contentId)}" alt="${escapeHtml(alt)}" style="display:block;width:100%;height:auto;border-radius:18px"></p>`;
+}
+
 function layout({ preheader, title, bodyHtml }) {
   return `<!doctype html>
 <html lang="de">
@@ -63,7 +68,25 @@ function betaInvitationTemplate(input = {}) {
     html: layout({
       preheader: "Dein Sheetify Pass ist bereit.",
       title: "Willkommen in der Sheetify Beta",
-      bodyHtml: `<p>${escapeHtml(greeting(name))}</p><p>dein Zugang für <strong>${escapeHtml(workspaceName)}</strong> ist bereit.</p><p style="padding:16px;border-radius:12px;background:#f3eee6;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:18px;font-weight:800;letter-spacing:.04em">${escapeHtml(passCode)}</p>${button("Sheetify öffnen", appUrl)}<p style="color:${BRAND.muted}">Bewahre den Pass gut auf. Er verbindet Geräte mit demselben Arbeitsbereich.</p>`
+      bodyHtml: `<p>${escapeHtml(greeting(name))}</p><p>dein Zugang für <strong>${escapeHtml(workspaceName)}</strong> ist bereit.</p>${cardImage(input.cardContentId, "Dein Sheetify Beta Pass")}<p style="padding:16px;border-radius:12px;background:#f3eee6;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:18px;font-weight:800;letter-spacing:.04em">${escapeHtml(passCode)}</p>${button("Sheetify öffnen", appUrl)}<p style="color:${BRAND.muted}">Bewahre den Pass gut auf. Er verbindet Geräte mit demselben Arbeitsbereich.</p>`
+    })
+  };
+}
+
+function topupCardTemplate(input = {}) {
+  const name = cleanText(input.name);
+  const amount = Number(input.amount);
+  const topupCode = cleanText(input.topupCode);
+  const appUrl = cleanText(input.appUrl);
+  if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error("amount must be a positive integer.");
+  if (!topupCode) throw new Error("topupCode is required for a top-up card.");
+  return {
+    subject: `Deine Sheetify Guthabenkarte: ${amount} Entwurfsseiten`,
+    text: `${greeting(name)}\n\nhier ist deine Guthabenkarte über ${amount} Entwurfsseiten.\n\nGuthabencode: ${topupCode}${appUrl ? `\n\nIn Sheetify einlösen: ${appUrl}` : ""}\n\nDer Code ist einmal einlösbar.\n\nViele Grüße\nSheetify`,
+    html: layout({
+      preheader: `${amount} Entwurfsseiten für Sheetify.`,
+      title: "Deine Sheetify Guthabenkarte",
+      bodyHtml: `<p>${escapeHtml(greeting(name))}</p><p>Hier sind <strong>${amount} Entwurfsseiten</strong> zum Einlösen in Sheetify.</p>${cardImage(input.cardContentId, "Deine Sheetify Guthabenkarte")}<p style="padding:16px;border-radius:12px;background:#f3eee6;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:18px;font-weight:800;letter-spacing:.04em">${escapeHtml(topupCode)}</p>${button("Guthaben einlösen", appUrl)}<p style="color:${BRAND.muted}">Der Code ist einmal einlösbar.</p>`
     })
   };
 }
@@ -117,5 +140,6 @@ module.exports = {
   betaInvitationTemplate,
   betaPassActivatedTemplate,
   creditGrantedTemplate,
+  topupCardTemplate,
   supportConfirmationTemplate
 };

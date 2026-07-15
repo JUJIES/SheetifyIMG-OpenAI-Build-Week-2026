@@ -23,7 +23,8 @@ function createResendProvider(options = {}) {
         replyTo: message.replyTo,
         subject: message.subject,
         html: message.html,
-        text: message.text
+        text: message.text,
+        attachments: message.attachments
       }, message.idempotencyKey ? { idempotencyKey: message.idempotencyKey } : undefined);
       if (error || !data?.id) {
         throw new EmailDeliveryError("Resend rejected the email request.", {

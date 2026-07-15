@@ -3,7 +3,8 @@
 const state = {
   overview: null,
   cardSvg: null,
-  cardName: "sheetify-card.svg",
+  cardPngDataUrl: null,
+  cardName: "sheetify-card",
   recoveryLinks: new Map()
 };
 
@@ -14,7 +15,8 @@ const elements = {
   generated: document.querySelector("#generatedCard"),
   generatedTitle: document.querySelector("#generatedTitle"),
   generatedPreview: document.querySelector("#generatedPreview"),
-  download: document.querySelector("#downloadCard"),
+  downloadPng: document.querySelector("#downloadCardPng"),
+  downloadSvg: document.querySelector("#downloadCardSvg"),
   passList: document.querySelector("#passList"),
   requestList: document.querySelector("#requestList"),
   refreshPasses: document.querySelector("#refreshPasses"),
@@ -41,8 +43,8 @@ function toast(message) {
 }
 
 function emailDeliveryNotice(delivery) {
-  if (delivery?.status === "sent") return " Einladung wurde per E-Mail versendet.";
-  if (delivery?.status === "failed") return " Der Pass wurde erstellt, aber die E-Mail konnte nicht versendet werden.";
+  if (delivery?.status === "sent") return " Karte wurde per E-Mail versendet.";
+  if (delivery?.status === "failed") return " Die Karte wurde erstellt, aber die E-Mail konnte nicht versendet werden.";
   if (delivery?.status === "disabled") return " Mailversand ist noch nicht aktiviert.";
   return "";
 }
@@ -53,9 +55,13 @@ function escapeHtml(value) {
 
 function showCard(payload, title, fileName) {
   state.cardSvg = payload.svg;
+  state.cardPngDataUrl = payload.pngDataUrl;
   state.cardName = fileName;
   elements.generatedTitle.textContent = title;
-  elements.generatedPreview.innerHTML = payload.svg;
+  const image = document.createElement("img");
+  image.src = payload.pngDataUrl;
+  image.alt = title;
+  elements.generatedPreview.replaceChildren(image);
   elements.generated.classList.remove("hidden");
   elements.generated.scrollIntoView({ behavior: "smooth", block: "center" });
 }
@@ -200,7 +206,7 @@ elements.createPassForm.addEventListener("submit", async (event) => {
       method: "POST",
       body: JSON.stringify({ label: data.get("label"), email: data.get("email"), credits: Number(data.get("credits")) })
     });
-    showCard(result, "Sheetify Pass erstellt", `sheetify-pass-${result.pass.id}.svg`);
+    showCard(result, "Sheetify Pass erstellt", `sheetify-pass-${result.pass.id}`);
     const notice = emailDeliveryNotice(result.emailDelivery);
     if (notice) toast(notice.trim());
     elements.createPassForm.reset();
@@ -215,9 +221,11 @@ elements.createTopupForm.addEventListener("submit", async (event) => {
   try {
     const result = await api("/api/admin/topup-cards", {
       method: "POST",
-      body: JSON.stringify({ amount: Number(data.get("amount")), label: data.get("label") })
+      body: JSON.stringify({ amount: Number(data.get("amount")), label: data.get("label"), email: data.get("email") })
     });
-    showCard(result, "Guthabenkarte erstellt", `sheetify-guthaben-${result.card.credits}.svg`);
+    showCard(result, "Guthabenkarte erstellt", `sheetify-guthaben-${result.card.credits}`);
+    const notice = emailDeliveryNotice(result.emailDelivery);
+    if (notice) toast(notice.trim());
   } catch (error) { toast(error.message); }
 });
 
@@ -235,7 +243,7 @@ elements.passList.addEventListener("click", async (event) => {
     } else if (button.hasAttribute("data-rotate")) {
       if (!confirm("Passcode erneuern und alle verbundenen Geräte abmelden?")) return;
       const result = await api(`/api/admin/passes/${encodeURIComponent(passId)}/rotate`, { method: "POST", body: JSON.stringify({ revokeSessions: true }) });
-      showCard(result, "Neuer Sheetify Pass", `sheetify-pass-${passId}.svg`);
+      showCard(result, "Neuer Sheetify Pass", `sheetify-pass-${passId}`);
       const notice = emailDeliveryNotice(result.emailDelivery);
       if (notice) toast(notice.trim());
     }
@@ -275,13 +283,21 @@ elements.requestList.addEventListener("click", async (event) => {
   } catch (error) { toast(error.message); }
 });
 
-elements.download.addEventListener("click", () => {
+elements.downloadSvg.addEventListener("click", () => {
   if (!state.cardSvg) return;
   const link = document.createElement("a");
   link.href = URL.createObjectURL(new Blob([state.cardSvg], { type: "image/svg+xml" }));
-  link.download = state.cardName;
+  link.download = `${state.cardName}.svg`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+});
+
+elements.downloadPng.addEventListener("click", () => {
+  if (!state.cardPngDataUrl) return;
+  const link = document.createElement("a");
+  link.href = state.cardPngDataUrl;
+  link.download = `${state.cardName}.png`;
+  link.click();
 });
 
 elements.refreshPasses.addEventListener("click", () => loadOverview().catch((error) => toast(error.message)));

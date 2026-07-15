@@ -5,6 +5,7 @@ const {
   betaInvitationTemplate,
   betaPassActivatedTemplate,
   creditGrantedTemplate,
+  topupCardTemplate,
   supportConfirmationTemplate
 } = require("./templates");
 
@@ -28,6 +29,24 @@ function idempotencyKey(value) {
   return key;
 }
 
+function emailAttachments(value) {
+  if (!value) return undefined;
+  if (!Array.isArray(value) || value.length > 4) throw new Error("attachments must be an array with at most four files.");
+  return value.map((attachment) => {
+    const filename = String(attachment?.filename || "").trim();
+    if (!filename || filename.length > 160 || /[\\/]/.test(filename)) throw new Error("attachment filename is invalid.");
+    if (!Buffer.isBuffer(attachment.content) && typeof attachment.content !== "string") {
+      throw new Error("attachment content must be a Buffer or string.");
+    }
+    return {
+      filename,
+      content: attachment.content,
+      contentType: String(attachment.contentType || "application/octet-stream"),
+      ...(attachment.contentId ? { contentId: String(attachment.contentId) } : {})
+    };
+  });
+}
+
 function createEmailService(options = {}) {
   const apiKey = String(options.apiKey || "").trim();
   const provider = options.provider || (apiKey ? createResendProvider({ apiKey, client: options.resendClient }) : null);
@@ -47,6 +66,7 @@ function createEmailService(options = {}) {
       subject: template.subject,
       html: template.html,
       text: template.text,
+      attachments: emailAttachments(options.attachments),
       idempotencyKey: idempotencyKey(options.idempotencyKey)
     });
     return { status: "sent", provider: delivery.provider, id: delivery.id };
@@ -69,7 +89,8 @@ function createEmailService(options = {}) {
         name: input.name,
         workspaceName: input.workspaceName,
         passCode: input.passCode,
-        appUrl: input.appUrl || publicUrl
+        appUrl: input.appUrl || publicUrl,
+        cardContentId: input.cardContentId
       }), input);
     },
     sendBetaPassActivated(input = {}) {
@@ -81,6 +102,15 @@ function createEmailService(options = {}) {
     },
     sendCreditGranted(input = {}) {
       return sendTemplate(input.email, creditGrantedTemplate(input), input);
+    },
+    sendTopupCard(input = {}) {
+      return sendTemplate(input.email, topupCardTemplate({
+        name: input.name,
+        amount: input.amount,
+        topupCode: input.topupCode,
+        appUrl: input.appUrl || publicUrl,
+        cardContentId: input.cardContentId
+      }), input);
     },
     sendSupportConfirmation(input = {}) {
       return sendTemplate(input.email, supportConfirmationTemplate(input), input);

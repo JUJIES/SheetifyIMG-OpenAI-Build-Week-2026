@@ -1072,9 +1072,11 @@ async function passCardPayload(request, created) {
   const card = await createBetaCard({
     kind: "pass",
     code: created.code,
+    label: created.pass.label,
     qrContent: url
   });
-  return { ...created, url, ...card };
+  const { png, ...publicCard } = card;
+  return { response: { ...created, url, ...publicCard }, png };
 }
 
 async function handleAdminApi(request, response) {
@@ -1098,7 +1100,8 @@ async function handleAdminApi(request, response) {
   if (request.method === "POST" && pathname === "/api/admin/passes") {
     const body = await readJsonBody(request);
     const created = await betaAccessManager.createPass(body);
-    const payload = await passCardPayload(request, created);
+    const cardPayload = await passCardPayload(request, created);
+    const payload = cardPayload.response;
     const emailDelivery = created.pass.recoveryEmail
       ? await deliverEmail(() => emailService.sendBetaInvitation({
         email: created.pass.recoveryEmail,
@@ -1106,6 +1109,13 @@ async function handleAdminApi(request, response) {
         workspaceName: created.pass.label,
         passCode: created.code,
         appUrl: payload.url,
+        cardContentId: "sheetify-beta-pass",
+        attachments: [{
+          filename: `sheetify-beta-pass-${created.pass.id}.png`,
+          content: cardPayload.png,
+          contentType: "image/png",
+          contentId: "sheetify-beta-pass"
+        }],
         idempotencyKey: `beta-invitation:${created.pass.id}:${created.pass.updatedAt}`
       }))
       : { status: "skipped" };
@@ -1121,13 +1131,21 @@ async function handleAdminApi(request, response) {
   if (request.method === "POST" && rotateMatch) {
     const body = await readJsonBody(request);
     const rotated = await betaAccessManager.rotatePass(rotateMatch[1], body);
-    const payload = await passCardPayload(request, rotated);
+    const cardPayload = await passCardPayload(request, rotated);
+    const payload = cardPayload.response;
     const emailDelivery = rotated.pass.recoveryEmail
       ? await deliverEmail(() => emailService.sendBetaInvitation({
         email: rotated.pass.recoveryEmail,
         workspaceName: rotated.pass.label,
         passCode: rotated.code,
         appUrl: payload.url,
+        cardContentId: "sheetify-beta-pass",
+        attachments: [{
+          filename: `sheetify-beta-pass-${rotated.pass.id}.png`,
+          content: cardPayload.png,
+          contentType: "image/png",
+          contentId: "sheetify-beta-pass"
+        }],
         idempotencyKey: `beta-invitation:${rotated.pass.id}:${rotated.pass.updatedAt}`
       }))
       : { status: "skipped" };
@@ -1154,7 +1172,26 @@ async function handleAdminApi(request, response) {
     const created = await betaAccessManager.createTopupCard(body.amount, body);
     const url = `${requestOrigin(request)}/#topup=${encodeURIComponent(created.code)}`;
     const card = await createBetaCard({ kind: "topup", code: created.code, credits: created.card.credits, qrContent: url });
-    sendJson(response, 201, { ...created, url, ...card });
+    const { png, ...publicCard } = card;
+    const email = String(body.email || "").trim();
+    const emailDelivery = email
+      ? await deliverEmail(() => emailService.sendTopupCard({
+        email,
+        name: body.name,
+        amount: created.card.credits,
+        topupCode: created.code,
+        appUrl: url,
+        cardContentId: "sheetify-topup-card",
+        attachments: [{
+          filename: `sheetify-guthaben-${created.card.credits}-${created.card.id}.png`,
+          content: png,
+          contentType: "image/png",
+          contentId: "sheetify-topup-card"
+        }],
+        idempotencyKey: `topup-card:${created.card.id}`
+      }))
+      : { status: "skipped" };
+    sendJson(response, 201, { ...created, url, ...publicCard, emailDelivery });
     return true;
   }
   const requestMatch = pathname.match(/^\/api\/admin\/requests\/(request_[A-Za-z0-9-]+)$/);
