@@ -182,7 +182,7 @@ function resolveServerConfig(options = {}) {
   const betaAdminPrivateOnly = booleanValue(env.SHEETIFYIMG_ADMIN_PRIVATE_ONLY, production);
   const inboundMailEnabled = booleanValue(env.SHEETIFYIMG_MAIL_INBOUND_WEBHOOK_ENABLED, false);
   const inboundMailAllowLoopback = booleanValue(env.SHEETIFYIMG_MAIL_INBOUND_ALLOW_LOOPBACK, false);
-  const contactEmail = emailValue(env.SHEETIFYIMG_CONTACT_EMAIL, "mail@jujies.app", "SHEETIFYIMG_CONTACT_EMAIL");
+  const contactEmail = emailValue(env.SHEETIFYIMG_CONTACT_EMAIL, "sheetify@jujies.app", "SHEETIFYIMG_CONTACT_EMAIL");
   const inboundMailAllowedHosts = hostnameList(
     env.SHEETIFYIMG_MAIL_INBOUND_ALLOWED_HOSTS,
     "mx1.forwardemail.net,mx2.forwardemail.net",

@@ -56,7 +56,7 @@
           </div>`).join("")}</div>
       </section>
       <footer class="pass-ui-footer">
-        <p>Hilfe oder ein Problem? <a href="mailto:mail@jujies.app">mail@jujies.app</a></p>
+        <p>Hilfe oder ein Problem? <a href="mailto:sheetify@jujies.app">sheetify@jujies.app</a></p>
         <button class="pass-ui-button danger" type="button" data-logout>Auf diesem Gerät abmelden</button>
       </footer>`;
   }
