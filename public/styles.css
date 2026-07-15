@@ -56,20 +56,10 @@ button {
 
 .brand {
   display: flex;
-  flex: 0 0 164px;
+  flex: 0 0 176px;
   min-width: 0;
   height: 100%;
   align-items: center;
-}
-
-.brand-logo {
-  display: block;
-  width: 164px;
-  max-width: 100%;
-  height: auto;
-  max-height: 52px;
-  object-fit: contain;
-  object-position: left center;
 }
 
 .workspace {
@@ -6419,10 +6409,7 @@ button {
     flex-basis: 142px;
   }
 
-  .brand-logo {
-    width: 142px;
-    max-height: 46px;
-  }
+  .brand .sheetify-wordmark { font-size: 24px; }
 
   .production-mode .brand {
     display: none;

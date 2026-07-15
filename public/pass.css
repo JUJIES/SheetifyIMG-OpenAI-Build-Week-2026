@@ -38,8 +38,7 @@ button, input, select, textarea { font: inherit; }
   gap: clamp(48px, 8vw, 110px);
 }
 
-.pass-brand { display: inline-flex; width: 190px; margin-bottom: 64px; }
-.pass-brand img { display: block; width: 100%; height: auto; }
+.pass-brand { margin-bottom: 64px; }
 .pass-eyebrow { margin: 0 0 10px; color: var(--blue); font-size: 12px; font-weight: 780; letter-spacing: .13em; text-transform: uppercase; }
 .pass-copy h1 { margin: 0; max-width: 650px; font-size: clamp(42px, 5.5vw, 72px); line-height: 1.02; letter-spacing: -.045em; }
 .pass-copy > p:last-child { max-width: 600px; margin: 28px 0 0; color: var(--muted); font-size: 19px; line-height: 1.65; }
@@ -92,7 +91,7 @@ button, input, select, textarea { font: inherit; }
 
 @media (max-width: 820px) {
   .pass-page { width: min(560px, calc(100% - 28px)); padding: 30px 0; grid-template-columns: 1fr; gap: 34px; }
-  .pass-brand { width: 154px; margin-bottom: 36px; }
+  .pass-brand { margin-bottom: 36px; font-size: 29px; }
   .pass-copy h1 { font-size: clamp(38px, 12vw, 56px); }
   .pass-copy > p:last-child { margin-top: 20px; font-size: 16px; }
   .pass-benefits { margin-top: 24px; }

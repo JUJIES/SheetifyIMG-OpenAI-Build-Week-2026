@@ -86,7 +86,7 @@ function cleanText(value, maxLength) {
     .slice(0, maxLength);
 }
 
-function cleanLabel(value, fallback = "Sheetify Pass") {
+function cleanLabel(value, fallback = "Sheetify IMG Pass") {
   return String(value || fallback).trim().slice(0, 120) || fallback;
 }
 
@@ -124,17 +124,17 @@ function passBalance(state, passId) {
 function passRecord(state, passId) {
   const pass = state.passes.find((entry) => entry.id === passId) || null;
   if (!pass) {
-    throw Object.assign(new Error("Sheetify Pass wurde nicht gefunden."), { statusCode: 404 });
+    throw Object.assign(new Error("Sheetify IMG Pass wurde nicht gefunden."), { statusCode: 404 });
   }
   return pass;
 }
 
 function assertPassActive(pass, now = new Date().toISOString()) {
   if (!ACTIVE_PASS_STATUSES.has(pass.status)) {
-    throw Object.assign(new Error("Dieser Sheetify Pass ist derzeit nicht aktiv."), { statusCode: 403 });
+    throw Object.assign(new Error("Dieser Sheetify IMG Pass ist derzeit nicht aktiv."), { statusCode: 403 });
   }
   if (pass.expiresAt && pass.expiresAt <= now) {
-    throw Object.assign(new Error("Dieser Sheetify Pass ist abgelaufen."), { statusCode: 403 });
+    throw Object.assign(new Error("Dieser Sheetify IMG Pass ist abgelaufen."), { statusCode: 403 });
   }
 }
 
@@ -409,7 +409,7 @@ function createBetaAccessManager(config = {}) {
         throw Object.assign(new Error("Für diese Anfrage kann kein Wiederherstellungslink erstellt werden."), { statusCode: 400 });
       }
       if (!request.passId) {
-        throw Object.assign(new Error("Zu dieser E-Mail ist kein Sheetify Pass hinterlegt."), { statusCode: 409 });
+        throw Object.assign(new Error("Zu dieser E-Mail ist kein Sheetify IMG Pass hinterlegt."), { statusCode: 409 });
       }
       const pass = passRecord(state, request.passId);
       assertPassActive(pass, now);
@@ -545,7 +545,7 @@ function createBetaAccessManager(config = {}) {
     return transact((state, now) => {
       const pass = state.passes.find((entry) => safeEqual(entry.codeDigest, codeDigest)) || null;
       if (!pass) {
-        throw Object.assign(new Error("Der Sheetify Pass ist ungültig."), { statusCode: 401 });
+        throw Object.assign(new Error("Der Sheetify IMG Pass ist ungültig."), { statusCode: 401 });
       }
       assertPassActive(pass, now);
       const created = createSessionRecord(pass, deviceName, now);

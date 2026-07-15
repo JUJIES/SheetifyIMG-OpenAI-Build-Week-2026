@@ -9,10 +9,9 @@ body { margin: 0; color: var(--text); background: var(--bg); }
 button, input { font: inherit; }
 .hidden { display: none !important; }
 .admin-topbar { height: 68px; padding: 0 max(24px, calc((100vw - 1180px)/2)); display: flex; align-items: center; gap: 20px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.92); position: sticky; top: 0; z-index: 5; backdrop-filter: blur(15px); }
-.admin-topbar img { width: 142px; height: auto; }
-.admin-topbar > div { padding-left: 20px; border-left: 1px solid var(--line); display: flex; align-items: baseline; gap: 9px; }
-.admin-topbar span { font-weight: 750; }
-.admin-topbar small { color: var(--muted); }
+.admin-context { padding-left: 20px; border-left: 1px solid var(--line); display: flex; align-items: baseline; gap: 9px; }
+.admin-context span { font-weight: 750; }
+.admin-context small { color: var(--muted); }
 .admin-contact { margin-left: auto; color: var(--blue); font-size: 12px; font-weight: 720; text-decoration: none; }
 .admin-page { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 52px 0 90px; }
 .admin-hero { display: flex; justify-content: space-between; align-items: end; gap: 30px; margin-bottom: 38px; }

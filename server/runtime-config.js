@@ -242,7 +242,7 @@ function resolveServerConfig(options = {}) {
       configured: Boolean(resendApiKey),
       provider: resendApiKey ? "resend" : null,
       apiKey: resendApiKey,
-      from: "Sheetify <sheetify@jujies.app>",
+      from: "Sheetify IMG <sheetify@jujies.app>",
       replyTo: "sheetify@jujies.app"
     }),
     betaAccess: Object.freeze({

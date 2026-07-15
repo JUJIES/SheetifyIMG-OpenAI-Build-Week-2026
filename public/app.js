@@ -6298,7 +6298,7 @@ async function openWorkspace(projectId) {
   state.pendingCommand = null;
   state.composerAttachments = [];
   clearInputUploadReceipts();
-  elements.chatInput.placeholder = "Nachricht an SheetifyIMG AI...";
+  elements.chatInput.placeholder = "Nachricht an Sheetify IMG AI...";
   renderComposerAttachments();
   state.mode = "workspace";
   document.body.classList.add("production-mode");
@@ -6346,7 +6346,7 @@ function closeWorkspace() {
   state.pendingCommand = null;
   state.composerAttachments = [];
   clearInputUploadReceipts();
-  elements.chatInput.placeholder = "Nachricht an SheetifyIMG AI...";
+  elements.chatInput.placeholder = "Nachricht an Sheetify IMG AI...";
   renderComposerAttachments();
   resetCanvasLayout();
   document.body.classList.remove("production-mode");
@@ -8700,7 +8700,7 @@ function renderChatIntro(workspace) {
     <div class="chat-message assistant">
       <div class="assistant-avatar">AI</div>
       <div class="message-bubble">
-        <strong>SheetifyIMG AI</strong>
+        <strong>Sheetify IMG AI</strong>
         <div class="message-copy">${markdownToHtml(text)}</div>
       </div>
     </div>
@@ -9409,7 +9409,7 @@ function renderChatMessage(message, visibleCommandIds = new Set(), extraCommands
     <div class="chat-message ${role}${stateClass}${commandClass}">
       ${role === "assistant" ? '<div class="assistant-avatar">AI</div>' : ""}
       <div class="message-bubble">
-        <div class="message-meta">${role === "user" ? "Ich" : "SheetifyIMG AI"}${metaSuffix}</div>
+        <div class="message-meta">${role === "user" ? "Ich" : "Sheetify IMG AI"}${metaSuffix}</div>
         ${renderChatRevisionTarget(message.revisionTarget)}
         ${copyAfterCard ? "" : copyHtml}
         ${renderChatAttachments(message.attachments || [])}
@@ -9427,7 +9427,7 @@ function renderThinkingMessage() {
     <div class="chat-message assistant thinking">
       <div class="assistant-avatar">AI</div>
       <div class="message-bubble">
-        <div class="message-meta">SheetifyIMG AI</div>
+        <div class="message-meta">Sheetify IMG AI</div>
         <p class="thinking-line"><span></span><span></span><span></span><em>Antwort wird vorbereitet</em></p>
       </div>
     </div>
@@ -10850,7 +10850,7 @@ async function sendChatMessage(message, context = {}) {
 function removeComposerAttachment(attachmentId) {
   state.composerAttachments = state.composerAttachments.filter((attachment) => attachment.id !== attachmentId);
   if (!state.composerAttachments.length) {
-    elements.chatInput.placeholder = "Nachricht an SheetifyIMG AI...";
+    elements.chatInput.placeholder = "Nachricht an Sheetify IMG AI...";
   }
   renderComposerAttachments();
 }
@@ -10987,7 +10987,7 @@ function submitComposerMessage() {
   state.composerAttachments = [];
   clearInputUploadReceipts();
   clearRevisionTarget();
-  elements.chatInput.placeholder = "Nachricht an SheetifyIMG AI...";
+  elements.chatInput.placeholder = "Nachricht an Sheetify IMG AI...";
   renderComposerAttachments();
   sendChatMessage(effectiveMessage, {
     ...(attachments.length

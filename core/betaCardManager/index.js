@@ -28,7 +28,7 @@ function cardCopy(input) {
   if (input.kind === "topup") {
     const credits = Number(input.credits || 0);
     return {
-      title: "Sheetify Guthabenkarte",
+      title: "Sheetify IMG Guthabenkarte",
       eyebrow: `${credits} ${credits === 1 ? "Entwurfsseite" : "Entwurfsseiten"}`,
       description: "Einmal einlösen und direkt weitergestalten.",
       note: "Einmal einlösbar · Der Code wird nach dem Einlösen ungültig.",
@@ -38,7 +38,7 @@ function cardCopy(input) {
     };
   }
   return {
-    title: "Sheetify Beta Pass",
+    title: "Sheetify IMG Beta Pass",
     eyebrow: shortLabel(input.label, "Gemeinsamer Arbeitsbereich"),
     description: "Scannen oder Code eingeben und den Arbeitsbereich öffnen.",
     note: "Wer diese Karte besitzt, kann auf den Arbeitsbereich zugreifen.",
@@ -60,7 +60,7 @@ async function createBetaCard(input = {}) {
   const kind = input.kind === "topup" ? "topup" : "pass";
   const copy = cardCopy({ ...input, kind });
   const code = String(input.code || "").trim();
-  if (!code) throw new Error("code is required for a Sheetify card.");
+  if (!code) throw new Error("code is required for a Sheetify IMG card.");
   const qrSvg = await createQrSvg(input.qrContent || code, {
     margin: 1,
     errorCorrectionLevel: "M",
@@ -89,7 +89,8 @@ async function createBetaCard(input = {}) {
   <rect x="1" y="1" width="${CARD_WIDTH - 2}" height="${CARD_HEIGHT - 2}" rx="47" fill="none" stroke="#ded5ca" stroke-width="2"/>
 
   <g font-family="Inter,Segoe UI,Arial,sans-serif">
-    <text x="72" y="86" font-size="22" font-weight="800" letter-spacing="5" fill="${copy.accent}">SHEETIFY</text>
+    <text x="72" y="86" font-size="24" font-weight="800" letter-spacing="-1" fill="#25221f">Sheetify</text>
+    <text x="164" y="86" font-size="18" font-weight="850" letter-spacing="2" fill="#1f63d6">IMG</text>
     <text x="72" y="172" font-size="55" font-weight="760" letter-spacing="-1.5" fill="#25221f">${escapeXml(copy.title)}</text>
     <text x="72" y="220" font-size="24" font-weight="700" fill="#4c4742">${escapeXml(copy.eyebrow)}</text>
     <text x="72" y="270" font-size="21" fill="#6f6962">${escapeXml(copy.description)}</text>

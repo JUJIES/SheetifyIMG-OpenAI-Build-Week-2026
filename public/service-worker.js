@@ -1,17 +1,18 @@
 "use strict";
 
-const CACHE_NAME = "sheetifyimg-static-v57";
+const CACHE_NAME = "sheetifyimg-static-v58";
 const APP_SHELL_URLS = [
   "/vendor/simplebar/simplebar.min.css?v=1",
-  "/styles.css?v=111",
+  "/brand.css?v=1",
+  "/styles.css?v=112",
   "/pass-ui.css?v=2",
-  "/pass.css?v=2",
-  "/admin.css?v=2",
+  "/pass.css?v=3",
+  "/admin.css?v=4",
   "/vendor/simplebar/simplebar.min.js?v=1",
   "/app.js?v=184",
   "/pass-ui.js?v=2",
   "/pass.js?v=2",
-  "/admin.js?v=2",
+  "/admin.js?v=4",
   "/pwa.js?v=1",
   "/candidateCards.js?v=2",
   "/actionBindings.js?v=1",
@@ -25,7 +26,6 @@ const APP_SHELL_URLS = [
   "/icons/app-icon-192.png",
   "/icons/app-icon-512.png",
   "/icons/app-icon-maskable-512.png",
-  "/icons/sheetifyimg-header-logo.png",
   "/icons/lucide-sprite.svg?v=16"
 ];
 
@@ -81,6 +81,6 @@ async function networkFirst(request) {
     if (cached) {
       return cached;
     }
-    throw new Error("SheetifyIMG app shell is unavailable.");
+    throw new Error("Sheetify IMG app shell is unavailable.");
   }
 }

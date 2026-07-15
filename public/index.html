@@ -3,9 +3,9 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>SheetifyIMG</title>
-    <meta name="application-name" content="SheetifyIMG">
-    <meta name="apple-mobile-web-app-title" content="SheetifyIMG">
+    <title>Sheetify IMG</title>
+    <meta name="application-name" content="Sheetify IMG">
+    <meta name="apple-mobile-web-app-title" content="Sheetify IMG">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -16,15 +16,15 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16x16.png">
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/app-icon-180.png">
     <link rel="stylesheet" href="/vendor/simplebar/simplebar.min.css?v=1">
-    <link rel="stylesheet" href="/styles.css?v=111">
+    <link rel="stylesheet" href="/brand.css?v=1">
+    <link rel="stylesheet" href="/styles.css?v=112">
     <link rel="stylesheet" href="/pass-ui.css?v=2">
   </head>
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <div class="brand" aria-label="SheetifyIMG">
-          <img class="brand-logo" src="/icons/sheetifyimg-header-logo.png" alt="" width="1200" height="382" decoding="async">
-          <span class="sr-only">SheetifyIMG</span>
+        <div class="brand" aria-label="Sheetify IMG">
+          <span class="sheetify-wordmark"><span>Sheetify</span><span class="sheetify-wordmark__img">IMG</span></span>
         </div>
         <div class="topbar-project hidden" id="topbarProject">
           <div class="topbar-project-title">
@@ -45,7 +45,7 @@
           </div>
         </div>
         <div class="topbar-global-actions">
-          <button class="icon-button icon-button-plain" type="button" id="passButton" aria-label="Mein Sheetify Pass" title="Mein Sheetify Pass" aria-haspopup="dialog">
+          <button class="icon-button icon-button-plain" type="button" id="passButton" aria-label="Mein Sheetify IMG Pass" title="Mein Sheetify IMG Pass" aria-haspopup="dialog">
             <svg class="icon icon-small" aria-hidden="true">
               <use href="/icons/lucide-sprite.svg?v=13#qr-code"></use>
             </svg>
@@ -216,7 +216,7 @@
               <header class="workspace-panel-header">
                 <div class="workspace-panel-title">
                   <p class="eyebrow">Chat</p>
-                  <h2>SheetifyIMG AI</h2>
+                  <h2>Sheetify IMG AI</h2>
                   <p class="workspace-mobile-project-title" id="workspaceMobileProjectTitle"></p>
                 </div>
                 <div class="workspace-panel-actions">
@@ -255,7 +255,7 @@
                 </button>
                 <input class="sr-only" type="file" id="chatAttachmentInput" aria-label="Input-Dateien hinzufügen" multiple>
                 <div class="chat-input-shell" id="chatInputShell">
-                  <label class="sr-only" for="chatInput">Nachricht an SheetifyIMG AI</label>
+                  <label class="sr-only" for="chatInput">Nachricht an Sheetify IMG AI</label>
                   <div class="chat-input-row">
                     <span class="revision-target-pill hidden" id="revisionTargetPill">
                       <svg class="icon icon-small" aria-hidden="true">
@@ -268,7 +268,7 @@
                         </svg>
                       </button>
                     </span>
-                    <textarea id="chatInput" rows="1" placeholder="Nachricht an SheetifyIMG AI..."></textarea>
+                    <textarea id="chatInput" rows="1" placeholder="Nachricht an Sheetify IMG AI..."></textarea>
                     <button class="chat-transcript-review-button hidden" type="button" id="voiceTranscriptReviewButton" aria-label="Transkript ansehen" title="Transkript ansehen" aria-controls="voiceTranscriptLayer" aria-expanded="false">
                       <svg class="icon icon-small" aria-hidden="true">
                         <use href="/icons/lucide-sprite.svg?v=16#eye"></use>
@@ -313,7 +313,7 @@
         <header class="share-header">
           <div>
             <p class="eyebrow">QR</p>
-            <h2 id="shareTitle">SheetifyIMG öffnen</h2>
+            <h2 id="shareTitle">Sheetify IMG öffnen</h2>
             <p id="shareStatus">Adresse wird geladen...</p>
           </div>
           <button class="icon-button icon-button-plain share-close-button" type="button" id="shareCloseButton" aria-label="QR-Link schließen" title="Schließen">
@@ -341,7 +341,7 @@
         <header class="settings-header">
           <div>
             <p class="eyebrow">Einstellungen</p>
-            <h2 id="settingsTitle">SheetifyIMG</h2>
+            <h2 id="settingsTitle">Sheetify IMG</h2>
           </div>
           <button class="secondary-button" type="button" id="settingsCloseButton">Schließen</button>
         </header>
@@ -349,7 +349,7 @@
           <section class="settings-section">
             <p class="eyebrow">Bildgenerierung</p>
             <h3>Neue Entwürfe</h3>
-            <p>Lege fest, wie SheetifyIMG die nächsten Arbeitsblatt-Entwürfe erzeugt.</p>
+            <p>Lege fest, wie Sheetify IMG die nächsten Arbeitsblatt-Entwürfe erzeugt.</p>
             <div class="image-generation-settings" id="imageProviderSettings"></div>
           </section>
         </div>
@@ -485,7 +485,7 @@
         <header class="pass-modal-header">
           <div>
             <p class="eyebrow">Gemeinsamer Arbeitsbereich</p>
-            <h2 id="passModalTitle">Mein Sheetify Pass</h2>
+            <h2 id="passModalTitle">Mein Sheetify IMG Pass</h2>
           </div>
           <button class="icon-button icon-button-plain" type="button" data-pass-close aria-label="Schließen">
             <svg class="icon icon-small" aria-hidden="true"><use href="/icons/lucide-sprite.svg?v=15#x"></use></svg>

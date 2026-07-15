@@ -3,14 +3,15 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Sheetify Beta Admin</title>
+    <title>Sheetify IMG Beta Admin</title>
     <link rel="icon" href="/icons/favicon.ico">
-    <link rel="stylesheet" href="/admin.css?v=3">
+    <link rel="stylesheet" href="/brand.css?v=1">
+    <link rel="stylesheet" href="/admin.css?v=4">
   </head>
   <body>
     <header class="admin-topbar">
-      <img src="/icons/sheetifyimg-header-logo.png" alt="SheetifyIMG">
-      <div>
+      <span class="sheetify-wordmark sheetify-wordmark--small"><span>Sheetify</span><span class="sheetify-wordmark__img">IMG</span></span>
+      <div class="admin-context">
         <span>Beta Admin</span>
         <small>Privater Bereich</small>
       </div>
@@ -32,7 +33,7 @@
           <div class="admin-card-head">
             <div>
               <p class="eyebrow">Neuer Zugang</p>
-              <h2>Sheetify Pass erstellen</h2>
+              <h2>Sheetify IMG Pass erstellen</h2>
             </div>
           </div>
           <form id="createPassForm" class="admin-form">
@@ -71,7 +72,7 @@
           </div>
         </div>
         <div class="generated-preview" id="generatedPreview"></div>
-        <p class="generated-secret">Der vollständige Code wird nur jetzt angezeigt. Sheetify speichert ihn ausschließlich als Prüfsumme.</p>
+        <p class="generated-secret">Der vollständige Code wird nur jetzt angezeigt. Sheetify IMG speichert ihn ausschließlich als Prüfsumme.</p>
       </section>
 
       <section class="requests-section">
@@ -96,7 +97,7 @@
         <div class="section-head">
           <div>
             <p class="eyebrow">Arbeitsbereiche</p>
-            <h2>Sheetify Pässe</h2>
+            <h2>Sheetify IMG Pässe</h2>
           </div>
           <button type="button" class="ghost" id="refreshPasses">Aktualisieren</button>
         </div>
@@ -104,6 +105,6 @@
       </section>
     </main>
     <div class="admin-toast hidden" id="adminToast" role="status"></div>
-    <script src="/admin.js?v=3"></script>
+    <script src="/admin.js?v=4"></script>
   </body>
 </html>

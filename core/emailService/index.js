@@ -9,7 +9,7 @@ const {
   supportConfirmationTemplate
 } = require("./templates");
 
-const DEFAULT_FROM = "Sheetify <sheetify@jujies.app>";
+const DEFAULT_FROM = "Sheetify IMG <sheetify@jujies.app>";
 const DEFAULT_REPLY_TO = "sheetify@jujies.app";
 
 function emailAddress(value, name = "email") {

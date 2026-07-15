@@ -36,7 +36,7 @@
     content.innerHTML = `
       ${message ? `<p class="pass-ui-message ${error ? "error" : ""}">${escapeHtml(message)}</p>` : ""}
       <article class="pass-overview-card">
-        <div><h3>${escapeHtml(pass.label)}</h3><p>Gemeinsamer Sheetify-Arbeitsbereich · Code ···· ${escapeHtml(pass.codeHint || "")}</p></div>
+        <div><h3>${escapeHtml(pass.label)}</h3><p>Gemeinsamer Sheetify-IMG-Arbeitsbereich · Code ···· ${escapeHtml(pass.codeHint || "")}</p></div>
         <div class="pass-balance-badge"><strong>${pass.balance}</strong><span>Entwurfsseiten</span></div>
       </article>
       <section class="pass-ui-section">
