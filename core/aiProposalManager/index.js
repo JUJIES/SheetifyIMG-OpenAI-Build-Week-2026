@@ -1432,7 +1432,7 @@ async function modelProposalData(kind, project, context, input, runtime, logCont
     project,
     context,
     input,
-    repoRoot: logContext.repoRoot
+    repoRoot: logContext.promptRoot || logContext.repoRoot
   });
   const modelContext = {
     ...baseModelContext,
@@ -1447,7 +1447,9 @@ async function modelProposalData(kind, project, context, input, runtime, logCont
   const responseBody = {
     model: route.model || requestConfig.textModel,
     instructions: [
-      await composePrompts(route.promptNames, { repoRoot: logContext.repoRoot }),
+      await composePrompts(route.promptNames, {
+        repoRoot: logContext.promptRoot || logContext.repoRoot
+      }),
       selectedRulesPrompt
     ].filter(Boolean).join("\n\n---\n\n"),
     input: [
@@ -1948,6 +1950,7 @@ async function appendAssistantProposalMessage(projectDir, proposal, now, context
 
 async function generateProposal(projectId, kind, input = {}, options = {}) {
   const repoRoot = options.repoRoot || DEFAULT_REPO_ROOT;
+  const promptRoot = options.promptRoot || repoRoot;
   const projectsDir = options.projectsDir || DEFAULT_PROJECTS_DIR;
   const projectDir = path.join(projectsDir, projectId);
   const now = input.now || options.now || new Date().toISOString();
@@ -1975,6 +1978,7 @@ async function generateProposal(projectId, kind, input = {}, options = {}) {
   try {
     proposalData = await modelProposalData(kind, project, context, input, runtime, {
       repoRoot,
+      promptRoot,
       projectDir,
       now,
       usageAttribution

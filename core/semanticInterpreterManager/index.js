@@ -148,7 +148,7 @@ async function interpretTeachingContext(projectDir, input = {}, options = {}) {
   const requestConfig = getOpenAiRequestConfig();
   const route = routeForPurpose(ROUTE_PURPOSES.SEMANTIC_INTERPRETATION, requestConfig);
   const instructions = await composePrompts(route.promptNames, {
-    repoRoot: options.repoRoot
+    repoRoot: options.promptRoot || options.repoRoot
   });
   const startedAt = Date.now();
   let modelCallLogged = false;

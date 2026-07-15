@@ -915,6 +915,7 @@ async function betaRequestContext(request) {
   return {
     ...identity,
     repoRoot: identity.storage.rootDir,
+    promptRoot: repoRoot,
     projectsDir: identity.storage.projectsDir,
     worksheetsDir: identity.storage.worksheetsDir,
     usageAttribution: {
@@ -1221,6 +1222,7 @@ async function handleApi(request, response, context = {}) {
   }
   const pathname = routePath(request);
   const requestRepoRoot = context.repoRoot || repoRoot;
+  const requestPromptRoot = context.promptRoot || repoRoot;
   const projectsDir = context.projectsDir || defaultProjectsDir;
   const worksheetsDir = context.worksheetsDir || defaultWorksheetsDir;
   const usageAttribution = context.usageAttribution || null;
@@ -1458,6 +1460,7 @@ async function handleApi(request, response, context = {}) {
     const body = await readJsonBody(request);
     sendJson(response, 200, await sendChatMessage(workspaceChatMatch[1], body, {
       repoRoot: requestRepoRoot,
+      promptRoot: requestPromptRoot,
       projectsDir,
       worksheetsDir,
       trustedPlanningFlowOverride: serverConfig.planningFlow,
@@ -1522,6 +1525,7 @@ async function handleApi(request, response, context = {}) {
     const body = await readJsonBody(request);
     sendJson(response, 200, await runWorkspaceCommand(workspaceCommandsMatch[1], body, {
       repoRoot: requestRepoRoot,
+      promptRoot: requestPromptRoot,
       projectsDir,
       worksheetsDir,
       trustedPlanningFlowOverride: serverConfig.planningFlow,

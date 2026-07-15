@@ -414,7 +414,9 @@ async function interpretPlanningTurn(projectDir, input = {}, options = {}) {
   const payload = planningTurnPayload(input);
   const responseBody = {
     model: route.model || requestConfig.textModel,
-    instructions: await composePrompts(route.promptNames, { repoRoot: options.repoRoot }),
+    instructions: await composePrompts(route.promptNames, {
+      repoRoot: options.promptRoot || options.repoRoot
+    }),
     input: modelInput(payload, input.openAiContentItems),
     text: {
       format: {

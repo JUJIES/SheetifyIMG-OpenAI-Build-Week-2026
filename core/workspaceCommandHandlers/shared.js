@@ -29,6 +29,7 @@ async function readJson(filePath) {
 function handlerOptions(context) {
   return {
     repoRoot: context.repoRoot,
+    promptRoot: context.promptRoot,
     projectsDir: context.projectsDir,
     now: context.now,
     usageAttribution: context.usageAttribution
