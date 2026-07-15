@@ -188,6 +188,7 @@ function resolveServerConfig(options = {}) {
     "mx1.forwardemail.net,mx2.forwardemail.net",
     "SHEETIFYIMG_MAIL_INBOUND_ALLOWED_HOSTS"
   );
+  const resendApiKey = nonEmpty(env.RESEND_API_KEY);
   if (production && betaAccessEnabled && Buffer.byteLength(betaAccessSecret, "utf8") < 32) {
     throw new Error("SHEETIFYIMG_BETA_ACCESS_SECRET must contain at least 32 UTF-8 bytes in production.");
   }
@@ -237,6 +238,13 @@ function resolveServerConfig(options = {}) {
       username: ownerAuthUsername,
       passwordHash: ownerAuthPasswordHash
     }),
+    email: Object.freeze({
+      configured: Boolean(resendApiKey),
+      provider: resendApiKey ? "resend" : null,
+      apiKey: resendApiKey,
+      from: "Sheetify <sheetify@jujies.app>",
+      replyTo: "sheetify@jujies.app"
+    }),
     betaAccess: Object.freeze({
       enabled: betaAccessEnabled,
       secret: betaAccessSecret || "sheetifyimg-development-beta-secret",
@@ -259,7 +267,7 @@ function resolveServerConfig(options = {}) {
         25 * 1024 * 1024,
         "SHEETIFYIMG_MAIL_INBOUND_MAX_BYTES"
       ),
-      mailConfigured: false
+      mailConfigured: Boolean(resendApiKey)
     }),
     httpsKeyPath,
     httpsCertPath,
@@ -294,6 +302,7 @@ function safeServerConfig(config) {
     httpsEnabled: config.httpsEnabled,
     publicUrlConfigured: Boolean(config.publicUrl),
     ownerAuthEnabled: config.ownerAuth.enabled,
+    outboundMailConfigured: config.email.configured,
     betaAccessEnabled: config.betaAccess.enabled,
     paidGenerationEnabled: config.betaAccess.paidGenerationEnabled,
     inboundMailEnabled: config.betaAccess.inboundMailEnabled,

@@ -8,6 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { createBetaAccessManager } = require("../core/betaAccessManager");
 const { createBetaCard } = require("../core/betaCardManager");
+const { createEmailService } = require("../core/emailService");
 const { readChat, sendChatMessage } = require("../core/aiChatManager");
 const { addInputUpload } = require("../core/inputManager");
 const { transcribeProjectAudio } = require("../core/voiceInputManager");
@@ -112,6 +113,12 @@ if (!process.env.SHEETIFYIMG_CHAT_INTENT_INTERPRETER) {
 const serverConfig = resolveServerConfig({ repoRoot });
 const ownerAuthGate = createOwnerAuthGate(serverConfig.ownerAuth);
 const betaAccessManager = createBetaAccessManager(serverConfig.betaAccess);
+const emailService = createEmailService({
+  apiKey: serverConfig.email.apiKey,
+  from: serverConfig.email.from,
+  replyTo: serverConfig.email.replyTo,
+  publicUrl: serverConfig.publicUrl
+});
 const verifyForwardEmailWebhook = createForwardEmailWebhookVerifier({
   allowedHosts: serverConfig.betaAccess.inboundMailAllowedHosts,
   allowLoopback: serverConfig.betaAccess.inboundMailAllowLoopback
@@ -887,6 +894,18 @@ function clearAuthAttempts(request, route) {
   authAttemptWindows.delete(authAttemptKey(request, route));
 }
 
+async function deliverEmail(task) {
+  if (!emailService.configured) {
+    return { status: "disabled" };
+  }
+  try {
+    return await task();
+  } catch (error) {
+    console.error(`[SheetifyIMG] outbound email failed: ${String(error?.name || "Error")}`);
+    return { status: "failed" };
+  }
+}
+
 async function betaRequestContext(request) {
   const token = parseCookies(request)[SESSION_COOKIE] || "";
   const identity = await betaAccessManager.authenticateToken(token);
@@ -973,13 +992,21 @@ async function handleAuthApi(request, response) {
   if (request.method === "POST" && pathname === "/api/auth/recovery") {
     assertAuthAttemptAllowed(request, "support");
     const body = await readJsonBody(request);
-    await betaAccessManager.createRequest({
+    const created = await betaAccessManager.createRequest({
       source: "app",
       kind: body.kind || "recovery",
       email: body.email,
       subject: body.subject,
       message: body.message
     });
+    if (!created.duplicate) {
+      await deliverEmail(() => emailService.sendSupportConfirmation({
+        email: created.request.email,
+        name: created.request.name,
+        requestId: created.request.id,
+        idempotencyKey: `support-confirmation:${created.request.id}`
+      }));
+    }
     sendJson(response, 202, {
       accepted: true,
       contactEmail: serverConfig.betaAccess.contactEmail,
@@ -1071,7 +1098,18 @@ async function handleAdminApi(request, response) {
   if (request.method === "POST" && pathname === "/api/admin/passes") {
     const body = await readJsonBody(request);
     const created = await betaAccessManager.createPass(body);
-    sendJson(response, 201, await passCardPayload(request, created));
+    const payload = await passCardPayload(request, created);
+    const emailDelivery = created.pass.recoveryEmail
+      ? await deliverEmail(() => emailService.sendBetaInvitation({
+        email: created.pass.recoveryEmail,
+        name: body.name,
+        workspaceName: created.pass.label,
+        passCode: created.code,
+        appUrl: payload.url,
+        idempotencyKey: `beta-invitation:${created.pass.id}:${created.pass.updatedAt}`
+      }))
+      : { status: "skipped" };
+    sendJson(response, 201, { ...payload, emailDelivery });
     return true;
   }
   const passMatch = pathname.match(/^\/api\/admin\/passes\/(pass_[A-Za-z0-9-]+)$/);
@@ -1083,13 +1121,32 @@ async function handleAdminApi(request, response) {
   if (request.method === "POST" && rotateMatch) {
     const body = await readJsonBody(request);
     const rotated = await betaAccessManager.rotatePass(rotateMatch[1], body);
-    sendJson(response, 200, await passCardPayload(request, rotated));
+    const payload = await passCardPayload(request, rotated);
+    const emailDelivery = rotated.pass.recoveryEmail
+      ? await deliverEmail(() => emailService.sendBetaInvitation({
+        email: rotated.pass.recoveryEmail,
+        workspaceName: rotated.pass.label,
+        passCode: rotated.code,
+        appUrl: payload.url,
+        idempotencyKey: `beta-invitation:${rotated.pass.id}:${rotated.pass.updatedAt}`
+      }))
+      : { status: "skipped" };
+    sendJson(response, 200, { ...payload, emailDelivery });
     return true;
   }
   const grantMatch = pathname.match(/^\/api\/admin\/passes\/(pass_[A-Za-z0-9-]+)\/grant$/);
   if (request.method === "POST" && grantMatch) {
     const body = await readJsonBody(request);
-    sendJson(response, 200, { pass: await betaAccessManager.grant(grantMatch[1], body.amount, body) });
+    const pass = await betaAccessManager.grant(grantMatch[1], body.amount, body);
+    const emailDelivery = pass.recoveryEmail
+      ? await deliverEmail(() => emailService.sendCreditGranted({
+        email: pass.recoveryEmail,
+        amount: Number(body.amount),
+        balance: pass.balance,
+        idempotencyKey: `credit-grant:${pass.id}:${pass.updatedAt}`
+      }))
+      : { status: "skipped" };
+    sendJson(response, 200, { pass, emailDelivery });
     return true;
   }
   if (request.method === "POST" && pathname === "/api/admin/topup-cards") {

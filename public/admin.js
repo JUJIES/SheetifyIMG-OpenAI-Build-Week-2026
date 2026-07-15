@@ -40,6 +40,13 @@ function toast(message) {
   toast.timer = setTimeout(() => elements.toast.classList.add("hidden"), 3200);
 }
 
+function emailDeliveryNotice(delivery) {
+  if (delivery?.status === "sent") return " Einladung wurde per E-Mail versendet.";
+  if (delivery?.status === "failed") return " Der Pass wurde erstellt, aber die E-Mail konnte nicht versendet werden.";
+  if (delivery?.status === "disabled") return " Mailversand ist noch nicht aktiviert.";
+  return "";
+}
+
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
 }
@@ -194,6 +201,8 @@ elements.createPassForm.addEventListener("submit", async (event) => {
       body: JSON.stringify({ label: data.get("label"), email: data.get("email"), credits: Number(data.get("credits")) })
     });
     showCard(result, "Sheetify Pass erstellt", `sheetify-pass-${result.pass.id}.svg`);
+    const notice = emailDeliveryNotice(result.emailDelivery);
+    if (notice) toast(notice.trim());
     elements.createPassForm.reset();
     elements.createPassForm.elements.credits.value = 20;
     await loadOverview();
@@ -219,14 +228,16 @@ elements.passList.addEventListener("click", async (event) => {
   const passId = row.dataset.passId;
   try {
     if (button.dataset.grant) {
-      await api(`/api/admin/passes/${encodeURIComponent(passId)}/grant`, { method: "POST", body: JSON.stringify({ amount: Number(button.dataset.grant) }) });
-      toast(`${button.dataset.grant} Entwurfsseiten gutgeschrieben.`);
+      const result = await api(`/api/admin/passes/${encodeURIComponent(passId)}/grant`, { method: "POST", body: JSON.stringify({ amount: Number(button.dataset.grant) }) });
+      toast(`${button.dataset.grant} Entwurfsseiten gutgeschrieben.${emailDeliveryNotice(result.emailDelivery)}`);
     } else if (button.dataset.toggleStatus) {
       await api(`/api/admin/passes/${encodeURIComponent(passId)}`, { method: "PATCH", body: JSON.stringify({ status: button.dataset.toggleStatus }) });
     } else if (button.hasAttribute("data-rotate")) {
       if (!confirm("Passcode erneuern und alle verbundenen Geräte abmelden?")) return;
       const result = await api(`/api/admin/passes/${encodeURIComponent(passId)}/rotate`, { method: "POST", body: JSON.stringify({ revokeSessions: true }) });
       showCard(result, "Neuer Sheetify Pass", `sheetify-pass-${passId}.svg`);
+      const notice = emailDeliveryNotice(result.emailDelivery);
+      if (notice) toast(notice.trim());
     }
     await loadOverview();
   } catch (error) { toast(error.message); }
