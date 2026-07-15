@@ -29,6 +29,16 @@ function greeting(name) {
   return cleaned ? `Hallo ${cleaned},` : "Hallo,";
 }
 
+function formattedExpiry(value) {
+  const date = new Date(cleanText(value));
+  if (!Number.isFinite(date.getTime())) return "";
+  return new Intl.DateTimeFormat("de-DE", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Europe/Berlin"
+  }).format(date);
+}
+
 function button(label, url) {
   if (!url) return "";
   return `<p style="margin:28px 0"><a href="${escapeHtml(url)}" style="display:inline-block;padding:12px 18px;border-radius:10px;background:${BRAND.accent};color:#fff;text-decoration:none;font-weight:700">${escapeHtml(label)}</a></p>`;
@@ -125,6 +135,26 @@ function supportConfirmationTemplate(input = {}) {
   };
 }
 
+function recoveryLinkTemplate(input = {}) {
+  const name = cleanText(input.name);
+  const workspaceName = cleanText(input.workspaceName, "dein Sheetify-IMG-Arbeitsbereich");
+  const recoveryUrl = cleanText(input.recoveryUrl);
+  const expiresAt = formattedExpiry(input.expiresAt);
+  if (!recoveryUrl) throw new Error("recoveryUrl is required for a recovery email.");
+  const expiryText = expiresAt
+    ? `Der Link ist bis ${expiresAt} gültig und kann nur einmal verwendet werden.`
+    : "Der Link ist zeitlich begrenzt und kann nur einmal verwendet werden.";
+  return {
+    subject: "Dein Sheetify IMG Wiederherstellungslink",
+    text: `${greeting(name)}\n\nmit diesem einmaligen Link verbindest du ein neues Gerät wieder mit ${workspaceName}:\n\n${recoveryUrl}\n\n${expiryText}\n\nFalls du die Wiederherstellung nicht angefordert hast, kannst du diese Nachricht ignorieren.\n\nViele Grüße\nSheetify IMG`,
+    html: layout({
+      preheader: "Verbinde deinen Sheetify-IMG-Arbeitsbereich wieder.",
+      title: "Arbeitsbereich wiederherstellen",
+      bodyHtml: `<p>${escapeHtml(greeting(name))}</p><p>Mit diesem einmaligen Link verbindest du ein neues Gerät wieder mit <strong>${escapeHtml(workspaceName)}</strong>.</p>${button("Arbeitsbereich wiederherstellen", recoveryUrl)}<p style="color:${BRAND.muted}">${escapeHtml(expiryText)}</p><p style="color:${BRAND.muted}">Falls du die Wiederherstellung nicht angefordert hast, kannst du diese Nachricht ignorieren.</p>`
+    })
+  };
+}
+
 function creditGrantedTemplate(input = {}) {
   const name = cleanText(input.name);
   const amount = Number(input.amount);
@@ -145,6 +175,7 @@ module.exports = {
   betaInvitationTemplate,
   betaPassActivatedTemplate,
   creditGrantedTemplate,
+  recoveryLinkTemplate,
   topupCardTemplate,
   supportConfirmationTemplate
 };

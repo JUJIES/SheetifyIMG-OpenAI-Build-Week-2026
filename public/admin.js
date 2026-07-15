@@ -265,7 +265,9 @@ elements.requestList.addEventListener("click", async (event) => {
       state.recoveryLinks.set(requestId, recovery);
       await copyText(recovery.url);
       renderRequests();
-      toast("Wiederherstellungslink erstellt und kopiert.");
+      toast(recovery.emailDelivery?.status === "sent"
+        ? "Wiederherstellungslink per E-Mail gesendet und kopiert."
+        : "Wiederherstellungslink erstellt und kopiert; E-Mail wurde nicht versendet.");
       return;
     }
     if (button.hasAttribute("data-copy-link")) {

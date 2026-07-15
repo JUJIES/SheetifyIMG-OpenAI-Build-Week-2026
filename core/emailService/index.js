@@ -5,6 +5,7 @@ const {
   betaInvitationTemplate,
   betaPassActivatedTemplate,
   creditGrantedTemplate,
+  recoveryLinkTemplate,
   topupCardTemplate,
   supportConfirmationTemplate
 } = require("./templates");
@@ -102,6 +103,9 @@ function createEmailService(options = {}) {
     },
     sendCreditGranted(input = {}) {
       return sendTemplate(input.email, creditGrantedTemplate(input), input);
+    },
+    sendRecoveryLink(input = {}) {
+      return sendTemplate(input.email, recoveryLinkTemplate(input), input);
     },
     sendTopupCard(input = {}) {
       return sendTemplate(input.email, topupCardTemplate({

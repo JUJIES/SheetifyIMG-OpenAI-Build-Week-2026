@@ -1205,10 +1205,20 @@ async function handleAdminApi(request, response) {
   const recoveryMatch = pathname.match(/^\/api\/admin\/requests\/(request_[A-Za-z0-9-]+)\/recovery-link$/);
   if (request.method === "POST" && recoveryMatch) {
     const recovery = await betaAccessManager.createRecoveryChallenge(recoveryMatch[1]);
+    const url = `${requestOrigin(request)}/#recover=${encodeURIComponent(recovery.token)}`;
+    const emailDelivery = await deliverEmail(() => emailService.sendRecoveryLink({
+      email: recovery.request.email,
+      name: recovery.request.name,
+      workspaceName: recovery.request.pass?.label,
+      recoveryUrl: url,
+      expiresAt: recovery.expiresAt,
+      idempotencyKey: `recovery-link:${recovery.request.id}:${Date.parse(recovery.expiresAt)}`
+    }));
     sendJson(response, 201, {
       request: recovery.request,
       expiresAt: recovery.expiresAt,
-      url: `${requestOrigin(request)}/#recover=${encodeURIComponent(recovery.token)}`
+      url,
+      emailDelivery
     });
     return true;
   }
