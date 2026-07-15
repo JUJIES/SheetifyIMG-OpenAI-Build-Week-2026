@@ -52,6 +52,25 @@ function portNumber(value, fallback) {
   return parsed;
 }
 
+function emailValue(value, fallback, name) {
+  const email = nonEmpty(value) || fallback;
+  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error(`${name} must be a valid email address.`);
+  }
+  return email.toLowerCase();
+}
+
+function hostnameList(value, fallback, name) {
+  const hostnames = (nonEmpty(value) || fallback)
+    .split(",")
+    .map((entry) => entry.trim().replace(/\.$/, "").toLowerCase())
+    .filter(Boolean);
+  if (!hostnames.length || hostnames.some((entry) => !/^[a-z0-9.-]+$/.test(entry))) {
+    throw new Error(`${name} must contain comma-separated hostnames.`);
+  }
+  return hostnames;
+}
+
 function isInsideRoot(rootDir, targetPath) {
   const relative = path.relative(path.resolve(rootDir), path.resolve(targetPath));
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
@@ -154,7 +173,35 @@ function resolveServerConfig(options = {}) {
     parseOwnerPasswordHash(ownerAuthPasswordHash);
   }
   if (production && publicUrl && !ownerAuthEnabled) {
-    throw new Error("Production with SHEETIFYIMG_PUBLIC_URL requires owner auth until Beta Pass is implemented.");
+    throw new Error("Production with SHEETIFYIMG_PUBLIC_URL requires owner auth for the private admin surface.");
+  }
+
+  const stateDir = runtimeDir ? path.join(runtimeDir, "state") : path.join(repoRoot, ".sheetifyimg", "state");
+  const betaAccessEnabled = booleanValue(env.SHEETIFYIMG_BETA_ACCESS_ENABLED, false);
+  const betaAccessSecret = nonEmpty(env.SHEETIFYIMG_BETA_ACCESS_SECRET);
+  const betaAdminPrivateOnly = booleanValue(env.SHEETIFYIMG_ADMIN_PRIVATE_ONLY, production);
+  const inboundMailEnabled = booleanValue(env.SHEETIFYIMG_MAIL_INBOUND_WEBHOOK_ENABLED, false);
+  const inboundMailAllowLoopback = booleanValue(env.SHEETIFYIMG_MAIL_INBOUND_ALLOW_LOOPBACK, false);
+  const contactEmail = emailValue(env.SHEETIFYIMG_CONTACT_EMAIL, "mail@jujies.app", "SHEETIFYIMG_CONTACT_EMAIL");
+  const inboundMailAllowedHosts = hostnameList(
+    env.SHEETIFYIMG_MAIL_INBOUND_ALLOWED_HOSTS,
+    "mx1.forwardemail.net,mx2.forwardemail.net",
+    "SHEETIFYIMG_MAIL_INBOUND_ALLOWED_HOSTS"
+  );
+  if (production && betaAccessEnabled && Buffer.byteLength(betaAccessSecret, "utf8") < 32) {
+    throw new Error("SHEETIFYIMG_BETA_ACCESS_SECRET must contain at least 32 UTF-8 bytes in production.");
+  }
+  if (production && betaAccessEnabled && !publicUrl) {
+    throw new Error("SHEETIFYIMG_PUBLIC_URL is required when Beta access is enabled in production.");
+  }
+  if (production && betaAccessEnabled && !betaAdminPrivateOnly) {
+    throw new Error("SHEETIFYIMG_ADMIN_PRIVATE_ONLY must remain enabled for the production Beta.");
+  }
+  if (inboundMailEnabled && !betaAccessEnabled) {
+    throw new Error("SHEETIFYIMG_MAIL_INBOUND_WEBHOOK_ENABLED requires Beta access.");
+  }
+  if (production && inboundMailAllowLoopback) {
+    throw new Error("SHEETIFYIMG_MAIL_INBOUND_ALLOW_LOOPBACK is only permitted in development.");
   }
 
   const requireOpenAi = booleanValue(env.SHEETIFYIMG_REQUIRE_OPENAI, production);
@@ -177,7 +224,7 @@ function resolveServerConfig(options = {}) {
     runtimeMode,
     production,
     runtimeDir,
-    stateDir: runtimeDir ? path.join(runtimeDir, "state") : path.join(repoRoot, ".sheetifyimg", "state"),
+    stateDir,
     logsDir: runtimeDir ? path.join(runtimeDir, "logs") : path.join(repoRoot, ".sheetifyimg", "logs"),
     projectsDir,
     worksheetsDir,
@@ -189,6 +236,30 @@ function resolveServerConfig(options = {}) {
       enabled: ownerAuthEnabled,
       username: ownerAuthUsername,
       passwordHash: ownerAuthPasswordHash
+    }),
+    betaAccess: Object.freeze({
+      enabled: betaAccessEnabled,
+      secret: betaAccessSecret || "sheetifyimg-development-beta-secret",
+      stateFile: path.join(stateDir, "beta-access.json"),
+      storageRoot: runtimeDir ? path.join(runtimeDir, "passes") : path.join(repoRoot, ".sheetifyimg", "passes"),
+      sessionDays: positiveInteger(env.SHEETIFYIMG_BETA_SESSION_DAYS, 180, "SHEETIFYIMG_BETA_SESSION_DAYS"),
+      pairingMinutes: positiveInteger(env.SHEETIFYIMG_BETA_PAIRING_MINUTES, 5, "SHEETIFYIMG_BETA_PAIRING_MINUTES"),
+      recoveryMinutes: positiveInteger(env.SHEETIFYIMG_BETA_RECOVERY_MINUTES, 30, "SHEETIFYIMG_BETA_RECOVERY_MINUTES"),
+      pageCap: positiveInteger(env.SHEETIFYIMG_BETA_MAX_PAGES_PER_DRAFT, 6, "SHEETIFYIMG_BETA_MAX_PAGES_PER_DRAFT"),
+      perPassConcurrency: positiveInteger(env.SHEETIFYIMG_BETA_PASS_CONCURRENCY, 1, "SHEETIFYIMG_BETA_PASS_CONCURRENCY"),
+      globalConcurrency: positiveInteger(env.SHEETIFYIMG_BETA_GLOBAL_CONCURRENCY, 2, "SHEETIFYIMG_BETA_GLOBAL_CONCURRENCY"),
+      paidGenerationEnabled: booleanValue(env.SHEETIFYIMG_PAID_GENERATION_ENABLED, false),
+      adminPrivateOnly: betaAdminPrivateOnly,
+      contactEmail,
+      inboundMailEnabled,
+      inboundMailAllowedHosts: Object.freeze(inboundMailAllowedHosts),
+      inboundMailAllowLoopback,
+      inboundMailMaxBytes: positiveInteger(
+        env.SHEETIFYIMG_MAIL_INBOUND_MAX_BYTES,
+        25 * 1024 * 1024,
+        "SHEETIFYIMG_MAIL_INBOUND_MAX_BYTES"
+      ),
+      mailConfigured: false
     }),
     httpsKeyPath,
     httpsCertPath,
@@ -223,6 +294,9 @@ function safeServerConfig(config) {
     httpsEnabled: config.httpsEnabled,
     publicUrlConfigured: Boolean(config.publicUrl),
     ownerAuthEnabled: config.ownerAuth.enabled,
+    betaAccessEnabled: config.betaAccess.enabled,
+    paidGenerationEnabled: config.betaAccess.paidGenerationEnabled,
+    inboundMailEnabled: config.betaAccess.inboundMailEnabled,
     runtimeConfigured: Boolean(config.runtimeDir),
     billingStatusExposed: config.exposeBillingStatus,
     planningFlow: config.planningFlow,

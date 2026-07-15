@@ -97,6 +97,7 @@ async function saveVisualFeedbackAttachments(projectDir, attachments = [], optio
     await fs.writeFile(path.join(feedbackDir, "feedback-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 
     const repoRelativeCropPath = toPosix(path.relative(repoRoot, cropPath));
+    const cropReference = Buffer.from(repoRelativeCropPath, "utf8").toString("base64url");
     saved.push({
       attachment: {
         id: feedbackId,
@@ -104,7 +105,7 @@ async function saveVisualFeedbackAttachments(projectDir, attachments = [], optio
         label,
         mimeType: parts.mimeType,
         path: manifest.cropPath,
-        url: `/files/${repoRelativeCropPath}`,
+        url: `/api/files/${cropReference}`,
         source,
         userInstructionRequired: true
       },

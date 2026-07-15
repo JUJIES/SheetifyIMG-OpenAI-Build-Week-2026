@@ -1,0 +1,100 @@
+:root {
+  color-scheme: light;
+  --bg: #f5f6f8;
+  --panel: #ffffff;
+  --line: #d9dee7;
+  --text: #101827;
+  --muted: #667085;
+  --blue: #1f63d6;
+  --blue-soft: #eaf1ff;
+  --green: #168b4f;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 12% 12%, rgba(31, 99, 214, .09), transparent 30rem),
+    radial-gradient(circle at 88% 88%, rgba(22, 139, 79, .06), transparent 28rem),
+    var(--bg);
+}
+
+button, input, select, textarea { font: inherit; }
+
+.hidden { display: none !important; }
+
+.pass-page {
+  width: min(1120px, calc(100% - 40px));
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 56px 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(360px, .72fr);
+  align-items: center;
+  gap: clamp(48px, 8vw, 110px);
+}
+
+.pass-brand { display: inline-flex; width: 190px; margin-bottom: 64px; }
+.pass-brand img { display: block; width: 100%; height: auto; }
+.pass-eyebrow { margin: 0 0 10px; color: var(--blue); font-size: 12px; font-weight: 780; letter-spacing: .13em; text-transform: uppercase; }
+.pass-copy h1 { margin: 0; max-width: 650px; font-size: clamp(42px, 5.5vw, 72px); line-height: 1.02; letter-spacing: -.045em; }
+.pass-copy > p:last-child { max-width: 600px; margin: 28px 0 0; color: var(--muted); font-size: 19px; line-height: 1.65; }
+
+.pass-benefits { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 38px; }
+.pass-benefits span { padding: 10px 14px; border: 1px solid rgba(31, 99, 214, .13); border-radius: 999px; color: #345070; background: rgba(255,255,255,.62); font-size: 13px; font-weight: 650; }
+
+.pass-panel {
+  padding: 34px;
+  border: 1px solid rgba(217, 222, 231, .9);
+  border-radius: 30px;
+  background: rgba(255,255,255,.94);
+  box-shadow: 0 28px 70px rgba(16, 24, 39, .11);
+  backdrop-filter: blur(16px);
+}
+
+.pass-panel-head { display: flex; align-items: center; gap: 15px; margin-bottom: 30px; }
+.pass-panel-head h2 { margin: 0; font-size: 25px; letter-spacing: -.025em; }
+.pass-mark { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 15px; color: #fff; background: var(--blue); font-size: 22px; font-weight: 800; box-shadow: 0 10px 24px rgba(31,99,214,.22); }
+
+.pass-form { display: grid; gap: 10px; }
+.pass-form label { color: #344054; font-size: 13px; font-weight: 700; }
+.pass-form input, .pass-form select, .pass-form textarea { width: 100%; padding: 0 16px; border: 1px solid var(--line); border-radius: 14px; outline: 0; color: var(--text); background: #fff; transition: .18s ease; }
+.pass-form input, .pass-form select { height: 54px; }
+.pass-form input { letter-spacing: .04em; }
+.pass-form textarea { min-height: 86px; padding-top: 13px; resize: vertical; line-height: 1.45; }
+.pass-form input:focus, .pass-form select:focus, .pass-form textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 4px rgba(31,99,214,.1); }
+.pass-form label span { color: var(--muted); font-weight: 500; }
+.pass-primary, .pass-secondary { min-height: 52px; border: 0; border-radius: 14px; cursor: pointer; font-weight: 750; transition: transform .15s ease, opacity .15s ease; }
+.pass-primary { margin-top: 4px; color: #fff; background: var(--blue); box-shadow: 0 12px 26px rgba(31,99,214,.2); }
+.pass-secondary { color: var(--blue); background: var(--blue-soft); }
+.pass-primary:hover, .pass-secondary:hover { transform: translateY(-1px); }
+.pass-primary:disabled, .pass-secondary:disabled { opacity: .55; cursor: wait; }
+
+.pass-divider { display: flex; align-items: center; gap: 12px; margin: 25px 0; color: #98a2b3; font-size: 12px; }
+.pass-divider::before, .pass-divider::after { content: ""; flex: 1; height: 1px; background: #edf0f4; }
+.pass-qr-hint { display: flex; gap: 14px; padding: 16px; border-radius: 17px; background: #f8fafc; }
+.pass-qr-icon { flex: none; display: grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; color: var(--blue); background: var(--blue-soft); }
+.pass-qr-icon svg { width: 22px; fill: currentColor; }
+.pass-qr-hint strong { display: block; margin: 1px 0 5px; font-size: 14px; }
+.pass-qr-hint p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+.pass-link { display: block; margin: 22px auto 0; border: 0; color: var(--blue); background: transparent; cursor: pointer; font-size: 13px; font-weight: 680; }
+.pass-support { margin-top: 18px; padding-top: 18px; border-top: 1px solid #edf0f4; }
+.pass-contact { margin: 3px 0 0; color: var(--muted); font-size: 11px; text-align: center; }
+.pass-contact a { color: var(--blue); font-weight: 700; text-decoration: none; }
+.pass-privacy { margin: 24px 0 0; color: #8b95a5; font-size: 11px; line-height: 1.5; text-align: center; }
+.pass-notice { margin: -10px 0 18px; padding: 12px 14px; border-radius: 12px; color: #28513d; background: #e8f6ef; font-size: 13px; line-height: 1.45; }
+.pass-notice.error { color: #8f2d24; background: #fff0ee; }
+
+@media (max-width: 820px) {
+  .pass-page { width: min(560px, calc(100% - 28px)); padding: 30px 0; grid-template-columns: 1fr; gap: 34px; }
+  .pass-brand { width: 154px; margin-bottom: 36px; }
+  .pass-copy h1 { font-size: clamp(38px, 12vw, 56px); }
+  .pass-copy > p:last-child { margin-top: 20px; font-size: 16px; }
+  .pass-benefits { margin-top: 24px; }
+  .pass-panel { padding: 25px 20px; border-radius: 24px; }
+}

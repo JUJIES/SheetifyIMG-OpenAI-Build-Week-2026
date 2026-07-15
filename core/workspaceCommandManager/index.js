@@ -130,7 +130,8 @@ async function runWorkspaceCommand(projectId, input = {}, options = {}) {
     worksheetsDir,
     now,
     planningFlow,
-    usageAttribution
+    usageAttribution,
+    generationQuota: options.generationQuota || null
   });
 
   const result = await runWorkspaceCommandHandler({
@@ -145,7 +146,8 @@ async function runWorkspaceCommand(projectId, input = {}, options = {}) {
     worksheetsDir,
     now,
     planningFlow,
-    usageAttribution
+    usageAttribution,
+    generationQuota: options.generationQuota || null
   });
 
   await refreshStatusSnapshot(projectDir, {

@@ -10,7 +10,11 @@ const { spawnSync } = require("node:child_process");
 const repoRoot = path.resolve(__dirname, "..");
 const requiredFiles = [
   "package-lock.json",
+  "core/betaAccessManager/index.js",
+  "core/betaCardManager/index.js",
+  "public/admin.html",
   "public/index.html",
+  "public/pass.html",
   "server/owner-auth.js",
   "server/production-server.js",
   "server/runtime-config.js",

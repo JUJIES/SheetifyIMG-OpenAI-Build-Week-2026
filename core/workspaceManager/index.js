@@ -79,7 +79,8 @@ function rel(from, to) {
 }
 
 function assetUrl(repoRoot, filePath) {
-  return `/files/${encodeURI(toPosix(path.relative(repoRoot, filePath)))}`;
+  const reference = Buffer.from(toPosix(path.relative(repoRoot, filePath)), "utf8").toString("base64url");
+  return `/api/files/${reference}`;
 }
 
 function commandState(id, label, enabled, reason = null, meta = {}) {

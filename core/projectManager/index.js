@@ -260,6 +260,7 @@ async function createSingleWorksheetProject(input = {}, options = {}) {
   const manifest = {
     schemaVersion: PRODUCTION_SCHEMA_VERSION,
     projectId,
+    ownerPassId: options.ownerPassId || null,
     projectType: PROJECT_TYPES.SINGLE_WORKSHEET,
     sourceType: SOURCE_TYPES.PRODUCTION,
     title,

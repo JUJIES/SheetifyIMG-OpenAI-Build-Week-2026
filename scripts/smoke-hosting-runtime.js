@@ -53,13 +53,13 @@ async function waitForHealth(baseUrl, child, output, timeoutMs = 8000) {
 
 async function waitForExit(child, timeoutMs = 6000) {
   if (child.exitCode !== null) {
-    return child.exitCode;
+    return { code: child.exitCode, signal: child.signalCode };
   }
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error("Hosting server did not stop in time.")), timeoutMs);
-    child.once("exit", (code) => {
+    child.once("exit", (code, signal) => {
       clearTimeout(timeout);
-      resolve(code);
+      resolve({ code, signal });
     });
   });
 }
@@ -324,11 +324,13 @@ async function main() {
     if (child.exitCode === null) {
       child.kill("SIGTERM");
     }
-    const exitCode = await waitForExit(child).catch(async (error) => {
+    const exit = await waitForExit(child).catch(async (error) => {
       child.kill("SIGKILL");
       throw error;
     });
-    assert.equal(exitCode, 0, output());
+    const cleanExit = exit.code === 0
+      || (process.platform === "win32" && exit.code === null && exit.signal === "SIGTERM");
+    assert.equal(cleanExit, true, output());
     await fs.rm(tempRoot, { recursive: true, force: true });
   }
 

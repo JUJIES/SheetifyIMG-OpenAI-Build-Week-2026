@@ -2657,11 +2657,18 @@ function sourceFilesFrom(source = {}) {
   return Array.isArray(source.manifest?.files) ? source.manifest.files : [];
 }
 
+function opaqueFileUrl(relativePath) {
+  const bytes = new TextEncoder().encode(String(relativePath || ""));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return `/api/files/${btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
+}
+
 function sourceFileUrl(projectId, file = {}) {
   if (!projectId || !file.path) {
     return null;
   }
-  return `/files/${encodeURI(`projects/${projectId}/${file.path}`)}`;
+  return opaqueFileUrl(`projects/${projectId}/${file.path}`);
 }
 
 function isImageInput(file = {}) {
@@ -7864,7 +7871,7 @@ function initialRunReferenceSelection(payload = {}, sources = []) {
         key: source?.key || `existing:${refPath}`,
         label,
         path: refPath,
-        url: source?.url || (refPath ? `/files/${encodeURI(`projects/${currentProjectId()}/${refPath}`)}` : ""),
+        url: source?.url || (refPath ? opaqueFileUrl(`projects/${currentProjectId()}/${refPath}`) : ""),
         role: reference.role || source?.defaultRole || "style_reference",
         targetPage: Number(reference.targetPage || reference.page || 0) || 0,
         userDetails: reference.userDetails || reference.details || "",

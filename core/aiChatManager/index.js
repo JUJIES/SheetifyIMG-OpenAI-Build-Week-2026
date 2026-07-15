@@ -621,7 +621,8 @@ async function sendChatMessage(projectId, input = {}, options = {}) {
       worksheetsDir: options.worksheetsDir,
       now,
       trustedPlanningFlowOverride: context.flowVariant,
-      usageAttribution
+      usageAttribution,
+      generationQuota: options.generationQuota
     });
     return withChatRoutingTrace(projectId, projectDir, context, {
       kind: "command",

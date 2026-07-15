@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sheetify Beta Admin</title>
+    <link rel="icon" href="/icons/favicon.ico">
+    <link rel="stylesheet" href="/admin.css?v=2">
+  </head>
+  <body>
+    <header class="admin-topbar">
+      <img src="/icons/sheetifyimg-header-logo.png" alt="SheetifyIMG">
+      <div>
+        <span>Beta Admin</span>
+        <small>Privater Bereich</small>
+      </div>
+      <a class="admin-contact" href="mailto:mail@jujies.app">mail@jujies.app</a>
+    </header>
+
+    <main class="admin-page">
+      <section class="admin-hero">
+        <div>
+          <p class="eyebrow">Closed Beta</p>
+          <h1>Zugänge und Entwurfsguthaben</h1>
+          <p>Zehn Tester, klare Arbeitsbereiche und nur die wichtigsten Handgriffe.</p>
+        </div>
+        <div class="admin-status" id="adminStatus">Status wird geladen …</div>
+      </section>
+
+      <section class="admin-grid">
+        <article class="admin-card">
+          <div class="admin-card-head">
+            <div>
+              <p class="eyebrow">Neuer Zugang</p>
+              <h2>Sheetify Pass erstellen</h2>
+            </div>
+          </div>
+          <form id="createPassForm" class="admin-form">
+            <label>Name des Arbeitsbereichs<input name="label" required placeholder="z. B. Beta · Anna"></label>
+            <label>E-Mail optional<input name="email" type="email" placeholder="anna@schule.de"></label>
+            <label>Startguthaben<input name="credits" type="number" min="1" max="1000" value="20" required></label>
+            <button type="submit" class="primary">Pass und Karte erstellen</button>
+          </form>
+        </article>
+
+        <article class="admin-card">
+          <div class="admin-card-head">
+            <div>
+              <p class="eyebrow">Weitergeben</p>
+              <h2>Guthabenkarte erstellen</h2>
+            </div>
+          </div>
+          <form id="createTopupForm" class="admin-form">
+            <label>Entwurfsseiten<input name="amount" type="number" min="1" max="1000" value="10" required></label>
+            <label>Bezeichnung optional<input name="label" placeholder="10 Entwurfsseiten"></label>
+            <button type="submit" class="secondary">Guthabenkarte erzeugen</button>
+          </form>
+        </article>
+      </section>
+
+      <section class="generated-card hidden" id="generatedCard" aria-live="polite">
+        <div class="generated-card-head">
+          <div>
+            <p class="eyebrow">Fertig</p>
+            <h2 id="generatedTitle">Karte erstellt</h2>
+          </div>
+          <button type="button" class="secondary compact" id="downloadCard">SVG herunterladen</button>
+        </div>
+        <div class="generated-preview" id="generatedPreview"></div>
+        <p class="generated-secret">Der vollständige Code wird nur jetzt angezeigt. Sheetify speichert ihn ausschließlich als Prüfsumme.</p>
+      </section>
+
+      <section class="requests-section">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Support</p>
+            <h2>Anfragen und Posteingang</h2>
+          </div>
+          <button type="button" class="ghost" id="refreshRequests">Aktualisieren</button>
+        </div>
+        <div class="inbox-note">
+          <div>
+            <strong>Proton bleibt das vollständige Postfach.</strong>
+            <p>Hier erscheinen App-Anfragen und – nach Aktivierung des Webhooks – sichere Textkopien eingehender Mails.</p>
+          </div>
+          <a class="button-link secondary" href="https://mail.proton.me/u/0/inbox" target="_blank" rel="noopener">Proton öffnen</a>
+        </div>
+        <div class="request-list" id="requestList"></div>
+      </section>
+
+      <section class="passes-section">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Arbeitsbereiche</p>
+            <h2>Sheetify Pässe</h2>
+          </div>
+          <button type="button" class="ghost" id="refreshPasses">Aktualisieren</button>
+        </div>
+        <div class="pass-list" id="passList"></div>
+      </section>
+    </main>
+    <div class="admin-toast hidden" id="adminToast" role="status"></div>
+    <script src="/admin.js?v=2"></script>
+  </body>
+</html>

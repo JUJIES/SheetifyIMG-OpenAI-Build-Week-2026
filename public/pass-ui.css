@@ -1,0 +1,36 @@
+.pass-modal-layer { position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center; padding: 20px; }
+.pass-modal-layer.hidden { display: none; }
+.pass-modal-backdrop { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: rgba(16,24,39,.42); backdrop-filter: blur(5px); }
+.pass-modal { position: relative; width: min(620px, 100%); max-height: min(780px, calc(100vh - 40px)); overflow: auto; border: 1px solid var(--line); border-radius: 24px; background: var(--panel); box-shadow: 0 30px 80px rgba(16,24,39,.24); }
+.pass-modal-header { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 24px 25px 18px; border-bottom: 1px solid var(--line-soft); background: rgba(255,255,255,.95); backdrop-filter: blur(12px); }
+.pass-modal-header h2 { margin: 0; font-size: 23px; letter-spacing: -.025em; }
+.pass-modal-content { padding: 24px 25px 28px; }
+.pass-overview-card { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 20px; padding: 20px; border-radius: 18px; color: #fff; background: linear-gradient(135deg, #173f91, #1f63d6 62%, #3880ee); box-shadow: 0 15px 34px rgba(31,99,214,.22); }
+.pass-overview-card h3 { margin: 0 0 6px; font-size: 19px; }
+.pass-overview-card p { margin: 0; color: rgba(255,255,255,.76); font-size: 12px; }
+.pass-balance-badge { min-width: 104px; padding: 13px; border-radius: 14px; background: rgba(255,255,255,.14); text-align: center; }
+.pass-balance-badge strong { display: block; font-size: 28px; }
+.pass-balance-badge span { font-size: 10px; }
+.pass-ui-section { margin-top: 25px; }
+.pass-ui-section-head { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 12px; }
+.pass-ui-section h3 { margin: 0; font-size: 15px; }
+.pass-ui-help { margin: 7px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.pass-ui-button { min-height: 39px; padding: 0 14px; border: 0; border-radius: 10px; color: var(--blue); background: var(--blue-soft); cursor: pointer; font-weight: 700; }
+.pass-ui-button.primary { color: #fff; background: var(--blue); }
+.pass-ui-button.danger { color: var(--danger); background: var(--danger-soft); }
+.pairing-result { display: grid; grid-template-columns: 150px 1fr; gap: 19px; align-items: center; padding: 17px; border: 1px solid var(--line-soft); border-radius: 16px; background: var(--panel-soft); }
+.pairing-result svg { width: 150px; height: 150px; padding: 8px; border-radius: 12px; background: #fff; }
+.pairing-code { display: block; margin: 9px 0; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 22px; font-weight: 750; letter-spacing: .06em; }
+.topup-form { display: flex; gap: 9px; }
+.topup-form input { min-width: 0; flex: 1; height: 43px; padding: 0 13px; border: 1px solid var(--line); border-radius: 10px; outline: 0; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.device-list { display: grid; gap: 8px; }
+.device-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 14px; border: 1px solid var(--line-soft); border-radius: 12px; }
+.device-row strong { display: block; font-size: 13px; }
+.device-row span { color: var(--muted); font-size: 10px; }
+.device-current { color: var(--green) !important; font-weight: 700; }
+.pass-ui-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 25px; padding-top: 20px; border-top: 1px solid var(--line-soft); }
+.pass-ui-footer p { margin: 0; color: var(--muted); font-size: 11px; }
+.pass-ui-footer a { color: var(--blue); font-weight: 700; text-decoration: none; }
+.pass-ui-message { padding: 12px; border-radius: 11px; color: #28513d; background: var(--green-soft); font-size: 12px; }
+.pass-ui-message.error { color: var(--danger); background: var(--danger-soft); }
+@media (max-width: 600px) { .pass-modal-layer { padding: 0; place-items: end center; } .pass-modal { width: 100%; max-height: 92vh; border-radius: 24px 24px 0 0; } .pairing-result { grid-template-columns: 1fr; text-align: center; } .pairing-result svg { margin: auto; } .pass-ui-footer { align-items: flex-start; flex-direction: column; } }

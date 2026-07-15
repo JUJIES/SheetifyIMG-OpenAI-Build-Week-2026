@@ -17,6 +17,7 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/app-icon-180.png">
     <link rel="stylesheet" href="/vendor/simplebar/simplebar.min.css?v=1">
     <link rel="stylesheet" href="/styles.css?v=111">
+    <link rel="stylesheet" href="/pass-ui.css?v=2">
   </head>
   <body>
     <div class="app-shell">
@@ -44,6 +45,11 @@
           </div>
         </div>
         <div class="topbar-global-actions">
+          <button class="icon-button icon-button-plain" type="button" id="passButton" aria-label="Mein Sheetify Pass" title="Mein Sheetify Pass" aria-haspopup="dialog">
+            <svg class="icon icon-small" aria-hidden="true">
+              <use href="/icons/lucide-sprite.svg?v=13#qr-code"></use>
+            </svg>
+          </button>
           <button class="icon-button icon-button-plain" type="button" id="shareButton" data-share-button aria-label="QR-Link anzeigen" title="QR-Link anzeigen" aria-haspopup="dialog" aria-expanded="false">
             <svg class="icon icon-small" aria-hidden="true">
               <use href="/icons/lucide-sprite.svg?v=13#qr-code"></use>
@@ -473,12 +479,28 @@
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <div class="pass-modal-layer hidden" id="passModal" aria-hidden="true">
+      <button class="pass-modal-backdrop" type="button" data-pass-close aria-label="Mein Pass schließen"></button>
+      <section class="pass-modal" role="dialog" aria-modal="true" aria-labelledby="passModalTitle">
+        <header class="pass-modal-header">
+          <div>
+            <p class="eyebrow">Gemeinsamer Arbeitsbereich</p>
+            <h2 id="passModalTitle">Mein Sheetify Pass</h2>
+          </div>
+          <button class="icon-button icon-button-plain" type="button" data-pass-close aria-label="Schließen">
+            <svg class="icon icon-small" aria-hidden="true"><use href="/icons/lucide-sprite.svg?v=15#x"></use></svg>
+          </button>
+        </header>
+        <div class="pass-modal-content" id="passModalContent"></div>
+      </section>
+    </div>
     <script src="/pwa.js?v=1"></script>
     <script src="/candidateCards.js?v=2"></script>
     <script src="/actionBindings.js?v=1"></script>
     <script src="/mobilePreviewRenderer.js?v=7"></script>
     <script src="/canvasRenderer.js?v=1"></script>
     <script src="/vendor/simplebar/simplebar.min.js?v=1"></script>
-    <script src="/app.js?v=183"></script>
+    <script src="/app.js?v=184"></script>
+    <script src="/pass-ui.js?v=2"></script>
   </body>
 </html>

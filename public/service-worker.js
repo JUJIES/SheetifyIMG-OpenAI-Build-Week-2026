@@ -1,13 +1,17 @@
 "use strict";
 
-const CACHE_NAME = "sheetifyimg-app-shell-v55";
+const CACHE_NAME = "sheetifyimg-static-v57";
 const APP_SHELL_URLS = [
-  "/",
-  "/index.html",
   "/vendor/simplebar/simplebar.min.css?v=1",
   "/styles.css?v=111",
+  "/pass-ui.css?v=2",
+  "/pass.css?v=2",
+  "/admin.css?v=2",
   "/vendor/simplebar/simplebar.min.js?v=1",
-  "/app.js?v=183",
+  "/app.js?v=184",
+  "/pass-ui.js?v=2",
+  "/pass.js?v=2",
+  "/admin.js?v=2",
   "/pwa.js?v=1",
   "/candidateCards.js?v=2",
   "/actionBindings.js?v=1",
@@ -57,14 +61,14 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (request.mode === "navigate") {
-    event.respondWith(networkFirst(request, "/index.html"));
+    event.respondWith(fetch(request));
     return;
   }
 
   event.respondWith(networkFirst(request));
 });
 
-async function networkFirst(request, fallbackUrl) {
+async function networkFirst(request) {
   const cache = await caches.open(CACHE_NAME);
   try {
     const response = await fetch(request);
@@ -76,12 +80,6 @@ async function networkFirst(request, fallbackUrl) {
     const cached = await cache.match(request);
     if (cached) {
       return cached;
-    }
-    if (fallbackUrl) {
-      const fallback = await cache.match(fallbackUrl);
-      if (fallback) {
-        return fallback;
-      }
     }
     throw new Error("SheetifyIMG app shell is unavailable.");
   }
