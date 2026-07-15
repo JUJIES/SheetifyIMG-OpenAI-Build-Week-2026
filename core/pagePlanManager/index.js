@@ -67,6 +67,12 @@ function numericPageCount(value) {
   return Number.isFinite(count) && count > 0 ? clampPageCount(count) : 0;
 }
 
+function describesContentUnitsBeforePageNoun(value = "") {
+  return /\b(?:aufgaben?|aufgabenbloecke?|aufgabenbereiche?|tasks?|taskblocks?|fragen?|questions?|bilder?|images?|grafiken?|graphics?|felder?|fields?|texte?|texts?|abschnitte?|sections?|stationen?|stations?)\b/i.test(
+    normalizeText(value)
+  );
+}
+
 function explicitPageCountFromText(value) {
   const text = normalizeText(value);
   if (!text) {
@@ -92,9 +98,11 @@ function explicitPageCountFromText(value) {
     || new RegExp(`\\b(?:nur\\s+)?(?:eine|einen|ein|einzige|einzigen|einzelne|einzelnen)\\s+${pageNounNotRole}\\b`, "i").test(text)) {
     return 1;
   }
-  const numericMatch = text.match(new RegExp(`\\b([1-${MAX_GENERATED_PAGES}])(?:\\s+[a-z0-9-]+){0,8}\\s+${pageNounNotRole}\\b`, "i"));
-  if (numericMatch) {
-    return clampPageCount(numericMatch[1]);
+  const numericMatches = text.matchAll(new RegExp(`\\b([1-${MAX_GENERATED_PAGES}])((?:\\s+[a-z0-9-]+){0,8})\\s+${pageNounNotRole}\\b`, "gi"));
+  for (const numericMatch of numericMatches) {
+    if (!describesContentUnitsBeforePageNoun(numericMatch[2])) {
+      return clampPageCount(numericMatch[1]);
+    }
   }
   const wordToCount = new Map([
     ["one", 1],
@@ -116,8 +124,13 @@ function explicitPageCountFromText(value) {
     ["four", 4],
     ["vier", 4]
   ]);
-  const wordMatch = text.match(new RegExp(`\\b(${[...wordToCount.keys()].join("|")})(?:\\s+[a-z0-9-]+){0,8}\\s+${pageNounNotRole}\\b`, "i"));
-  return wordMatch ? wordToCount.get(wordMatch[1]) || 0 : 0;
+  const wordMatches = text.matchAll(new RegExp(`\\b(${[...wordToCount.keys()].join("|")})((?:\\s+[a-z0-9-]+){0,8})\\s+${pageNounNotRole}\\b`, "gi"));
+  for (const wordMatch of wordMatches) {
+    if (!describesContentUnitsBeforePageNoun(wordMatch[2])) {
+      return wordToCount.get(wordMatch[1]) || 0;
+    }
+  }
+  return 0;
 }
 
 function explicitPageCountFromImageSpec(imageSpec) {
