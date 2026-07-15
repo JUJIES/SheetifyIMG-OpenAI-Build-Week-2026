@@ -5,7 +5,7 @@ const fs = require("node:fs/promises");
 const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const { generateOwnerPasswordHash } = require("../server/owner-auth");
 const { resolveServerConfig } = require("../server/runtime-config");
 
@@ -158,6 +158,29 @@ async function main() {
     `SHEETIFYIMG_OWNER_AUTH_PASSWORD_HASH=${ownerPasswordHash}`,
     ""
   ].join("\n"), { mode: 0o600 });
+
+  const inheritedKeyProbe = spawnSync(process.execPath, ["-e", [
+    "const path = require('node:path');",
+    "const { loadServerEnvironment } = require('./server/runtime-config');",
+    "loadServerEnvironment({ repoRoot: process.cwd(), localOverrideKeys: ['OPENAI_API_KEY'] });",
+    "process.stdout.write(process.env.OPENAI_API_KEY || '');"
+  ].join("\n")], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      NODE_ENV: "production",
+      SHEETIFYIMG_RUNTIME_MODE: "production",
+      SHEETIFYIMG_ENV_FILE: envFile,
+      OPENAI_API_KEY: "sk-inherited-stale-test"
+    },
+    encoding: "utf8"
+  });
+  assert.equal(inheritedKeyProbe.status, 0, inheritedKeyProbe.stderr);
+  assert.equal(
+    inheritedKeyProbe.stdout,
+    fakeSecret,
+    "The external production env must override an inherited stale OpenAI key."
+  );
 
   const env = { ...process.env };
   for (const key of [

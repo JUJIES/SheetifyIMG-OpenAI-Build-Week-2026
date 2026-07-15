@@ -97,7 +97,10 @@ function loadServerEnvironment(options = {}) {
   if (mode === RUNTIME_MODES.PRODUCTION) {
     const envFile = validateEnvironmentFile({ filePath: process.env.SHEETIFYIMG_ENV_FILE });
     if (envFile) {
-      loadEnvFile(envFile, { required: true });
+      loadEnvFile(envFile, {
+        required: true,
+        overrideKeys: options.localOverrideKeys || []
+      });
     }
     if (!nonEmpty(process.env.SHEETIFYIMG_AI_MODE)) {
       process.env.SHEETIFYIMG_AI_MODE = "openai";
