@@ -1,5 +1,11 @@
 "use strict";
 
+const appLocale = window.sheetifyLocale;
+
+function t(key, variables = {}) {
+  return appLocale?.t(key, variables) || key;
+}
+
 const SETTINGS_STORAGE_KEY = "sheetifyimg.settings.v1";
 const VOICE_TRANSCRIPT_REVIEW_MIN_CHARS = 120;
 const VOICE_MICROPHONE_START_TIMEOUT_MS = 15000;
@@ -1422,7 +1428,17 @@ async function fetchJson(url, options = {}) {
   }
 
   if (!response.ok) {
-    throw new Error(payload?.message || `Request failed: ${response.status}`);
+    const errorKey = `app.error.${payload?.error || "default"}`;
+    const localized = t(errorKey);
+    const passKey = `pass.error.${payload?.error || "default"}`;
+    const passMessage = t(passKey);
+    throw new Error(localized !== errorKey
+      ? localized
+      : passMessage !== passKey
+        ? passMessage
+        : appLocale?.current() === "de" && payload?.message
+          ? payload.message
+          : t("app.error.default"));
   }
   if (!payload) {
     throw new Error(apiUnavailableMessage());
@@ -1434,7 +1450,7 @@ function apiUnavailableMessage() {
   if (window.location.protocol === "file:") {
     return "Bitte über den Dev-Server öffnen: http://127.0.0.1:4173/";
   }
-  return "Die App-API antwortet nicht korrekt.";
+  return t("app.error.network");
 }
 
 function showToast(message, kind = "default") {
@@ -2541,7 +2557,7 @@ function composerAttachmentCount() {
 }
 
 function fileName(filePath) {
-  return String(filePath || "").split("/").pop() || "Datei";
+  return String(filePath || "").split("/").pop() || t("app.chat.file");
 }
 
 function conceptLabel(reference = {}) {
@@ -2551,19 +2567,24 @@ function conceptLabel(reference = {}) {
   if (reference.label) {
     return reference.label;
   }
-  return reference.conceptVersion ? `Konzept v${reference.conceptVersion}` : "Arbeitsblatt-Konzept";
+  return reference.conceptVersion ? t("app.concept.version", { number: reference.conceptVersion }) : t("app.concept.title");
 }
 
 function conceptVersionDisplayName(version) {
   const normalized = Number(version || 0) || null;
-  return normalized ? `Version ${normalized}` : "Aktueller Stand";
+  return normalized ? t("app.concept.version", { number: normalized }) : t("app.concept.current");
 }
 
 function worksheetConceptCollectionLabel(count = 1) {
-  return (Number(count || 0) || 0) > 1 ? "Arbeitsblatt-Konzepte" : "Arbeitsblatt-Konzept";
+  return (Number(count || 0) || 0) > 1
+    ? (appLocale?.current() === "en" ? "Worksheet concepts" : "Arbeitsblatt-Konzepte")
+    : t("app.concept.title");
 }
 
 function worksheetDepositActionLabel(pageCount = 1) {
+  if (appLocale?.current() === "en") {
+    return (Number(pageCount || 0) || 1) > 1 ? "Save worksheets" : "Save worksheet";
+  }
   return (Number(pageCount || 0) || 1) > 1 ? "Arbeitsblätter ablegen" : "Arbeitsblatt ablegen";
 }
 
@@ -2862,24 +2883,24 @@ function renderLibraryViewChrome() {
   elements.worksheetsViewButton?.setAttribute("aria-selected", projectsActive ? "false" : "true");
 
   if (elements.sidebarEyebrow) {
-    elements.sidebarEyebrow.textContent = "Übersicht";
+    elements.sidebarEyebrow.textContent = t("app.sidebar.label");
   }
   if (elements.sidebarTitle) {
-    elements.sidebarTitle.textContent = projectsActive ? "Projekte" : "Arbeitsblätter";
+    elements.sidebarTitle.textContent = t(projectsActive ? "app.sidebar.projects" : "app.sidebar.worksheets");
   }
   if (elements.newWorksheetButton) {
     elements.newWorksheetButton.classList.toggle("hidden", !projectsActive);
     elements.newWorksheetButton.disabled = !projectsActive;
-    elements.newWorksheetButton.title = "Neues Projekt";
-    elements.newWorksheetButton.setAttribute("aria-label", "Neues Projekt");
+    elements.newWorksheetButton.title = t("app.sidebar.newProject");
+    elements.newWorksheetButton.setAttribute("aria-label", t("app.sidebar.newProject"));
   }
   if (elements.searchInput) {
     elements.searchInput.disabled = false;
-    elements.searchInput.placeholder = projectsActive ? "Projekte suchen" : "Arbeitsblätter suchen";
-    elements.searchInput.setAttribute("aria-label", projectsActive ? "Projekte durchsuchen" : "Arbeitsblätter durchsuchen");
+    elements.searchInput.placeholder = t(projectsActive ? "app.sidebar.searchProjects" : "app.sidebar.searchWorksheets");
+    elements.searchInput.setAttribute("aria-label", t(projectsActive ? "app.sidebar.searchAriaProjects" : "app.sidebar.searchAriaWorksheets"));
   }
   if (elements.tree) {
-    elements.tree.setAttribute("aria-label", projectsActive ? "Projekt-Baum" : "Arbeitsblatt-Ablage");
+    elements.tree.setAttribute("aria-label", projectsActive ? t("app.sidebar.tree") : t("app.sidebar.worksheets"));
   }
 }
 
@@ -2888,25 +2909,25 @@ function renderWorksheetsEmptyState() {
   elements.workspaceView.classList.add("hidden");
   elements.emptyState.classList.remove("hidden");
   if (elements.emptyStateTitle) {
-    elements.emptyStateTitle.textContent = "Noch kein Arbeitsblatt abgelegt.";
+    elements.emptyStateTitle.textContent = t("app.empty.worksheetTitle");
   }
   if (elements.emptyStateCopy) {
-    elements.emptyStateCopy.textContent = "Lege einen Entwurf aus einem Projekt als Arbeitsblatt oder Arbeitsblatt-Bundle ab. Dann erscheint er hier als feste PDF.";
+    elements.emptyStateCopy.textContent = t("app.empty.worksheetCopy");
   }
 }
 
 function renderMissingRouteState(route = {}) {
-  const target = route.worksheetId ? "Arbeitsblatt" : "Projekt";
+  const target = t(route.worksheetId ? "app.target.worksheet" : "app.target.project");
   elements.projectView.classList.add("hidden");
   elements.workspaceView.classList.add("hidden");
   elements.emptyState.classList.remove("hidden");
   if (elements.emptyStateTitle) {
-    elements.emptyStateTitle.textContent = `${target} nicht gefunden.`;
+    elements.emptyStateTitle.textContent = t("app.empty.notFound", { target });
   }
   if (elements.emptyStateCopy) {
-    elements.emptyStateCopy.textContent = `Der geöffnete Link zeigt auf ein ${target}, das in dieser Ablage nicht mehr vorhanden ist. Wähle links einen anderen Eintrag oder prüfe den QR-/Share-Link.`;
+    elements.emptyStateCopy.textContent = t("app.empty.notFoundCopy", { target: target.toLowerCase() });
   }
-  showToast(`${target} nicht gefunden`, "warning");
+  showToast(t("app.empty.notFound", { target }), "warning");
 }
 
 function setLibraryView(view) {
@@ -2927,12 +2948,12 @@ function setLibraryView(view) {
   }
   renderLibraryViewChrome();
   if (elements.emptyStateTitle) {
-    elements.emptyStateTitle.textContent = nextView === "projects" ? "Wähle links ein Projekt." : "Wähle links ein Arbeitsblatt.";
+    elements.emptyStateTitle.textContent = t(nextView === "projects" ? "app.empty.title" : "app.empty.chooseWorksheet");
   }
   if (elements.emptyStateCopy) {
     elements.emptyStateCopy.textContent = nextView === "projects"
-      ? "Dann erscheint hier die schnelle Vorschau mit Status, Aktionen und vorhandenen Entwürfen."
-      : "Dann erscheint hier die feste PDF-Vorschau mit Rückweg zum Projekt.";
+      ? t("app.empty.copy")
+      : t("app.empty.worksheetPreview");
   }
   loadTree({ keepSelection: true, selectAfterLoad: true });
 }
@@ -4273,7 +4294,7 @@ async function selectItem(itemId, options = {}) {
 
 function renderProject(item, requestedStep = null) {
   elements.projectView.classList.remove("worksheet-detail-view");
-  elements.statusPanel?.querySelector("h3")?.replaceChildren(document.createTextNode("Status"));
+  elements.statusPanel?.querySelector("h3")?.replaceChildren(document.createTextNode(t("app.project.status")));
   const project = item.project;
   elements.projectTitle.textContent = project.title;
   elements.loadProjectButtonLabel.textContent = editButtonLabel(item);
@@ -4342,7 +4363,7 @@ function renderWorksheetItem(item) {
 }
 
 function editButtonLabel(item) {
-  return "Projekt öffnen";
+  return t("app.project.open");
 }
 
 function defaultStatusStep(item) {
@@ -4384,14 +4405,16 @@ function buildStatusRows(item) {
   const hasConceptProposal = Boolean(item.proposals?.latestContentMirror?.data);
   const conceptComplete = Boolean(workflowStep("concept")?.complete || hasContent || hasConceptProposal);
   const hasCandidates = Boolean(renderedCandidateCount || plannedCandidateCount);
-  const conceptState = conceptComplete ? "Vorhanden" : hasBrief ? "In Arbeit" : "Offen";
+  const present = appLocale?.current() === "en" ? "Available" : "Vorhanden";
+  const open = appLocale?.current() === "en" ? "Open" : "Offen";
+  const conceptState = conceptComplete ? present : hasBrief ? t("common.inProgress") : open;
   const candidateState = candidateGenerationPending
-    ? "Wird erstellt"
-    : hasCandidates ? "Vorhanden" : "Offen";
+    ? (appLocale?.current() === "en" ? "Creating" : "Wird erstellt")
+    : hasCandidates ? present : open;
   return [
-    { id: "input", number: 1, icon: "inbox", title: "Input", state: hasInput ? "Vorhanden" : "Offen", tone: hasInput ? "done" : "active" },
-    { id: "concept", number: 2, icon: "notebook-text", title: "Arbeitsblatt-Konzept", state: conceptState, tone: conceptComplete ? "done" : hasBrief ? "active" : "pending" },
-    { id: "candidates", number: 3, icon: "images", title: "Entwürfe", state: candidateState, tone: candidateGenerationPending ? "working" : hasCandidates ? "done" : "pending" }
+    { id: "input", number: 1, icon: "inbox", title: "Input", state: hasInput ? present : open, tone: hasInput ? "done" : "active" },
+    { id: "concept", number: 2, icon: "notebook-text", title: t("app.concept.title"), state: conceptState, tone: conceptComplete ? "done" : hasBrief ? "active" : "pending" },
+    { id: "candidates", number: 3, icon: "images", title: t("app.preview.drafts"), state: candidateState, tone: candidateGenerationPending ? "working" : hasCandidates ? "done" : "pending" }
   ];
 }
 
@@ -4400,11 +4423,15 @@ function pluralLabel(count, singular, plural) {
 }
 
 function conceptVersionCountLabel(count) {
-  return pluralLabel(count, "Konzeptversion", "Konzeptversionen");
+  return appLocale?.current() === "en"
+    ? pluralLabel(count, "concept version", "concept versions")
+    : pluralLabel(count, "Konzeptversion", "Konzeptversionen");
 }
 
 function candidateCountLabel(count) {
-  return pluralLabel(count, "Entwurf", "Entwürfe");
+  return appLocale?.current() === "en"
+    ? pluralLabel(count, "draft", "drafts")
+    : pluralLabel(count, "Entwurf", "Entwürfe");
 }
 
 function projectArtifactSummaryParts(item = {}) {
@@ -4536,62 +4563,64 @@ function bindCanvasModeButtons(container) {
 }
 
 function renderPreview(preview) {
-  elements.previewEyebrow.textContent = "Vorschau";
+  elements.previewEyebrow.textContent = t("app.preview.eyebrow");
   elements.previewTitle.textContent = titleForPreview(preview);
   elements.previewGrid.dataset.previewType = preview?.previewType || "";
   applyPreviewLayout(preview);
   if (!preview || preview.previewType === "project_status") {
-    setCustomScrollContent(elements.previewGrid, '<div class="no-preview">Noch keine Bild- oder PDF-Vorschau vorhanden.</div>');
+    setCustomScrollContent(elements.previewGrid, `<div class="no-preview">${escapeHtml(t("app.preview.noMedia"))}</div>`);
     bindPreviewOpenActions(preview);
     return;
   }
   if (preview.previewType === "pdf") {
     setCustomScrollContent(elements.previewGrid, preview.pdfs?.length
       ? preview.pdfs.map(renderPdfCard).join("")
-      : '<div class="no-preview">Noch kein PDF vorhanden.</div>');
+      : `<div class="no-preview">${escapeHtml(t("app.preview.noPdf"))}</div>`);
   } else if (preview.previewType === "selected_pages") {
     setCustomScrollContent(elements.previewGrid, preview.pages?.length
       ? preview.pages.map(renderPageCard).join("")
-      : '<div class="no-preview">Noch keine Entwurfsvorschau vorhanden.</div>');
+      : `<div class="no-preview">${escapeHtml(t("app.preview.noDraftPreview"))}</div>`);
   } else if (preview.previewType === "candidates") {
     const candidates = annotateCandidateDisplayList(preview.candidates || []);
     const cards = candidates.map((candidate) => renderCandidateCard(candidate, state.workspace, { showConceptTag: false }));
     setCustomScrollContent(elements.previewGrid, cards.length
       ? cards.join("")
-      : '<div class="no-preview">Noch keine Entwürfe vorhanden.</div>');
+      : `<div class="no-preview">${escapeHtml(t("app.preview.noDrafts"))}</div>`);
   }
   bindPreviewOpenActions(preview);
 }
 
 function titleForPreview(preview) {
   const titles = {
-    candidates: "Entwürfe",
+    candidates: t("app.preview.drafts"),
     pdf: "PDF",
-    project_status: "Input",
-    selected_pages: "Entwürfe"
+    project_status: t("app.preview.input"),
+    selected_pages: t("app.preview.drafts")
   };
-  return titles[preview?.previewType] || "Vorschau";
+  return titles[preview?.previewType] || t("app.preview.eyebrow");
 }
 
 function renderPageCard(page) {
   return `
     <figure class="preview-card is-openable" data-open-url="${escapeHtml(page.url)}">
-      <img src="${escapeHtml(page.url)}" alt="Seite ${escapeHtml(page.page)}">
+      <img src="${escapeHtml(page.url)}" alt="${escapeHtml(t("common.page", { number: page.page }))}">
     </figure>
   `;
 }
 
 function renderWorksheetPageCard(page = {}, index = 0, pageTotal = 1, worksheetTitle = "") {
-  const label = pageTotal > 1 ? `Seite ${page.page || index + 1}/${pageTotal}` : `Seite ${page.page || index + 1}`;
+  const label = pageTotal > 1
+    ? `${t("common.page", { number: page.page || index + 1 })}/${pageTotal}`
+    : t("common.page", { number: page.page || index + 1 });
   return `
     <figure
       class="preview-card worksheet-page-card is-openable"
       data-open-url="${escapeHtml(page.url)}"
       data-capture-kind="worksheet-page"
-      data-viewer-title="${escapeHtml(worksheetTitle || "Arbeitsblatt")}"
+      data-viewer-title="${escapeHtml(worksheetTitle || t("app.preview.worksheet"))}"
       data-page="${escapeHtml(page.page || index + 1)}"
       data-page-total="${escapeHtml(pageTotal)}"
-      data-page-role="${escapeHtml(page.role || "Arbeitsblatt")}"
+      data-page-role="${escapeHtml(page.role || t("app.preview.worksheet"))}"
       data-source-candidate-id="${escapeHtml(page.sourceCandidateId || "")}"
     >
       <span class="worksheet-page-sheet">
@@ -4604,7 +4633,7 @@ function renderWorksheetPageCard(page = {}, index = 0, pageTotal = 1, worksheetT
 function renderPdfCard(pdf) {
   return `
     <figure class="preview-card is-openable" data-open-url="${escapeHtml(pdf.url)}">
-      <iframe src="${escapeHtml(pdf.url)}" title="PDF-Vorschau"></iframe>
+      <iframe src="${escapeHtml(pdf.url)}" title="${escapeHtml(t("app.preview.pdf"))}"></iframe>
     </figure>
   `;
 }
@@ -4635,7 +4664,7 @@ function candidateConceptDisplayLabel(candidate = {}) {
 
 function draftLabelFromNumber(value = 1) {
   const number = Number(value || 0) || 1;
-  return `Entwurf ${String(number).padStart(2, "0")}`;
+  return t("app.draft.label", { number: String(number).padStart(2, "0") });
 }
 
 function draftNumberFromValue(value = "") {
@@ -4645,8 +4674,9 @@ function draftNumberFromValue(value = "") {
 
 function draftDisplayLabel(candidate = {}, fallbackNumber = 1) {
   const existing = String(candidate.displayLabel || "").trim();
-  if (/^Entwurf\s+\d+/i.test(existing)) {
-    return existing;
+  if (/^(?:Entwurf|Draft)\s+\d+/i.test(existing)) {
+    const existingNumber = existing.match(/\d+/)?.[0];
+    return t("app.draft.label", { number: String(existingNumber || fallbackNumber).padStart(2, "0") });
   }
   const number = Number(candidate.displayNumber || 0)
     || draftNumberFromValue(candidate.id)
@@ -4678,14 +4708,16 @@ function draftVersionLabel(candidate = {}) {
 function draftMetaLabel(candidate = {}) {
   const pageCount = draftPageCount(candidate);
   return [
-    pageCount > 1 ? `${pageCount} Seiten` : null,
+    pageCount > 1 ? t("common.pages", { count: pageCount }) : null,
     draftVersionLabel(candidate) || null
   ].filter(Boolean).join(" · ");
 }
 
 function draftChatBasisLabel(candidate = {}) {
   const versionLabel = draftVersionLabel(candidate);
-  return versionLabel ? `AB-Konzept ${versionLabel}` : "";
+  return versionLabel
+    ? `${appLocale?.current() === "en" ? "Worksheet concept" : "AB-Konzept"} ${versionLabel}`
+    : "";
 }
 
 function candidateForDisplay(candidate = {}, workspace = state.workspace) {
@@ -5907,11 +5939,11 @@ function conceptSectionsFromContent(content = {}, options = {}) {
   const teachingContext = options.teachingContext || {};
   const project = options.project || {};
   const sections = [
-    { title: "Rahmen", items: conceptFrameItems(project, teachingContext, brief, content) },
-    { title: "Blattaufbau", items: conceptStructureItems(content, brief), display: "structure" },
-    { title: "Aufgabenlogik", items: conceptLogicItems(content, brief) },
-    { title: "Sichtbarer Inhalt", items: conceptVisibleContentItems(content) },
-    { title: "Bild & Layout", items: conceptLayoutItems(content, brief) }
+    { title: t("app.concept.framework"), items: conceptFrameItems(project, teachingContext, brief, content) },
+    { title: t("app.concept.sheetStructure"), items: conceptStructureItems(content, brief), display: "structure" },
+    { title: t("app.concept.taskLogic"), items: conceptLogicItems(content, brief) },
+    { title: t("app.concept.visibleContent"), items: conceptVisibleContentItems(content) },
+    { title: t("app.concept.imageLayout"), items: conceptLayoutItems(content, brief) }
   ];
   return sections.filter((section) => section.items.length);
 }
@@ -5927,7 +5959,7 @@ function renderConceptItem(item = {}, options = {}) {
         ${title ? `<strong>${renderInlineRichText(title)}</strong>` : ""}
       </div>
       ${item.body ? `<div class="concept-item-body">${richParagraphs(item.body)}</div>` : ""}
-      ${item.expected ? `<div class="concept-item-expected"><span>Erwartung</span>${richParagraphs(item.expected)}</div>` : ""}
+      ${item.expected ? `<div class="concept-item-expected"><span>${escapeHtml(appLocale?.current() === "en" ? "Expected answer" : "Erwartung")}</span>${richParagraphs(item.expected)}</div>` : ""}
       ${item.meta ? `<p class="concept-item-meta">${renderInlineRichText(item.meta)}</p>` : ""}
     </article>
   `;
@@ -5959,7 +5991,7 @@ function renderConceptSectionBody(section = {}, options = {}) {
 
 function renderConceptSections(sections = [], options = {}) {
   if (!sections.length) {
-    return '<p class="detail-muted">Keine Konzeptdetails vorhanden.</p>';
+    return `<p class="detail-muted">${escapeHtml(appLocale?.current() === "en" ? "No concept details available." : "Keine Konzeptdetails vorhanden.")}</p>`;
   }
   const compact = options.compact !== false;
   const accordion = options.accordion === true || !compact;
@@ -5970,7 +6002,7 @@ function renderConceptSections(sections = [], options = {}) {
           <details class="concept-section-panel">
             <summary>
               <span class="concept-section-title">${escapeHtml(section.title)}</span>
-              <span class="concept-section-count">${escapeHtml(section.items.length)} ${section.items.length === 1 ? "Eintrag" : "Einträge"}</span>
+              <span class="concept-section-count">${escapeHtml(section.items.length)} ${appLocale?.current() === "en" ? (section.items.length === 1 ? "entry" : "entries") : (section.items.length === 1 ? "Eintrag" : "Einträge")}</span>
             </summary>
             ${renderConceptSectionBody(section, { compact })}
           </details>
@@ -5978,7 +6010,7 @@ function renderConceptSections(sections = [], options = {}) {
           <section>
             <div class="concept-section-heading">
               <h4>${escapeHtml(section.title)}</h4>
-              <span>${escapeHtml(section.items.length)} ${section.items.length === 1 ? "Eintrag" : "Einträge"}</span>
+              <span>${escapeHtml(section.items.length)} ${appLocale?.current() === "en" ? (section.items.length === 1 ? "entry" : "entries") : (section.items.length === 1 ? "Eintrag" : "Einträge")}</span>
             </div>
             ${renderConceptSectionBody(section, { compact })}
           </section>
@@ -6048,7 +6080,7 @@ function registerConceptCopyText(options = {}) {
 function renderConceptCopyButton(options = {}) {
   const copyId = registerConceptCopyText(options);
   return `
-    <button class="icon-button icon-button-plain concept-chat-action-button" type="button" data-concept-copy-id="${escapeHtml(copyId)}" aria-label="Arbeitsblatt-Konzept kopieren" title="Arbeitsblatt-Konzept kopieren">
+    <button class="icon-button icon-button-plain concept-chat-action-button" type="button" data-concept-copy-id="${escapeHtml(copyId)}" aria-label="${escapeHtml(appLocale?.current() === "en" ? "Copy worksheet concept" : "Arbeitsblatt-Konzept kopieren")}" title="${escapeHtml(appLocale?.current() === "en" ? "Copy worksheet concept" : "Arbeitsblatt-Konzept kopieren")}">
       ${icon("copy", "icon icon-small")}
     </button>
   `;
@@ -6059,7 +6091,7 @@ function renderConceptPreviewButton(preview = {}) {
     ? `data-artifact-kind="proposal" data-artifact-id="${escapeHtml(preview.proposalRef.proposalId)}" data-proposal-kind="${escapeHtml(preview.proposalRef.kind || "")}"`
     : "";
   return `
-    <button class="icon-button icon-button-plain concept-chat-action-button" type="button" data-canvas-mode="${escapeHtml(preview.canvasMode || "content")}" ${proposalAttrs} aria-label="Vorschau öffnen" title="Vorschau öffnen">
+    <button class="icon-button icon-button-plain concept-chat-action-button" type="button" data-canvas-mode="${escapeHtml(preview.canvasMode || "content")}" ${proposalAttrs} aria-label="${escapeHtml(appLocale?.current() === "en" ? "Open preview" : "Vorschau öffnen")}" title="${escapeHtml(appLocale?.current() === "en" ? "Open preview" : "Vorschau öffnen")}">
       ${icon("eye", "icon icon-small")}
     </button>
   `;
@@ -6123,21 +6155,21 @@ function renderConceptDocumentHeader({
 
 function statusWord(value) {
   if (value === "approved") {
-    return "bestätigt";
+    return appLocale?.current() === "en" ? "approved" : "bestätigt";
   }
   if (value === "draft") {
-    return "in Arbeit";
+    return t("common.inProgress");
   }
   if (value === "proposed") {
-    return "bereit";
+    return t("common.ready").toLowerCase();
   }
   if (value === "adopted") {
-    return "gespeichert";
+    return t("common.saved").toLowerCase();
   }
   if (value === "superseded" || value === "outdated") {
-    return "älterer Stand";
+    return appLocale?.current() === "en" ? "older version" : "älterer Stand";
   }
-  return "nicht vorhanden";
+  return appLocale?.current() === "en" ? "not available" : "nicht vorhanden";
 }
 
 function renderAssignmentPreview(item) {
@@ -6238,8 +6270,8 @@ function renderConceptPreview(item) {
   const versionLabel = selectedConcept?.version ? `Konzept v${selectedConcept.version}` : statusWord(brief.status);
   const statusLabel = statusWord(selectedConcept?.status || content.status);
   elements.previewGrid.dataset.previewType = "concept";
-  elements.previewEyebrow.textContent = "Vorschau";
-  elements.previewTitle.textContent = "Arbeitsblatt-Konzept";
+  elements.previewEyebrow.textContent = t("app.preview.eyebrow");
+  elements.previewTitle.textContent = t("app.concept.title");
   setCustomScrollContent(elements.previewGrid, `
     <article class="detail-panel">
       <section class="detail-section">
@@ -6298,7 +6330,7 @@ async function openWorkspace(projectId) {
   state.pendingCommand = null;
   state.composerAttachments = [];
   clearInputUploadReceipts();
-  elements.chatInput.placeholder = "Nachricht an Sheetify IMG AI...";
+  elements.chatInput.placeholder = t("app.chat.placeholder");
   renderComposerAttachments();
   state.mode = "workspace";
   document.body.classList.add("production-mode");
@@ -6346,7 +6378,7 @@ function closeWorkspace() {
   state.pendingCommand = null;
   state.composerAttachments = [];
   clearInputUploadReceipts();
-  elements.chatInput.placeholder = "Nachricht an Sheetify IMG AI...";
+  elements.chatInput.placeholder = t("app.chat.placeholder");
   renderComposerAttachments();
   resetCanvasLayout();
   document.body.classList.remove("production-mode");
@@ -6438,8 +6470,8 @@ function productionSteps(workspace) {
   const conceptCanvasMode = hasConceptProposal && !hasContent ? "content_proposal" : "content";
   const checks = [
     { id: "input", number: 1, icon: "inbox", label: "Input", complete: inputComplete, active: !inputComplete, canvasMode: "assignment" },
-    { id: "concept", number: 2, icon: "notebook-text", label: "Arbeitsblatt-Konzept", complete: conceptComplete, active: conceptActive, canvasMode: conceptCanvasMode },
-    { id: "candidates", number: 3, icon: "images", label: "Entwürfe", complete: candidateComplete, active: candidateGenerationPending, state: candidateGenerationPending ? "Wird erstellt" : "", canvasMode: "candidates" }
+    { id: "concept", number: 2, icon: "notebook-text", label: t("app.concept.title"), complete: conceptComplete, active: conceptActive, canvasMode: conceptCanvasMode },
+    { id: "candidates", number: 3, icon: "images", label: t("app.preview.drafts"), complete: candidateComplete, active: candidateGenerationPending, state: candidateGenerationPending ? (appLocale?.current() === "en" ? "Creating" : "Wird erstellt") : "", canvasMode: "candidates" }
   ];
   const firstActive = checks.find((step) => step.active) || checks.find((step) => !step.complete);
   return checks.map((step) => ({
@@ -6450,13 +6482,13 @@ function productionSteps(workspace) {
 
 function productionStepStateLabel(step) {
   if (step.tone === "done") {
-    return "Fertig";
+    return appLocale?.current() === "en" ? "Done" : "Fertig";
   }
   if (step.tone === "working") {
-    return step.state || "Wird erstellt";
+    return step.state || (appLocale?.current() === "en" ? "Creating" : "Wird erstellt");
   }
   if (step.tone === "active") {
-    return step.state || "Aktiv";
+    return step.state || (appLocale?.current() === "en" ? "Active" : "Aktiv");
   }
   return "";
 }
@@ -6664,7 +6696,7 @@ function artifactRows(workspace) {
           : null;
     if (conceptStatus) {
       rows.push({
-        label: "Arbeitsblatt-Konzept",
+        label: t("app.concept.title"),
         meta: conceptStatus,
         icon: "notebook-text",
         mode: hasConceptProposal && !workspace.documents?.content?.data ? "content_proposal" : "content"
@@ -6677,7 +6709,7 @@ function artifactRows(workspace) {
     rows.push({
       kind: "group",
       group: "candidates",
-      label: "Entwürfe",
+      label: t("app.preview.drafts"),
       meta: candidateGroupMeta(candidates, workspace),
       icon: "images",
       mode: "candidates",
@@ -6706,7 +6738,7 @@ function artifactRows(workspace) {
       const meta = candidatePages > candidateCount
         ? `${candidateCount} vorhanden · ${candidatePages} Seiten`
         : `${candidateCount} vorhanden`;
-      rows.push({ label: "Entwürfe", meta: withConceptMeta(meta, workspace), icon: "images", mode: "candidates" });
+      rows.push({ label: t("app.preview.drafts"), meta: withConceptMeta(meta, workspace), icon: "images", mode: "candidates" });
     }
   }
   return rows;
@@ -6746,18 +6778,18 @@ function currentConceptArtifact(workspace = {}, concepts = workspaceConceptArtif
 function conceptGroupMeta(concepts = [], currentConcept = null) {
   const count = concepts.length;
   const currentLabel = currentConcept?.version
-    ? `${conceptVersionDisplayName(currentConcept.version)} Arbeitsstand`
-    : "Arbeitsstand";
-  return count === 1 ? currentLabel : `${count} Versionen · ${currentLabel}`;
+    ? `${conceptVersionDisplayName(currentConcept.version)} · ${t("app.work.label")}`
+    : t("app.work.label");
+  return count === 1 ? currentLabel : `${count} ${appLocale?.current() === "en" ? "versions" : "Versionen"} · ${currentLabel}`;
 }
 
 function conceptArtifactMeta(concept = {}) {
   const parts = [
     !concept.current && concept.status ? artifactLifecycleLabel(concept.status) : null,
-    concept.taskCount ? `${concept.taskCount} Aufgaben` : null,
+    concept.taskCount ? `${concept.taskCount} ${appLocale?.current() === "en" ? (concept.taskCount === 1 ? "task" : "tasks") : "Aufgaben"}` : null,
     concept.title || null
   ].filter(Boolean);
-  return parts.join(" · ") || "Arbeitsblatt-Konzept";
+  return parts.join(" · ") || t("app.concept.title");
 }
 
 function artifactLifecycleLabel(status) {
@@ -6797,10 +6829,14 @@ function candidateGroupMeta(candidates = [], workspace = {}) {
   const blockedCount = candidates.filter((candidate) => candidateHasFormatError(candidate)).length;
   const currentCount = candidates.filter((candidate) => candidate.current && !candidateHasFormatError(candidate)).length;
   const parts = [
-    `${candidates.length} vorhanden`,
-    pageCount > candidates.length ? `${pageCount} Seiten` : null,
+    `${candidates.length} ${appLocale?.current() === "en" ? "available" : "vorhanden"}`,
+    pageCount > candidates.length ? t("common.pages", { count: pageCount }) : null,
     blockedCount ? `${blockedCount} Formatfehler` : null,
-    currentCount > 1 ? `${currentCount} zum Arbeitsstand` : currentCount === 1 ? "zum Arbeitsstand" : (workspaceConceptLabel(workspace) || null)
+    currentCount > 1
+      ? `${currentCount} ${appLocale?.current() === "en" ? "from the current version" : "zum Arbeitsstand"}`
+      : currentCount === 1
+        ? (appLocale?.current() === "en" ? "from the current version" : "zum Arbeitsstand")
+        : (workspaceConceptLabel(workspace) || null)
   ].filter(Boolean);
   return parts.join(" · ");
 }
@@ -6825,10 +6861,10 @@ function candidateSidebarConceptLabel(candidate = {}) {
   const reference = candidate.concept || candidate;
   const version = Number(candidate.basedOnConceptVersion || reference.conceptVersion || 0) || null;
   if (version) {
-    return `Basierend auf Konzeptversion ${version}`;
+    return appLocale?.current() === "en" ? `Based on concept version ${version}` : `Basierend auf Konzeptversion ${version}`;
   }
   const label = conceptLabel(reference);
-  return label ? `Basierend auf ${label}` : "";
+  return label ? `${appLocale?.current() === "en" ? "Based on" : "Basierend auf"} ${label}` : "";
 }
 
 function hasInputArtifact(workspace) {
@@ -6840,18 +6876,28 @@ function inputArtifactMeta(workspace) {
   const meaningfulMessageCount = workspace.inputReadiness?.evidence?.meaningfulUserMessageCount || 0;
   const fileCount = sourceFilesFrom(workspace.documents?.source || {}).length;
   if (fileCount && meaningfulMessageCount) {
+    if (appLocale?.current() === "en") {
+      return `${fileCount} file${fileCount === 1 ? "" : "s"} · ${meaningfulMessageCount} usable message${meaningfulMessageCount === 1 ? "" : "s"}`;
+    }
     return `${fileCount} Datei${fileCount === 1 ? "" : "en"} · ${meaningfulMessageCount} verwertbare Nachricht${meaningfulMessageCount === 1 ? "" : "en"}`;
   }
   if (fileCount) {
-    return `${fileCount} Datei${fileCount === 1 ? "" : "en"}`;
+    return appLocale?.current() === "en"
+      ? `${fileCount} file${fileCount === 1 ? "" : "s"}`
+      : `${fileCount} Datei${fileCount === 1 ? "" : "en"}`;
   }
   if (workspace.documents?.source?.transferCard) {
     return "Import";
   }
   if (meaningfulMessageCount) {
+    if (appLocale?.current() === "en") {
+      return `${meaningfulMessageCount} usable message${meaningfulMessageCount === 1 ? "" : "s"}`;
+    }
     return meaningfulMessageCount === 1 ? "1 verwertbare Nachricht" : `${meaningfulMessageCount} verwertbare Nachrichten`;
   }
-  return messageCount ? "noch nicht verwertbar" : "offen";
+  return messageCount
+    ? (appLocale?.current() === "en" ? "not usable yet" : "noch nicht verwertbar")
+    : t("app.context.openValue");
 }
 
 function workspaceConceptLabel(workspace) {
@@ -6960,7 +7006,7 @@ function renderArtifactChild(row, index, total, relationContext = {}) {
         <span class="artifact-tree-copy">
           <span class="artifact-tree-title-line">
             <strong>${escapeHtml(row.label)}</strong>
-            ${row.blocked ? '<span class="artifact-tree-inline-status problem">Formatfehler</span>' : row.current ? '<span class="artifact-tree-inline-status">Arbeitsstand</span>' : ""}
+            ${row.blocked ? `<span class="artifact-tree-inline-status problem">${appLocale?.current() === "en" ? "Format error" : "Formatfehler"}</span>` : row.current ? `<span class="artifact-tree-inline-status">${escapeHtml(t("app.work.label"))}</span>` : ""}
           </span>
           <small>${escapeHtml(row.meta)}</small>
         </span>
@@ -7589,18 +7635,18 @@ function qualitySettingOptions() {
   return [
     {
       id: "sparsam",
-      label: "Schnell",
-      description: "Kurzer Prüflauf."
+      label: t("app.settings.fast"),
+      description: t("app.settings.fastHelp")
     },
     {
       id: "standard",
-      label: "Standard",
-      description: "Normaler Entwurf."
+      label: t("app.settings.standard"),
+      description: t("app.settings.standardHelp")
     },
     {
       id: "druckqualitaet",
-      label: "Hoch",
-      description: "Bewusster Qualitätslauf."
+      label: t("app.settings.high"),
+      description: t("app.settings.highHelp")
     }
   ];
 }
@@ -7644,16 +7690,16 @@ function renderSettings() {
   `).join("");
   container.innerHTML = `
     <div class="settings-control-block">
-      <h4>Bildweg</h4>
-      <p>${escapeHtml("Wählt, wie neue Entwürfe erzeugt werden.")}</p>
-      <div class="provider-setting-list" role="radiogroup" aria-label="Bildweg">
+      <h4>${escapeHtml(t("app.settings.imagePath"))}</h4>
+      <p>${escapeHtml(t("app.settings.imagePathHelp"))}</p>
+      <div class="provider-setting-list" role="radiogroup" aria-label="${escapeHtml(t("app.settings.imagePath"))}">
         ${providerOptionsHtml}
       </div>
     </div>
     <div class="settings-control-block">
-      <h4>Qualität</h4>
-      <p>${escapeHtml("Gilt für den ausgewählten Bildweg.")}</p>
-      <div class="segmented-setting-list" role="group" aria-label="Qualität">
+      <h4>${escapeHtml(t("app.settings.quality"))}</h4>
+      <p>${escapeHtml(t("app.settings.qualityHelp"))}</p>
+      <div class="segmented-setting-list" role="group" aria-label="${escapeHtml(t("app.settings.quality"))}">
         ${qualityOptionsHtml}
       </div>
     </div>
@@ -8319,6 +8365,17 @@ function candidateGenerationDisplayCommand(workspace = {}) {
   return command && shouldDisableGenerateCandidateAction(workspace, command) ? command : null;
 }
 
+function localizedActionLabel(label = "") {
+  const value = String(label || "");
+  if (appLocale?.current() !== "en") return value;
+  if (/weitere.*entwurfsvariante|weiteren.*entwurf/i.test(value)) return "Create another draft";
+  if (/entwurf.*erstellen|entwurf.*erzeugen/i.test(value)) return "Create draft";
+  if (/konzept.*überarbeiten|konzept.*ueberarbeiten/i.test(value)) return "Revise concept";
+  if (/mit diesem konzept weiterarbeiten|übernehmen|uebernehmen/i.test(value)) return "Adopt";
+  if (/arbeitsblätter? ablegen/i.test(value)) return /arbeitsblätter/i.test(value) ? "Save worksheets" : "Save worksheet";
+  return value;
+}
+
 function buttonActionForCommand(command = {}, workspace = state.workspace, overrides = {}) {
   if (!command?.id) {
     return null;
@@ -8327,9 +8384,9 @@ function buttonActionForCommand(command = {}, workspace = state.workspace, overr
   const nextPayload = overrides.payload ? { ...overrides.payload } : commandPayload(command);
   return {
     id: command.id,
-    label: disabledByBusy
+    label: localizedActionLabel(disabledByBusy
       ? candidateGenerationBusyLabel(workspace, command)
-      : overrides.label || decisionButtonLabel(command) || command.label,
+      : overrides.label || decisionButtonLabel(command) || command.label),
     payload: command.id === "generate_image_candidate"
       ? withConfiguredImageProvider(command, nextPayload)
       : nextPayload,
@@ -8530,10 +8587,10 @@ function renderChatRuntime(chat = {}) {
   const status = chat.status || chat.mode || "missing_key";
   const modeClass = status === "ready" ? "openai" : "error";
   const label = chat.mode === "openai" && status === "ready"
-    ? "KI bereit"
+    ? t("app.chat.ready")
     : status === "missing_key"
-      ? "OpenAI-Key fehlt"
-      : "OpenAI nicht bereit";
+      ? t("app.chat.missingKey")
+      : t("app.chat.notReady");
   return `<div class="chat-runtime ${modeClass}">${escapeHtml(label)}</div>`;
 }
 
@@ -8555,13 +8612,13 @@ function teachingContextFieldRows(context = {}) {
     const ready = Boolean(field.value);
     const iconName = ready ? "check" : "";
     const statusClass = field.assumption ? "assumed" : ready ? "known" : "missing";
-    const value = field.value || "offen";
+    const value = field.value || t("app.context.openValue");
     return `
       <li class="teaching-context-field ${escapeHtml(statusClass)}">
         <span class="teaching-context-status" aria-hidden="true">${iconName ? renderIcon(iconName, "teaching-context-check") : ""}</span>
         <span class="teaching-context-label">${escapeHtml(field.label || id)}</span>
         <strong>${escapeHtml(value)}</strong>
-        ${field.assumption || status === "assumed" ? '<em>Annahme</em>' : ""}
+        ${field.assumption || status === "assumed" ? `<em>${escapeHtml(t("app.context.assumption"))}</em>` : ""}
       </li>
     `;
   }).join("");
@@ -8570,22 +8627,24 @@ function teachingContextFieldRows(context = {}) {
 function teachingContextNote(context = {}) {
   const readiness = context.readiness || {};
   if (readiness.ready) {
-    return "Genug Infos für ein erstes Arbeitsblatt-Konzept.";
+    return appLocale?.current() === "en" ? "Enough information for a first worksheet concept." : "Genug Infos für ein erstes Arbeitsblatt-Konzept.";
   }
   if (readiness.forcedWithAssumptions) {
-    return "Vorschlag mit sichtbaren Annahmen ist erlaubt.";
+    return appLocale?.current() === "en" ? "A suggestion with visible assumptions is allowed." : "Vorschlag mit sichtbaren Annahmen ist erlaubt.";
   }
-  return context.nextQuestion || "Ich kläre kurz, wofür das Arbeitsblatt im Unterricht funktionieren soll.";
+  return context.nextQuestion || (appLocale?.current() === "en"
+    ? "I will briefly clarify how the worksheet should work in class."
+    : "Ich kläre kurz, wofür das Arbeitsblatt im Unterricht funktionieren soll.");
 }
 
 function teachingContextStatusLabel(readiness = {}) {
   if (readiness.conceptAllowed) {
-    return "bereit";
+    return t("app.context.ready");
   }
   if (readiness.forcedWithAssumptions) {
-    return "mit Annahmen";
+    return t("app.context.assumed");
   }
-  return "wird geklärt";
+  return t("app.context.clarifying");
 }
 
 function teachingContextStatusTone(readiness = {}) {
@@ -8620,9 +8679,9 @@ function renderTeachingContextChip(readiness = {}) {
   const statusLabel = teachingContextStatusLabel(readiness);
   const statusTone = teachingContextStatusTone(readiness);
   return `
-    <button class="teaching-context-chip" type="button" data-teaching-context-toggle data-status="${escapeHtml(statusTone)}" aria-expanded="false" aria-label="Unterrichtsrahmen öffnen" title="Unterrichtsrahmen öffnen">
+    <button class="teaching-context-chip" type="button" data-teaching-context-toggle data-status="${escapeHtml(statusTone)}" aria-expanded="false" aria-label="${escapeHtml(t("app.context.open"))}" title="${escapeHtml(t("app.context.open"))}">
       ${renderIcon("notebook-text", "teaching-context-chip-icon")}
-      <span>Unterrichtsrahmen</span>
+      <span>${escapeHtml(t("app.context.title"))}</span>
       <strong>${escapeHtml(statusLabel)}</strong>
       ${renderIcon("chevron-down", "teaching-context-chip-chevron")}
     </button>
@@ -8652,21 +8711,21 @@ function renderTeachingContextPanel(workspace = {}) {
     : `
       <div class="teaching-context-header">
         <div>
-          <p>Unterrichtsrahmen</p>
+          <p>${escapeHtml(t("app.context.title"))}</p>
           <strong>${escapeHtml(teachingContextStatusLabel(readiness))}</strong>
         </div>
-        <button class="teaching-context-minimize-button" type="button" data-teaching-context-toggle aria-expanded="true" aria-label="Unterrichtsrahmen einklappen" title="Unterrichtsrahmen einklappen">
+        <button class="teaching-context-minimize-button" type="button" data-teaching-context-toggle aria-expanded="true" aria-label="${escapeHtml(t("app.context.collapse"))}" title="${escapeHtml(t("app.context.collapse"))}">
           ${renderIcon("chevron-down", "teaching-context-minimize-icon")}
         </button>
       </div>
       <ul>${teachingContextFieldRows(context)}</ul>
       <div class="teaching-context-next">
-        <span>Nächste Klärung</span>
+        <span>${escapeHtml(t("app.context.next"))}</span>
         <p>${escapeHtml(teachingContextNote(context))}</p>
       </div>
       ${readiness.conceptAllowed ? "" : `
         <button class="secondary-button mini-button teaching-context-force" type="button" data-teaching-context-force>
-          Trotzdem Vorschlag machen
+          ${escapeHtml(t("app.context.force"))}
         </button>
       `}
     `;
@@ -8692,10 +8751,8 @@ function parsePayload(value) {
 
 function renderChatIntro(workspace) {
   const text = workspace.project.isLegacy
-    ? "Dieses Projekt ist als Legacy-Stand geöffnet. Du kannst es prüfen, aber nicht direkt weiter produzieren."
-    : workspace.chat?.mode === "openai"
-      ? "Beschreibe kurz, welches Arbeitsblatt du brauchst, oder hänge Material an. Ich kläre mit dir den Unterrichtsrahmen und schlage danach den nächsten sinnvollen Schritt vor."
-      : "Beschreibe kurz, welches Arbeitsblatt du brauchst, oder hänge Material an. Ich kläre mit dir den Unterrichtsrahmen und schlage danach den nächsten sinnvollen Schritt vor.";
+    ? t("app.chat.legacy")
+    : t("app.chat.intro");
   return `
     <div class="chat-message assistant">
       <div class="assistant-avatar">AI</div>
@@ -8862,7 +8919,7 @@ function renderCompletedActionButtons(actions = [], context = {}) {
   return `
     <div class="message-actions message-actions-completed">${labels.map((label) => `
       <button class="secondary-button mini-button message-action-completed-button" type="button" disabled>
-        ${escapeHtml(`Ausgeführt: ${label}`)}
+        ${escapeHtml(t("app.chat.completed", { label }))}
       </button>
     `).join("")}</div>
   `;
@@ -8876,10 +8933,10 @@ function renderChatAttachments(attachments = []) {
   }
   const renderInputUpload = (attachment) => {
     const uploadPath = attachment.path || attachment.source?.path || "";
-    const label = attachment.label || attachment.originalName || fileName(uploadPath) || "Datei";
+    const label = attachment.label || attachment.originalName || fileName(uploadPath) || t("app.chat.file");
     const mimeType = attachment.mimeType || attachment.source?.mimeType || "";
     const imageUrl = isPreviewableImageType(mimeType) ? sourceFileUrl(currentProjectId(), { path: uploadPath }) : null;
-    const typeLabel = imageUrl ? "Bild" : "Angehängte Datei";
+    const typeLabel = imageUrl ? t("app.chat.image") : t("app.chat.attachedFile");
     return `
     <figure class="message-attachment input-upload">
       ${imageUrl
@@ -8895,10 +8952,10 @@ function renderChatAttachments(attachments = []) {
   return `<div class="message-attachments">${[
     ...visualAttachments.map((attachment) => `
     <figure class="message-attachment visual-feedback">
-      <img src="${escapeHtml(attachment.url || attachment.previewUrl || attachment.dataUrl || "")}" alt="${escapeHtml(attachment.label || "Screenshot-Ausschnitt")}">
+      <img src="${escapeHtml(attachment.url || attachment.previewUrl || attachment.dataUrl || "")}" alt="${escapeHtml(attachment.label || t("app.chat.screenshotExcerpt"))}">
       <figcaption>
-        <span>${escapeHtml(attachment.label || "Ausschnitt")}</span>
-        <small>${escapeHtml(attachment.source?.candidateId ? `Visuelle Rückmeldung zu ${draftDisplayLabel({ id: attachment.source.candidateId })}` : "Visuelle Rückmeldung")}</small>
+        <span>${escapeHtml(attachment.label || t("app.chat.screenshotExcerpt"))}</span>
+        <small>${escapeHtml(attachment.source?.candidateId ? t("app.chat.visualFeedbackFor", { draft: draftDisplayLabel({ id: attachment.source.candidateId }) }) : t("app.chat.visualFeedback"))}</small>
       </figcaption>
     </figure>
   `),
@@ -8921,12 +8978,12 @@ function renderPendingProductionCard(card = {}) {
   const isCandidateGeneration = card.commandId === "generate_image_candidate";
   const pageCount = Number(card.pageCount || 0);
   const isSeries = isCandidateGeneration && pageCount > 1;
-  const title = isSeries ? "Mehrseitiger Entwurf wird gerendert" : isCandidateGeneration ? "Entwurf wird gerendert" : card.label || "Aktion läuft";
+  const title = isSeries ? t("app.chat.seriesRendering") : isCandidateGeneration ? t("app.chat.draftRendering") : card.label || t("app.chat.actionRunning");
   const text = isCandidateGeneration
     ? isSeries
-      ? `Das Bildmodell erstellt gerade ${pageCount} zusammengehörige Seiten. Sie erscheinen danach als ein mehrseitiger Entwurf.`
-      : "Das Bildmodell erstellt gerade einen neuen Entwurf. Das kann einen Moment dauern."
-    : card.message || "Der Produktionsschritt wird ausgeführt.";
+      ? t("app.chat.seriesRenderingBody", { count: pageCount })
+      : t("app.chat.draftRenderingBody")
+    : card.message || t("app.chat.productionRunning");
   return `
     <article class="chat-result-card pending${isCandidateGeneration ? " candidate-render-pending" : ""}">
       <div class="chat-result-spinner">${isCandidateGeneration ? icon("scan-line", "icon icon-small") : renderMiniSpinner()}</div>
@@ -8937,15 +8994,15 @@ function renderPendingProductionCard(card = {}) {
           <div class="render-page-placeholders" aria-label="${escapeHtml(`${pageCount} Seiten werden gerendert`)}">
             ${Array.from({ length: Math.min(pageCount, 4) }, (_, index) => `
               <span>
-                <b>Seite ${index + 1}</b>
-                <small>wird erstellt</small>
+                <b>${escapeHtml(t("common.page", { number: index + 1 }))}</b>
+                <small>${escapeHtml(t("app.chat.pageRendering"))}</small>
               </span>
             `).join("")}
           </div>
         ` : ""}
         ${isCandidateGeneration ? `
-          <div class="render-progress-steps" aria-label="Rendering läuft">
-            <span>Bildmodell gestartet</span>
+          <div class="render-progress-steps" aria-label="${escapeHtml(t("app.chat.rendering"))}">
+            <span>${escapeHtml(t("app.chat.modelStarted"))}</span>
             <span>${escapeHtml(isSeries ? "Layout, Text und Seitenstil werden gerendert" : "Layout und Text werden gerendert")}</span>
             <span>${escapeHtml(isSeries ? "Der mehrseitige Entwurf erscheint automatisch im Chat" : "Der Entwurf erscheint automatisch im Chat")}</span>
           </div>
@@ -8965,7 +9022,7 @@ function renderCandidateChatCard(card = {}, workspace) {
         <div class="chat-result-spinner">${renderMiniSpinner()}</div>
         <div>
           <strong>${escapeHtml(draftDisplayLabel({ id: card.candidateId }))}</strong>
-          <p>Der Entwurf wird vorbereitet.</p>
+          <p>${escapeHtml(t("app.chat.draftPreparing"))}</p>
         </div>
       </article>
     `;
@@ -8977,13 +9034,13 @@ function renderCandidateChatCard(card = {}, workspace) {
   const imageDownloads = candidateImageDownloads(pages, draftFilePrefix(displayCandidate));
   const candidatePreviewActions = `
     <span class="candidate-chat-preview-actions">
-      <button class="icon-button icon-button-plain concept-chat-action-button" type="button" data-card-action="revise-candidate" data-run-id="${escapeHtml(candidate.runId || "")}" data-candidate-id="${escapeHtml(candidate.id)}" data-display-label="${escapeHtml(displayCandidateId)}" data-page="${escapeHtml(page.page || 1)}" aria-label="Entwurf anpassen" title="Entwurf anpassen">
+      <button class="icon-button icon-button-plain concept-chat-action-button" type="button" data-card-action="revise-candidate" data-run-id="${escapeHtml(candidate.runId || "")}" data-candidate-id="${escapeHtml(candidate.id)}" data-display-label="${escapeHtml(displayCandidateId)}" data-page="${escapeHtml(page.page || 1)}" aria-label="${escapeHtml(t("app.draft.adjust"))}" title="${escapeHtml(t("app.draft.adjust"))}">
         ${icon("square-pen", "icon icon-small")}
       </button>
-      <button class="icon-button icon-button-plain concept-chat-action-button" type="button" data-canvas-mode="candidates" data-artifact-kind="candidate" data-run-id="${escapeHtml(candidate.runId || "")}" data-candidate-id="${escapeHtml(candidate.id)}" aria-label="Entwurf in der Vorschau öffnen" title="Entwurf in der Vorschau öffnen">
+      <button class="icon-button icon-button-plain concept-chat-action-button" type="button" data-canvas-mode="candidates" data-artifact-kind="candidate" data-run-id="${escapeHtml(candidate.runId || "")}" data-candidate-id="${escapeHtml(candidate.id)}" aria-label="${escapeHtml(t("app.draft.openPreview"))}" title="${escapeHtml(t("app.draft.openPreview"))}">
         ${icon("eye", "icon icon-small")}
       </button>
-      <button class="candidate-info-button" type="button" data-card-action="candidate-info" data-candidate-id="${escapeHtml(candidate.id)}" data-run-id="${escapeHtml(candidate.runId || "")}" aria-label="Generierungsinfo anzeigen" title="Generierungsinfo anzeigen">
+      <button class="candidate-info-button" type="button" data-card-action="candidate-info" data-candidate-id="${escapeHtml(candidate.id)}" data-run-id="${escapeHtml(candidate.runId || "")}" aria-label="${escapeHtml(t("app.draft.info"))}" title="${escapeHtml(t("app.draft.info"))}">
         ${icon("info", "icon icon-small")}
       </button>
       ${renderCandidateImageDownloadButton(imageDownloads)}
@@ -9011,7 +9068,7 @@ function renderCandidateChatCard(card = {}, workspace) {
       <figcaption>
         <div class="candidate-chat-header">
           <span class="candidate-chat-title">
-            <strong>${escapeHtml(`${displayCandidateId} ist fertig`)}</strong>
+            <strong>${escapeHtml(t("app.chat.draftFinished", { draft: displayCandidateId }))}</strong>
             ${basisLabel ? `<small>${escapeHtml(basisLabel)}</small>` : ""}
           </span>
         </div>
@@ -9253,7 +9310,7 @@ function isConceptNarrationMessage(message = {}) {
 }
 
 function renderConceptNarrationCopy(message = {}) {
-  const feedbackLabel = "Einschätzung zum Konzept";
+  const feedbackLabel = t("app.chat.feedbackOnConcept");
   return `
     <section class="concept-feedback-panel">
       <div class="concept-feedback-header">
@@ -9296,8 +9353,10 @@ function candidateMessageDisplayContent(message = {}, workspace = {}) {
       || Number(candidate.generation?.generatedPageCount || candidate.generation?.pageCount || 0)
       || 0
     : Number(card.pageCount || 0) || 0;
-  const pageLabel = pageCount ? `${pageCount} Seite${pageCount === 1 ? "" : "n"}.` : "";
-  return `${displayLabel} ist fertig.${pageLabel ? ` ${pageLabel}` : ""}`;
+  const pageLabel = pageCount
+    ? `${t(pageCount === 1 ? "app.draft.pageCount" : "app.draft.pageCountPlural", { count: pageCount })}.`
+    : "";
+  return `${t("app.chat.draftFinished", { draft: displayLabel })}.${pageLabel ? ` ${pageLabel}` : ""}`;
 }
 
 function messageDisplayContent(message = {}, workspace = {}) {
@@ -9394,11 +9453,11 @@ function renderChatMessage(message, visibleCommandIds = new Set(), extraCommands
   const stateClass = message.pending ? " pending" : message.failed ? " failed" : message.streaming ? " streaming" : "";
   const commandClass = message.productionCard?.kind === "command_pending" ? " command-pending" : "";
   const metaSuffix = message.pending
-    ? message.productionCard?.kind === "command_pending" ? " · läuft" : " · wird gesendet"
+    ? message.productionCard?.kind === "command_pending" ? ` · ${t("common.inProgress").toLowerCase()}` : ` · ${t("app.chat.sending")}`
     : message.streaming
-      ? " · schreibt"
+      ? ` · ${t("app.chat.writing")}`
       : message.failed
-        ? " · nicht gesendet"
+        ? ` · ${t("app.chat.notSent")}`
         : message.createdAt ? ` · ${escapeHtml(timeOnly(message.createdAt))}` : "";
   const hideConceptCopy = isConceptViewerOnlyMessage(message) && !message.streaming && !message.failed;
   const hasCopy = !hideConceptCopy && (messageDisplayContent(message, workspace) || message.streaming || message.failed);
@@ -9409,7 +9468,7 @@ function renderChatMessage(message, visibleCommandIds = new Set(), extraCommands
     <div class="chat-message ${role}${stateClass}${commandClass}">
       ${role === "assistant" ? '<div class="assistant-avatar">AI</div>' : ""}
       <div class="message-bubble">
-        <div class="message-meta">${role === "user" ? "Ich" : "Sheetify IMG AI"}${metaSuffix}</div>
+        <div class="message-meta">${role === "user" ? t("app.chat.me") : "Sheetify IMG AI"}${metaSuffix}</div>
         ${renderChatRevisionTarget(message.revisionTarget)}
         ${copyAfterCard ? "" : copyHtml}
         ${renderChatAttachments(message.attachments || [])}
@@ -9428,7 +9487,7 @@ function renderThinkingMessage() {
       <div class="assistant-avatar">AI</div>
       <div class="message-bubble">
         <div class="message-meta">Sheetify IMG AI</div>
-        <p class="thinking-line"><span></span><span></span><span></span><em>Antwort wird vorbereitet</em></p>
+        <p class="thinking-line"><span></span><span></span><span></span><em>${escapeHtml(t("app.chat.thinking"))}</em></p>
       </div>
     </div>
   `;
@@ -9617,7 +9676,7 @@ function decisionButtonLabel(command) {
     return /weitere/i.test(command.label || "") ? "Weiteren mehrseitigen Entwurf erstellen" : "Mehrseitigen Entwurf erstellen";
   }
   if (command.id === "generate_image_candidate" && /variante/i.test(command.label || "")) {
-    return "Weitere Entwurfsvariante erzeugen";
+    return appLocale?.current() === "en" ? "Create another draft" : "Weitere Entwurfsvariante erzeugen";
   }
   if (command.id === "generate_content_mirror_proposal" && /überarbeiten|ueberarbeiten|aktualisieren/i.test(command.label || "")) {
     return "Konzept überarbeiten";
@@ -10326,7 +10385,18 @@ function canvasUiState() {
 }
 
 function renderCanvas(workspace, mode) {
-  const title = canvasLabels[mode] || "Canvas";
+  const localizedCanvasLabels = {
+    assignment: "Input",
+    brief: t("app.concept.title"),
+    content: t("app.concept.title"),
+    warnings: t("app.concept.title"),
+    candidates: t("app.preview.drafts"),
+    lessonbrief_proposal: t("app.concept.title"),
+    content_proposal: t("app.concept.title"),
+    warnings_proposal: appLocale?.current() === "en" ? "Concept feedback" : "Konzept-Feedback",
+    image_spec_proposal: appLocale?.current() === "en" ? "Reference/template" : "Referenz/Vorlage"
+  };
+  const title = localizedCanvasLabels[mode] || canvasLabels[mode] || "Canvas";
   elements.canvasTitle.textContent = title;
   const canCapture = canvasRenderer.canCapture(workspace, mode, canvasUiState());
   if (!canCapture && state.canvasCapture.active) {
@@ -10520,7 +10590,7 @@ function renderCanvasProposal(workspace, mode) {
     return;
   }
   if (mode === "content_proposal" || (proposal.status === "adopted" && mode === "lessonbrief_proposal")) {
-    elements.canvasTitle.textContent = "Arbeitsblatt-Konzept";
+    elements.canvasTitle.textContent = t("app.concept.title");
   }
   if (mode === "lessonbrief_proposal") {
     renderLessonBriefProposal(proposal, workspace);
@@ -10850,7 +10920,7 @@ async function sendChatMessage(message, context = {}) {
 function removeComposerAttachment(attachmentId) {
   state.composerAttachments = state.composerAttachments.filter((attachment) => attachment.id !== attachmentId);
   if (!state.composerAttachments.length) {
-    elements.chatInput.placeholder = "Nachricht an Sheetify IMG AI...";
+    elements.chatInput.placeholder = t("app.chat.placeholder");
   }
   renderComposerAttachments();
 }
@@ -10987,7 +11057,7 @@ function submitComposerMessage() {
   state.composerAttachments = [];
   clearInputUploadReceipts();
   clearRevisionTarget();
-  elements.chatInput.placeholder = "Nachricht an Sheetify IMG AI...";
+  elements.chatInput.placeholder = t("app.chat.placeholder");
   renderComposerAttachments();
   sendChatMessage(effectiveMessage, {
     ...(attachments.length
@@ -11426,6 +11496,20 @@ window.sheetifyBetaFeedbackContext = () => {
     uiView: state.mode === "workspace" ? "workspace" : state.libraryView
   };
 };
+
+window.addEventListener("sheetify:localechange", () => {
+  appLocale?.apply(document);
+  renderLibraryViewChrome();
+  if (state.mode === "workspace" && state.workspace) {
+    renderWorkspace();
+  } else if (state.selectedItem) {
+    if (isTreeWorksheetItemId(state.selectedId)) {
+      renderWorksheetItem(state.selectedItem);
+    } else {
+      renderProject(state.selectedItem, state.activeStatusStep);
+    }
+  }
+});
 
 initializeCustomScrollbars();
 updateVoiceButton();

@@ -2,6 +2,7 @@
 
 const sharp = require("sharp");
 const { createQrSvg } = require("../qrCodeManager");
+const { normalizeLocale } = require("../locale");
 
 const CARD_WIDTH = 1200;
 const CARD_HEIGHT = 756;
@@ -24,27 +25,68 @@ function shortLabel(value, fallback) {
   return label.length > 54 ? `${label.slice(0, 53).trimEnd()}…` : label;
 }
 
+const CARD_MESSAGES = Object.freeze({
+  de: Object.freeze({
+    accessCode: "ZUGANGSCODE",
+    digitalAccess: "Digitaler Beta-Zugang",
+    pass: Object.freeze({
+      title: "Sheetify IMG Beta Pass",
+      fallbackLabel: "Gemeinsamer Arbeitsbereich",
+      description: "Scannen oder Code eingeben und den Arbeitsbereich öffnen.",
+      note: "Wer diese Karte besitzt, kann auf den Arbeitsbereich zugreifen.",
+      qrLabel: "Arbeitsbereich öffnen"
+    }),
+    topup: Object.freeze({
+      title: "Sheetify IMG Guthabenkarte",
+      singularCredits: "Entwurfsseite",
+      pluralCredits: "Entwurfsseiten",
+      description: "Einmal einlösen und direkt weitergestalten.",
+      note: "Einmal einlösbar · Der Code wird nach dem Einlösen ungültig.",
+      qrLabel: "Guthaben einlösen"
+    })
+  }),
+  en: Object.freeze({
+    accessCode: "ACCESS CODE",
+    digitalAccess: "Digital beta access",
+    pass: Object.freeze({
+      title: "Sheetify IMG Beta Pass",
+      fallbackLabel: "Shared workspace",
+      description: "Scan or enter the code to open the workspace.",
+      note: "Anyone with this card can access the shared workspace.",
+      qrLabel: "Open workspace"
+    }),
+    topup: Object.freeze({
+      title: "Sheetify IMG Credit Voucher",
+      singularCredits: "draft page",
+      pluralCredits: "draft pages",
+      description: "Redeem once and continue designing right away.",
+      note: "Single use · The code becomes invalid after redemption.",
+      qrLabel: "Redeem credit"
+    })
+  })
+});
+
 function cardCopy(input) {
+  const locale = normalizeLocale(input.locale);
+  const messages = CARD_MESSAGES[locale];
   if (input.kind === "topup") {
     const credits = Number(input.credits || 0);
     return {
-      title: "Sheetify IMG Guthabenkarte",
-      eyebrow: `${credits} ${credits === 1 ? "Entwurfsseite" : "Entwurfsseiten"}`,
-      description: "Einmal einlösen und direkt weitergestalten.",
-      note: "Einmal einlösbar · Der Code wird nach dem Einlösen ungültig.",
+      ...messages.topup,
+      accessCode: messages.accessCode,
+      digitalAccess: messages.digitalAccess,
+      eyebrow: `${credits} ${credits === 1 ? messages.topup.singularCredits : messages.topup.pluralCredits}`,
       accent: "#23845b",
-      accentSoft: "#dcefe5",
-      qrLabel: "Guthaben einlösen"
+      accentSoft: "#dcefe5"
     };
   }
   return {
-    title: "Sheetify IMG Beta Pass",
-    eyebrow: shortLabel(input.label, "Gemeinsamer Arbeitsbereich"),
-    description: "Scannen oder Code eingeben und den Arbeitsbereich öffnen.",
-    note: "Wer diese Karte besitzt, kann auf den Arbeitsbereich zugreifen.",
+    ...messages.pass,
+    accessCode: messages.accessCode,
+    digitalAccess: messages.digitalAccess,
+    eyebrow: shortLabel(input.label, messages.pass.fallbackLabel),
     accent: "#df6c4f",
-    accentSoft: "#f8ded5",
-    qrLabel: "Arbeitsbereich öffnen"
+    accentSoft: "#f8ded5"
   };
 }
 
@@ -96,7 +138,7 @@ async function createBetaCard(input = {}) {
     <text x="72" y="270" font-size="21" fill="#6f6962">${escapeXml(copy.description)}</text>
 
     <rect x="68" y="325" width="680" height="126" rx="22" fill="#fff" stroke="#ded5ca" stroke-width="2"/>
-    <text x="102" y="365" font-size="15" font-weight="800" letter-spacing="3" fill="#8a8178">ZUGANGSCODE</text>
+    <text x="102" y="365" font-size="15" font-weight="800" letter-spacing="3" fill="#8a8178">${escapeXml(copy.accessCode)}</text>
     <text x="102" y="415" font-family="ui-monospace,SFMono-Regular,Consolas,monospace" font-size="31" font-weight="750" letter-spacing="1.6" fill="#25221f">${escapeXml(code)}</text>
 
     <rect x="846" y="240" width="278" height="278" rx="28" fill="#fffdf8" stroke="#ded5ca" stroke-width="2"/>
@@ -107,7 +149,7 @@ async function createBetaCard(input = {}) {
     <line x1="72" y1="584" x2="1128" y2="584" stroke="#ded5ca"/>
     <text x="72" y="632" font-size="17" font-weight="700" fill="#4c4742">sheetify.jujies.app</text>
     <text x="72" y="671" font-size="15" fill="#6f6962">Support: sheetify@jujies.app</text>
-    <text x="1128" y="671" text-anchor="end" font-size="15" fill="#6f6962">Digitaler Beta-Zugang</text>
+    <text x="1128" y="671" text-anchor="end" font-size="15" fill="#6f6962">${escapeXml(copy.digitalAccess)}</text>
   </g>
 </svg>`;
   const png = await sharp(Buffer.from(svg, "utf8"))
@@ -124,6 +166,7 @@ async function createBetaCard(input = {}) {
 }
 
 module.exports = {
+  CARD_MESSAGES,
   CARD_HEIGHT,
   CARD_WIDTH,
   createBetaCard

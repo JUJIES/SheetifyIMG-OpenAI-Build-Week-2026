@@ -10,6 +10,7 @@
   }
 
   function createCandidateCardRenderer(dependencies = {}) {
+    const t = (key, variables = {}) => global.sheetifyLocale?.t(key, variables) || key;
     const escapeHtml = requiredFunction(dependencies, "escapeHtml");
     const icon = requiredFunction(dependencies, "icon");
     const fileName = requiredFunction(dependencies, "fileName");
@@ -26,7 +27,9 @@
         ? candidate.generation.referenceImages.length
         : 0;
       const referenceBadge = referenceCount
-        ? `${referenceCount} Referenz${referenceCount === 1 ? "" : "en"}`
+        ? (global.sheetifyLocale?.current() === "en"
+          ? `${referenceCount} reference${referenceCount === 1 ? "" : "s"}`
+          : `${referenceCount} Referenz${referenceCount === 1 ? "" : "en"}`)
         : null;
       const allBadges = [...badges, referenceBadge].filter(Boolean);
       if (!allBadges.length) {
@@ -64,7 +67,9 @@
       if (!downloads.length) {
         return "";
       }
-      const label = downloads.length > 1 ? "Bilder herunterladen" : "Bild herunterladen";
+      const label = global.sheetifyLocale?.current() === "en"
+        ? (downloads.length > 1 ? "Download images" : "Download image")
+        : (downloads.length > 1 ? "Bilder herunterladen" : "Bild herunterladen");
       return `
         <button class="secondary-button mini-button download-icon-button" type="button" data-card-action="download-candidate-images" data-download-pages="${escapeHtml(JSON.stringify(downloads))}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">
           ${icon("download", "icon icon-small")}
@@ -95,6 +100,9 @@
     }
 
     function candidateWorksheetDepositStatusLabel(pageCount = 1) {
+      if (global.sheetifyLocale?.current() === "en") {
+        return Number(pageCount || 0) > 1 ? "Worksheets have already been saved." : "Worksheet has already been saved.";
+      }
       return Number(pageCount || 0) > 1
         ? "Arbeitsblätter wurden bereits abgelegt."
         : "Arbeitsblatt wurde bereits abgelegt.";
@@ -104,6 +112,9 @@
       const displayLabel = draftDisplayLabel(candidate);
       if (!displayLabel) {
         return baseLabel;
+      }
+      if (global.sheetifyLocale?.current() === "en") {
+        return `${baseLabel} from ${displayLabel}`;
       }
       return String(baseLabel || "").replace(/\s+ablegen$/i, ` für ${displayLabel} ablegen`);
     }
@@ -136,14 +147,16 @@
       if (candidate.worksheetDeposited === true || deposits.length) {
         const worksheetId = deposits[0]?.worksheetId || "";
         const displayLabel = draftDisplayLabel(candidate);
-        const openLabel = displayLabel ? `Zum Arbeitsblatt von ${displayLabel}` : "Zum Arbeitsblatt";
+        const openLabel = global.sheetifyLocale?.current() === "en"
+          ? (displayLabel ? `Open worksheet from ${displayLabel}` : "Open worksheet")
+          : (displayLabel ? `Zum Arbeitsblatt von ${displayLabel}` : "Zum Arbeitsblatt");
         return `
           <div class="candidate-deposit-status">
             <span>${escapeHtml(candidateWorksheetDepositStatusLabel(pageCount))}</span>
             ${worksheetId ? `
               <button class="secondary-button mini-button worksheet-open-button" type="button" data-card-action="open-deposited-worksheet" data-worksheet-id="${escapeHtml(worksheetId)}" ${candidateActionAttributes(candidate)} aria-label="${escapeHtml(openLabel)}" title="${escapeHtml(openLabel)}">
                 ${icon("file-text", "icon icon-small")}
-                <span>Zum Arbeitsblatt</span>
+                <span>${global.sheetifyLocale?.current() === "en" ? "Open worksheet" : "Zum Arbeitsblatt"}</span>
               </button>
             ` : ""}
           </div>
@@ -164,7 +177,7 @@
       const firstPage = pages[0];
       const foundation = conceptLabel(candidate.concept || candidate);
       if (!firstPage) {
-        return `<div class="missing-preview"><div><strong>${escapeHtml(draftDisplayLabel(candidate))}</strong><br>${escapeHtml(foundation || "Keine Bilddatei gefunden.")}</div></div>`;
+        return `<div class="missing-preview"><div><strong>${escapeHtml(draftDisplayLabel(candidate))}</strong><br>${escapeHtml(foundation || (global.sheetifyLocale?.current() === "en" ? "No image file found." : "Keine Bilddatei gefunden."))}</div></div>`;
       }
       const plannedPageCount = Number(candidate.generation?.pageCount || candidate.generation?.plannedPageCount || pages.length) || pages.length;
       const isBundle = plannedPageCount > 1 || pages.length > 1;
@@ -195,7 +208,7 @@
               ${renderCandidateHeaderTags(candidate, options)}
             </span>
             <span class="preview-paper-actions">
-              <button class="candidate-info-button" type="button" data-card-action="candidate-info" data-candidate-id="${escapeHtml(candidate.id)}" data-run-id="${escapeHtml(candidate.runId || "")}" aria-label="Generierungsinfo anzeigen" title="Generierungsinfo anzeigen">
+              <button class="candidate-info-button" type="button" data-card-action="candidate-info" data-candidate-id="${escapeHtml(candidate.id)}" data-run-id="${escapeHtml(candidate.runId || "")}" aria-label="${escapeHtml(t("app.draft.info"))}" title="${escapeHtml(t("app.draft.info"))}">
                 ${icon("info", "icon icon-small")}
               </button>
               ${renderCandidateImageDownloadButton(imageDownloads)}
@@ -207,7 +220,7 @@
                 <img
                   ${index === 0 ? "data-capture-image" : ""}
                   src="${escapeHtml(page.url)}"
-                  alt="${escapeHtml(`${displayCandidateId} Seite ${page.page || index + 1}`)}"
+                  alt="${escapeHtml(`${displayCandidateId} · ${t("common.page", { number: page.page || index + 1 })}`)}"
                   loading="lazy"
                 >
               </div>

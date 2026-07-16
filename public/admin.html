@@ -40,6 +40,13 @@
             <label>Name des Arbeitsbereichs<input name="label" required placeholder="z. B. Beta · Anna"></label>
             <label>E-Mail optional<input name="email" type="email" placeholder="anna@schule.de"></label>
             <label>Startguthaben<input name="credits" type="number" min="1" max="1000" value="20" required></label>
+            <label>Ablauf optional<input name="expiresAt" type="datetime-local"></label>
+            <label>Sprache der Einladung
+              <select name="invitationLocale">
+                <option value="de">Deutsch</option>
+                <option value="en">English</option>
+              </select>
+            </label>
             <button type="submit" class="primary">Pass und Karte erstellen</button>
           </form>
         </article>
@@ -55,6 +62,12 @@
             <label>Entwurfsseiten<input name="amount" type="number" min="1" max="1000" value="10" required></label>
             <label>Bezeichnung optional<input name="label" placeholder="10 Entwurfsseiten"></label>
             <label>E-Mail optional<input name="email" type="email" placeholder="anna@schule.de"></label>
+            <label>Sprache der Karte
+              <select name="locale">
+                <option value="de">Deutsch</option>
+                <option value="en">English</option>
+              </select>
+            </label>
             <button type="submit" class="secondary">Guthabenkarte erzeugen</button>
           </form>
         </article>

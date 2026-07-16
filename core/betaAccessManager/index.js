@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { readJsonFileIfExists, writeJsonFile } = require("../jsonFile");
+const { normalizeLocale } = require("../locale");
 
 const SCHEMA_VERSION = "sheetifyimg.beta-access.v1";
 const CONSENT_VERSION = "sheetifyimg.beta-evaluation.v1";
@@ -105,6 +106,12 @@ function optionalContextId(value, label) {
   return id;
 }
 
+function optionalStoredLocale(value) {
+  return value === undefined || value === null || value === ""
+    ? null
+    : normalizeLocale(value);
+}
+
 function emptyState(now) {
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -127,6 +134,24 @@ function normalizeState(raw, now) {
   for (const field of ["passes", "sessions", "pairings", "requests", "feedback", "recoveryTokens", "topupCards", "reservations", "ledger", "audit"]) {
     state[field] = Array.isArray(state[field]) ? state[field] : [];
   }
+  state.passes = state.passes.map((pass) => ({
+    ...pass,
+    invitationLocale: normalizeLocale(pass.invitationLocale)
+  }));
+  state.sessions = state.sessions.map((session) => ({
+    ...session,
+    uiLocale: normalizeLocale(session.uiLocale),
+    consentLocale: optionalStoredLocale(session.consentLocale)
+  }));
+  state.requests = state.requests.map((request) => ({
+    ...request,
+    uiLocale: optionalStoredLocale(request.uiLocale)
+  }));
+  state.feedback = state.feedback.map((feedback) => ({
+    ...feedback,
+    uiLocale: optionalStoredLocale(feedback.uiLocale),
+    consentLocale: optionalStoredLocale(feedback.consentLocale)
+  }));
   state.schemaVersion = SCHEMA_VERSION;
   return state;
 }
@@ -165,6 +190,7 @@ function publicPass(state, pass) {
     expiresAt: pass.expiresAt || null,
     recoveryEnabled: Boolean(pass.recoveryEmail),
     codeHint: pass.codeHint || null,
+    invitationLocale: normalizeLocale(pass.invitationLocale),
     balance: passBalance(state, pass.id),
     deviceCount: activeSessions.length,
     lastActivityAt: activeSessions.map((entry) => entry.lastSeenAt || entry.createdAt).sort().at(-1) || null
@@ -185,6 +211,8 @@ function publicSession(session, currentSessionId = null) {
     createdAt: session.createdAt,
     lastSeenAt: session.lastSeenAt,
     expiresAt: session.expiresAt,
+    uiLocale: normalizeLocale(session.uiLocale),
+    consentLocale: optionalStoredLocale(session.consentLocale),
     current: session.id === currentSessionId
   };
 }
@@ -207,11 +235,13 @@ function publicRequest(state, request) {
     updatedAt: request.updatedAt,
     resolvedAt: request.resolvedAt || null,
     adminNote: request.adminNote || "",
+    uiLocale: optionalStoredLocale(request.uiLocale),
     pass: pass ? {
       id: pass.id,
       label: pass.label,
       status: pass.status,
-      codeHint: pass.codeHint || null
+      codeHint: pass.codeHint || null,
+      invitationLocale: normalizeLocale(pass.invitationLocale)
     } : null
   };
 }
@@ -233,6 +263,8 @@ function publicFeedback(state, feedback) {
     uiView: feedback.uiView || null,
     deviceClass: feedback.deviceClass || null,
     consentVersion: feedback.consentVersion,
+    uiLocale: optionalStoredLocale(feedback.uiLocale),
+    consentLocale: optionalStoredLocale(feedback.consentLocale),
     createdAt: feedback.createdAt,
     updatedAt: feedback.updatedAt,
     resolvedAt: feedback.resolvedAt || null,
@@ -343,6 +375,7 @@ function createBetaAccessManager(config = {}) {
         status: "active",
         codeDigest: digestSecret(rawCode, pepper),
         codeHint: rawCode.slice(-4),
+        invitationLocale: normalizeLocale(input.invitationLocale),
         recoveryEmail: optionalEmail(input.email),
         createdAt: now,
         updatedAt: now,
@@ -400,6 +433,7 @@ function createBetaAccessManager(config = {}) {
         attachments: Array.isArray(input.attachments)
           ? input.attachments.slice(0, 10).map((entry) => cleanText(entry, 180)).filter(Boolean)
           : [],
+        uiLocale: source === "app" ? normalizeLocale(input.uiLocale) : null,
         passId: matchingPass?.id || null,
         sourceDigest,
         createdAt: now,
@@ -461,10 +495,14 @@ function createBetaAccessManager(config = {}) {
     }
     const ownFeedback = state.feedback.filter((entry) => entry.passId === passId && entry.sessionId === sessionId);
     return {
+      uiLocale: normalizeLocale(session.uiLocale),
       consent: {
         requiredVersion: CONSENT_VERSION,
         accepted: session.consentVersion === CONSENT_VERSION,
-        acceptedAt: session.consentVersion === CONSENT_VERSION ? session.consentAcceptedAt || null : null
+        acceptedAt: session.consentVersion === CONSENT_VERSION ? session.consentAcceptedAt || null : null,
+        consentLocale: session.consentVersion === CONSENT_VERSION
+          ? optionalStoredLocale(session.consentLocale)
+          : null
       },
       feedback: {
         count: ownFeedback.length,
@@ -482,17 +520,24 @@ function createBetaAccessManager(config = {}) {
       if (!session || session.revokedAt || session.expiresAt <= now) {
         throw Object.assign(new Error("Die aktuelle Gerätesitzung ist nicht mehr gültig."), { statusCode: 401 });
       }
+      const consentLocale = input.uiLocale === undefined
+        ? normalizeLocale(session.uiLocale)
+        : normalizeLocale(input.uiLocale, session.uiLocale);
+      session.uiLocale = consentLocale;
       session.consentVersion = CONSENT_VERSION;
+      session.consentLocale = consentLocale;
       session.consentAcceptedAt = now;
       addAudit(state, "beta_consent_accepted", now, {
         passId,
         sessionId,
-        consentVersion: CONSENT_VERSION
+        consentVersion: CONSENT_VERSION,
+        consentLocale
       });
       return {
         requiredVersion: CONSENT_VERSION,
         accepted: true,
-        acceptedAt: now
+        acceptedAt: now,
+        consentLocale
       };
     }, options);
   }
@@ -552,6 +597,8 @@ function createBetaAccessManager(config = {}) {
         uiView,
         deviceClass,
         consentVersion: CONSENT_VERSION,
+        uiLocale: normalizeLocale(session.uiLocale),
+        consentLocale: normalizeLocale(session.consentLocale, session.uiLocale),
         createdAt: now,
         updatedAt: now,
         resolvedAt: null,
@@ -653,7 +700,7 @@ function createBetaAccessManager(config = {}) {
       }
       const pass = passRecord(state, recovery.passId);
       assertPassActive(pass, now);
-      const created = createSessionRecord(pass, deviceName, now);
+      const created = createSessionRecord(pass, deviceName, now, options.uiLocale);
       state.sessions.push(created.session);
       recovery.usedAt = now;
       const request = state.requests.find((entry) => entry.id === recovery.requestId) || null;
@@ -691,6 +738,9 @@ function createBetaAccessManager(config = {}) {
       if (input.expiresAt !== undefined) {
         pass.expiresAt = input.expiresAt || null;
       }
+      if (input.invitationLocale !== undefined) {
+        pass.invitationLocale = normalizeLocale(input.invitationLocale);
+      }
       if (input.status) {
         pass.status = input.status;
         if (input.status === "revoked") {
@@ -726,7 +776,7 @@ function createBetaAccessManager(config = {}) {
     return new Date(Date.parse(now) + (sessionDays * 24 * 60 * 60 * 1000)).toISOString();
   }
 
-  function createSessionRecord(pass, deviceName, now) {
+  function createSessionRecord(pass, deviceName, now, uiLocale) {
     const token = crypto.randomBytes(32).toString("base64url");
     return {
       token,
@@ -734,6 +784,8 @@ function createBetaAccessManager(config = {}) {
         id: randomId("session"),
         passId: pass.id,
         tokenDigest: digestToken(token, pepper),
+        uiLocale: normalizeLocale(uiLocale, pass.invitationLocale),
+        consentLocale: null,
         deviceName: cleanLabel(deviceName, "Verbundenes Gerät"),
         createdAt: now,
         lastSeenAt: now,
@@ -751,7 +803,7 @@ function createBetaAccessManager(config = {}) {
         throw Object.assign(new Error("Der Sheetify IMG Pass ist ungültig."), { statusCode: 401 });
       }
       assertPassActive(pass, now);
-      const created = createSessionRecord(pass, deviceName, now);
+      const created = createSessionRecord(pass, deviceName, now, options.uiLocale);
       state.sessions.push(created.session);
       addAudit(state, "session_created", now, { passId: pass.id, sessionId: created.session.id });
       return {
@@ -815,6 +867,23 @@ function createBetaAccessManager(config = {}) {
     }, options);
   }
 
+  async function updateSessionLocale(passId, sessionId, uiLocale, options = {}) {
+    return transact((state, now) => {
+      const session = state.sessions.find((entry) => entry.id === sessionId && entry.passId === passId) || null;
+      if (!session || session.revokedAt || session.expiresAt <= now) {
+        throw Object.assign(new Error("Die aktuelle Gerätesitzung ist nicht mehr gültig."), { statusCode: 401 });
+      }
+      session.uiLocale = normalizeLocale(uiLocale);
+      session.lastSeenAt = now;
+      addAudit(state, "session_locale_updated", now, {
+        passId,
+        sessionId,
+        uiLocale: session.uiLocale
+      });
+      return publicSession(session, sessionId);
+    }, options);
+  }
+
   async function devices(passId, currentSessionId) {
     const state = await readState();
     passRecord(state, passId);
@@ -872,7 +941,7 @@ function createBetaAccessManager(config = {}) {
       }
       const pass = passRecord(state, pairing.passId);
       assertPassActive(pass, now);
-      const created = createSessionRecord(pass, deviceName, now);
+      const created = createSessionRecord(pass, deviceName, now, options.uiLocale);
       state.sessions.push(created.session);
       pairing.redeemedAt = now;
       pairing.redeemedBySessionId = created.session.id;
@@ -1086,7 +1155,8 @@ function createBetaAccessManager(config = {}) {
     settleGeneration,
     updatePass,
     updateFeedback,
-    updateRequest
+    updateRequest,
+    updateSessionLocale
   });
 }
 

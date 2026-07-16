@@ -50,6 +50,7 @@
     }
 
     function downloadCandidateImages(button) {
+      const locale = global.sheetifyLocale;
       let pages = [];
       try {
         pages = JSON.parse(button.dataset.downloadPages || "[]");
@@ -63,7 +64,7 @@
       }
       const validPages = pages.filter((page) => page?.url);
       if (!validPages.length) {
-        showToast("Kein Bild zum Herunterladen gefunden.", "error");
+        showToast(locale?.current() === "en" ? "No image available to download." : "Kein Bild zum Herunterladen gefunden.", "error");
         return;
       }
       validPages.forEach((page) => {

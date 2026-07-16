@@ -10,6 +10,8 @@
   }
 
   function createMobilePreviewRenderer(dependencies = {}) {
+    const t = (key, variables = {}) => global.sheetifyLocale?.t(key, variables) || key;
+    const isEnglish = () => global.sheetifyLocale?.current() === "en";
     const escapeHtml = requiredFunction(dependencies, "escapeHtml");
     const icon = requiredFunction(dependencies, "icon");
     const renderIcon = requiredFunction(dependencies, "renderIcon");
@@ -68,11 +70,11 @@
       `;
     }
 
-    function mobileFocusChatButton(label = "Konzept ändern") {
+    function mobileFocusChatButton(label = t("app.concept.revise")) {
       return `<button class="secondary-button mobile-footer-button" type="button" data-mobile-focus-chat>${escapeHtml(label)}</button>`;
     }
 
-    function mobileConceptRevisionButton(label = "Konzept überarbeiten", target = {}) {
+    function mobileConceptRevisionButton(label = t("app.concept.revise"), target = {}) {
       const attrs = [
         target.proposalId ? `data-proposal-id="${escapeHtml(target.proposalId)}"` : "",
         target.contentMirrorId ? `data-content-mirror-id="${escapeHtml(target.contentMirrorId)}"` : "",
@@ -81,16 +83,18 @@
       return `<button class="primary-button mobile-footer-button mobile-revision-button" type="button" data-mobile-revise-concept ${attrs}>${icon("square-pen", "icon icon-small")}<span>${escapeHtml(label)}</span></button>`;
     }
 
-    function mobileCloseButton(label = "Schließen") {
+    function mobileCloseButton(label = t("common.close")) {
       return `<button class="secondary-button mobile-footer-button" type="button" data-mobile-close>${escapeHtml(label)}</button>`;
     }
 
     function mobilePreviewStatusLabel(workspace = {}, mode = "") {
       if (mode === "candidates") {
         const count = workspace.preview?.candidates?.length || workspace.latestRun?.candidateCount || 0;
-        return count ? candidateCountLabel(count) : "Noch keine Entwürfe";
+        return count ? candidateCountLabel(count) : t("app.draft.none");
       }
-      return workspace.approval?.canGenerate ? "Bereit für Entwürfe" : "In Arbeit";
+      return workspace.approval?.canGenerate
+        ? (isEnglish() ? "Ready for drafts" : "Bereit für Entwürfe")
+        : t("common.inProgress");
     }
 
     function mobileConceptIsComplete(workspace = {}) {
@@ -126,7 +130,7 @@
       }
       const parts = [
         statusWord(concept.status || workspace.documents?.content?.status),
-        concept.current ? "Arbeitsstand" : null
+        concept.current ? t("app.work.label") : null
       ].filter(Boolean);
       return parts.join(" · ") || mobilePreviewStatusLabel(workspace, mode);
     }
@@ -142,20 +146,20 @@
       const selected = selectedMobileConceptArtifact(workspace, ui);
       const selectedId = selected?.id || "";
       return `
-        <section class="mobile-concept-switcher" aria-label="Konzeptversionen">
+        <section class="mobile-concept-switcher" aria-label="${escapeHtml(isEnglish() ? "Concept versions" : "Konzeptversionen")}">
           <div class="mobile-concept-switcher-heading">
-            <span>Konzeptversionen</span>
-            <strong>${escapeHtml(concepts.length)} Versionen</strong>
+            <span>${isEnglish() ? "Concept versions" : "Konzeptversionen"}</span>
+            <strong>${escapeHtml(concepts.length)} ${isEnglish() ? "versions" : "Versionen"}</strong>
           </div>
           <div class="mobile-concept-chip-row">
             ${concepts.map((concept) => {
               const selectedClass = concept.id === selectedId ? "selected" : "";
               const currentClass = concept.current ? "current" : "";
-              const label = concept.version ? `V${concept.version}` : "Stand";
+              const label = concept.version ? `V${concept.version}` : t("common.current");
               const meta = [
-                concept.current ? "Arbeitsstand" : statusWord(concept.status),
-                concept.taskCount ? `${concept.taskCount} Aufgaben` : null
-              ].filter(Boolean).join(" · ") || conceptArtifactMeta(concept) || "Konzept";
+                concept.current ? t("app.work.label") : statusWord(concept.status),
+                concept.taskCount ? `${concept.taskCount} ${isEnglish() ? "tasks" : "Aufgaben"}` : null
+              ].filter(Boolean).join(" · ") || conceptArtifactMeta(concept) || (isEnglish() ? "Concept" : "Konzept");
               return `
                 <button class="mobile-concept-chip ${selectedClass} ${currentClass}" type="button" data-mobile-concept-version data-artifact-kind="concept" data-artifact-id="${escapeHtml(concept.id || "")}" data-concept-id="${escapeHtml(concept.id || "")}" data-concept-version="${escapeHtml(concept.version || "")}" aria-pressed="${concept.id === selectedId ? "true" : "false"}">
                   <strong>${escapeHtml(label)}</strong>
@@ -175,7 +179,7 @@
           brief: proposal?.data || workspace.proposals?.latestLessonBrief?.data || {},
           content: {},
           status: proposal?.status === "adopted" ? "Konzept übernommen" : "Konzept intern",
-          eyebrow: "Arbeitsblatt-Konzept"
+          eyebrow: t("app.concept.title")
         };
       }
       if (mode === "content_proposal") {
@@ -184,7 +188,7 @@
           brief: workspace.documents?.brief?.data || workspace.proposals?.latestLessonBrief?.data || {},
           content: proposal?.data || workspace.proposals?.latestContentMirror?.data || {},
           status: proposal?.status === "adopted" ? "übernommen" : "bereit",
-          eyebrow: "Arbeitsblatt-Konzept"
+          eyebrow: t("app.concept.title")
         };
       }
       if (mode === "brief") {
@@ -192,7 +196,7 @@
           brief: workspace.documents?.brief?.data || {},
           content: {},
           status: "Rahmen steht",
-          eyebrow: "Arbeitsblatt-Konzept"
+          eyebrow: t("app.concept.title")
         };
       }
       const selectedConcept = selectedMobileConceptArtifact(workspace, ui);
@@ -200,7 +204,7 @@
         brief: workspace.documents?.brief?.data || {},
         content: selectedConcept?.data || workspace.documents?.content?.data || {},
         status: mobileConceptStatusLabel(selectedConcept, workspace, mode),
-        eyebrow: "Arbeitsblatt-Konzept",
+        eyebrow: t("app.concept.title"),
         concept: selectedConcept
       };
     }
@@ -220,11 +224,11 @@
           brief: concept.brief,
           content: concept.content,
           teachingContext: workspace.teachingContext || {},
-          label: concept.eyebrow || "Arbeitsblatt-Konzept",
+          label: concept.eyebrow || t("app.concept.title"),
           titleTag: "h3",
           versionLabel,
           statusLabel: concept.status,
-          eyebrow: concept.eyebrow || "Arbeitsblatt-Konzept"
+          eyebrow: concept.eyebrow || t("app.concept.title")
         })}
         <div class="mobile-ready-strip ${mobileConceptIsComplete(workspace) ? "done" : ""}">
           <span>${renderIcon(mobileConceptIsComplete(workspace) ? "check" : "circle", "mobile-ready-icon")}</span>
@@ -243,9 +247,9 @@
         "generate_content_mirror_proposal"
       ]);
       const primaryLabel = primary?.id === "generate_image_candidate"
-        ? "Entwurf erstellen"
+        ? t("app.confirm.create")
         : primary?.id === "approve_current_content"
-          ? "Übernehmen"
+          ? (isEnglish() ? "Adopt" : "Übernehmen")
           : primary ? null : "";
       const proposal = mobileConceptModeIsProposal(mode) ? proposalForMode(workspace, mode) : null;
       const selectedConcept = !proposal ? selectedMobileConceptArtifact(workspace, ui) : null;
@@ -257,7 +261,7 @@
           };
       return `
         ${mobileCommandButton(primary, primaryLabel, true, workspace)}
-        ${mobileConceptRevisionButton(mode === "brief" || mode === "lessonbrief_proposal" ? "Rahmen ergänzen" : "Konzept überarbeiten", revisionTarget)}
+        ${mobileConceptRevisionButton(mode === "brief" || mode === "lessonbrief_proposal" ? (isEnglish() ? "Complete framework" : "Rahmen ergänzen") : t("app.concept.revise"), revisionTarget)}
       `;
     }
 
@@ -279,7 +283,7 @@
             <div class="mobile-preview-thumb missing-preview">?</div>
             <div class="mobile-preview-row-copy">
               <strong>${escapeHtml(displayCandidateId)}</strong>
-              <small>Keine Vorschau vorhanden</small>
+              <small>${escapeHtml(isEnglish() ? "No preview available" : "Keine Vorschau vorhanden")}</small>
             </div>
           </article>
         `;
@@ -300,12 +304,12 @@
           <img class="mobile-preview-thumb" data-capture-image src="${escapeHtml(page.url)}" alt="${escapeHtml(displayCandidateId)}" loading="lazy">
           <div class="mobile-preview-row-copy">
             <strong>${escapeHtml(displayCandidateId)}</strong>
-            <small>${escapeHtml([`${pageCount} Seite${pageCount === 1 ? "" : "n"}`, lineageText || foundation].filter(Boolean).join(" · "))}</small>
+            <small>${escapeHtml([t(pageCount === 1 ? "app.draft.pageCount" : "app.draft.pageCountPlural", { count: pageCount }), lineageText || foundation].filter(Boolean).join(" · "))}</small>
             <div class="mobile-preview-row-actions">
-              <button class="primary-button mini-button mobile-revision-button" type="button" data-mobile-revise-draft aria-label="${escapeHtml(displayCandidateId)} anpassen" title="Entwurf anpassen">${icon("square-pen", "icon icon-small")}<span>Anpassen</span></button>
+              <button class="primary-button mini-button mobile-revision-button" type="button" data-mobile-revise-draft aria-label="${escapeHtml(`${t("app.draft.adjust")}: ${displayCandidateId}`)}" title="${escapeHtml(t("app.draft.adjust"))}">${icon("square-pen", "icon icon-small")}<span>${escapeHtml(isEnglish() ? "Adjust" : "Anpassen")}</span></button>
               ${renderCandidateImageDownloadButton(imageDownloads)}
-              <button class="secondary-button mini-button mobile-preview-icon-action" type="button" data-mobile-open-candidate aria-label="Entwurf ansehen" title="Entwurf ansehen">${icon("eye", "icon icon-small")}</button>
-              <button class="secondary-button mini-button mobile-preview-icon-action" type="button" data-card-action="candidate-info" data-candidate-id="${escapeHtml(candidate.id || "")}" data-run-id="${escapeHtml(candidate.runId || "")}" aria-label="Generierungsinfo anzeigen" title="Generierungsinfo anzeigen">${icon("info", "icon icon-small")}</button>
+              <button class="secondary-button mini-button mobile-preview-icon-action" type="button" data-mobile-open-candidate aria-label="${escapeHtml(t("app.preview.viewDraft"))}" title="${escapeHtml(t("app.preview.viewDraft"))}">${icon("eye", "icon icon-small")}</button>
+              <button class="secondary-button mini-button mobile-preview-icon-action" type="button" data-card-action="candidate-info" data-candidate-id="${escapeHtml(candidate.id || "")}" data-run-id="${escapeHtml(candidate.runId || "")}" aria-label="${escapeHtml(t("app.draft.info"))}" title="${escapeHtml(t("app.draft.info"))}">${icon("info", "icon icon-small")}</button>
             </div>
           </div>
         </article>
@@ -315,7 +319,7 @@
     function renderMobileCandidatesBody(workspace = {}) {
       const candidates = annotateCandidateDisplayList(workspace.preview?.candidates || []);
       if (!candidates.length) {
-        return '<div class="mobile-empty-state">Noch keine Entwürfe vorhanden.</div>';
+        return `<div class="mobile-empty-state">${escapeHtml(t("app.preview.noDrafts"))}</div>`;
       }
       return `<div class="mobile-preview-list">${candidates.map((candidate, index) => renderMobileCandidateRow(candidate, index)).join("")}</div>`;
     }
@@ -326,7 +330,7 @@
       const files = sourceFilesFrom(source);
       const projectId = workspace.project?.projectId || projectIdFromItemId(ui.selectedId);
       const fileRows = files.map((file, index) => {
-        const displayName = fileName(file.path || file.url || `Datei ${index + 1}`);
+        const displayName = fileName(file.path || file.url || `${t("app.chat.file")} ${index + 1}`);
         const openUrl = file.url || sourceFileUrl(projectId, file);
         return `
           <article class="mobile-preview-row">
@@ -334,7 +338,7 @@
             <div class="mobile-preview-row-copy">
               <strong>${escapeHtml(displayName)}</strong>
               <small>${escapeHtml(file.kind || "Input")}</small>
-              ${openUrl ? `<div class="mobile-preview-row-actions"><button class="secondary-button mini-button" type="button" data-mobile-open-url="${escapeHtml(openUrl)}">Öffnen</button></div>` : ""}
+              ${openUrl ? `<div class="mobile-preview-row-actions"><button class="secondary-button mini-button" type="button" data-mobile-open-url="${escapeHtml(openUrl)}">${escapeHtml(t("common.open"))}</button></div>` : ""}
             </div>
           </article>
         `;
@@ -343,14 +347,14 @@
       const transferCardRow = transferCard
         ? `
           <article class="mobile-input-message">
-            <span>Importierter Input</span>
+            <span>${isEnglish() ? "Imported input" : "Importierter Input"}</span>
             <p>${escapeHtml(transferCard)}</p>
           </article>
         `
         : "";
       const messageRows = userMessages.slice(-6).map((message, index) => `
         <article class="mobile-input-message">
-          <span>Nachricht ${index + 1}</span>
+          <span>${isEnglish() ? "Message" : "Nachricht"} ${index + 1}</span>
           <p>${escapeHtml(message.content)}</p>
         </article>
       `).join("");
@@ -368,14 +372,14 @@
             <article class="mobile-preview-row">
               <div class="mobile-preview-thumb mobile-file-thumb">IN</div>
               <div class="mobile-preview-row-copy">
-                <strong>Input vorhanden</strong>
-                <small>${escapeHtml(inputStatusText || "im Projekt gespeichert")}</small>
+                <strong>${isEnglish() ? "Input available" : "Input vorhanden"}</strong>
+                <small>${escapeHtml(inputStatusText || (isEnglish() ? "saved in the project" : "im Projekt gespeichert"))}</small>
               </div>
             </article>
           </div>
         `;
       }
-      return '<div class="mobile-empty-state">Noch kein Input vorhanden.</div>';
+      return `<div class="mobile-empty-state">${escapeHtml(isEnglish() ? "No input yet." : "Noch kein Input vorhanden.")}</div>`;
     }
 
     function renderMobileContextBody(workspace = {}) {
@@ -401,12 +405,14 @@
     function mobileProjectStepMeta(item = {}, row = {}) {
       if (row.id === "concept") {
         return item.documents?.brief?.data || item.documents?.content?.data || item.proposals?.latestLessonBrief || item.proposals?.latestContentMirror
-          ? "Rahmen · Aufbau · Logik"
+          ? (isEnglish() ? "Framework · structure · logic" : "Rahmen · Aufbau · Logik")
           : row.state;
       }
       if (row.id === "candidates") {
         const count = countPreviewCandidates(item.preview) || item.project?.derivedStatus?.runs?.at?.(-1)?.candidateCount || 0;
-        return count ? `${count} Entwurf${count === 1 ? "" : "en"}` : row.state;
+        return count
+          ? `${count} ${isEnglish() ? (count === 1 ? "draft" : "drafts") : `Entwurf${count === 1 ? "" : "en"}`}`
+          : row.state;
       }
       return row.state;
     }
@@ -430,7 +436,7 @@
     function renderMobileProjectBody(workspace = {}, ui = {}) {
       const item = ui.selectedItem;
       if (!item) {
-        return '<div class="mobile-empty-state">Kein Projekt ausgewählt.</div>';
+        return `<div class="mobile-empty-state">${escapeHtml(isEnglish() ? "No project selected." : "Kein Projekt ausgewählt.")}</div>`;
       }
       return `
         <div class="mobile-project-summary">
@@ -442,7 +448,7 @@
     function renderMobileProjectFooter(workspace = {}, ui = {}) {
       const projectId = workspace.project?.projectId || projectIdFromItemId(ui.selectedId);
       return `
-        <button class="primary-button mobile-footer-button" type="button" data-mobile-open-workspace="${escapeHtml(projectId || "")}">Projekt öffnen</button>
+        <button class="primary-button mobile-footer-button" type="button" data-mobile-open-workspace="${escapeHtml(projectId || "")}">${escapeHtml(t("app.project.open"))}</button>
       `;
     }
 
@@ -452,19 +458,19 @@
       const pageCount = Number(worksheet.pageCount || worksheet.pages?.length || 0);
       const firstPage = (worksheet.pages || []).find((page) => page.url) || null;
       const thumb = firstPage?.url
-        ? `<img class="mobile-preview-thumb mobile-worksheet-thumb" src="${escapeHtml(firstPage.url)}" alt="${escapeHtml(`${worksheet.title || "Arbeitsblatt"} Vorschau`)}" loading="lazy">`
+        ? `<img class="mobile-preview-thumb mobile-worksheet-thumb" src="${escapeHtml(firstPage.url)}" alt="${escapeHtml(`${worksheet.title || t("app.preview.worksheet")} · ${t("app.preview.eyebrow")}`)}" loading="lazy">`
         : '<div class="mobile-preview-thumb mobile-pdf-thumb">PDF</div>';
       return `
         <div class="mobile-preview-list">
           <article class="mobile-preview-row mobile-pdf-row" ${pdf?.url ? `data-open-url="${escapeHtml(pdf.url)}"` : ""}>
             ${thumb}
             <div class="mobile-preview-row-copy">
-              <strong>${escapeHtml(worksheet.title || "Arbeitsblatt")}</strong>
-              <small>${escapeHtml([worksheet.kindLabel, pageCount ? `${pageCount} Seite${pageCount === 1 ? "" : "n"}` : null].filter(Boolean).join(" · "))}</small>
+              <strong>${escapeHtml(worksheet.title || t("app.preview.worksheet"))}</strong>
+              <small>${escapeHtml([worksheet.kindLabel, pageCount ? t(pageCount === 1 ? "app.draft.pageCount" : "app.draft.pageCountPlural", { count: pageCount }) : null].filter(Boolean).join(" · "))}</small>
               <div class="mobile-preview-row-actions">
-                ${pdf?.url ? `<button class="secondary-button mini-button mobile-preview-icon-action" type="button" data-mobile-open-url="${escapeHtml(pdf.url)}" aria-label="PDF öffnen" title="PDF öffnen">${icon("eye", "icon icon-small")}</button>` : ""}
-                ${pdf?.url ? `<button class="secondary-button mini-button mobile-preview-icon-action" type="button" data-mobile-share-url="${escapeHtml(pdf.url)}" data-mobile-share-name="${escapeHtml(fileName(pdf.path || pdf.url))}" data-mobile-share-title="${escapeHtml(worksheet.title || "Arbeitsblatt")}" aria-label="PDF teilen" title="PDF teilen">${icon("share-2", "icon icon-small")}</button>` : ""}
-                ${pdf?.url ? `<button class="secondary-button mini-button download-icon-button" type="button" data-mobile-download-url="${escapeHtml(pdf.url)}" data-mobile-download-name="${escapeHtml(fileName(pdf.path || pdf.url))}" aria-label="PDF herunterladen" title="PDF herunterladen">${icon("download", "icon icon-small")}</button>` : ""}
+                ${pdf?.url ? `<button class="secondary-button mini-button mobile-preview-icon-action" type="button" data-mobile-open-url="${escapeHtml(pdf.url)}" aria-label="${escapeHtml(isEnglish() ? "Open PDF" : "PDF öffnen")}" title="${escapeHtml(isEnglish() ? "Open PDF" : "PDF öffnen")}">${icon("eye", "icon icon-small")}</button>` : ""}
+                ${pdf?.url ? `<button class="secondary-button mini-button mobile-preview-icon-action" type="button" data-mobile-share-url="${escapeHtml(pdf.url)}" data-mobile-share-name="${escapeHtml(fileName(pdf.path || pdf.url))}" data-mobile-share-title="${escapeHtml(worksheet.title || t("app.preview.worksheet"))}" aria-label="${escapeHtml(isEnglish() ? "Share PDF" : "PDF teilen")}" title="${escapeHtml(isEnglish() ? "Share PDF" : "PDF teilen")}">${icon("share-2", "icon icon-small")}</button>` : ""}
+                ${pdf?.url ? `<button class="secondary-button mini-button download-icon-button" type="button" data-mobile-download-url="${escapeHtml(pdf.url)}" data-mobile-download-name="${escapeHtml(fileName(pdf.path || pdf.url))}" aria-label="${escapeHtml(isEnglish() ? "Download PDF" : "PDF herunterladen")}" title="${escapeHtml(isEnglish() ? "Download PDF" : "PDF herunterladen")}">${icon("download", "icon icon-small")}</button>` : ""}
               </div>
             </div>
           </article>
@@ -475,7 +481,7 @@
     function renderMobileWorksheetFooter(workspace = {}) {
       const projectId = workspace.worksheet?.source?.projectId || workspace.project?.projectId || "";
       return `
-        ${projectId ? `<button class="primary-button mobile-footer-button" type="button" data-mobile-open-workspace="${escapeHtml(projectId)}">Zum Projekt</button>` : ""}
+        ${projectId ? `<button class="primary-button mobile-footer-button" type="button" data-mobile-open-workspace="${escapeHtml(projectId)}">${escapeHtml(isEnglish() ? "Go to project" : "Zum Projekt")}</button>` : ""}
       `;
     }
 
@@ -483,31 +489,31 @@
       if (mode === "worksheet") {
         const worksheet = workspace.worksheet || {};
         return {
-          eyebrow: worksheet.kindLabel || "Arbeitsblatt",
-          title: worksheet.title || "Arbeitsblatt",
-          subtitle: worksheet.pageCount ? `${worksheet.pageCount} Seite${worksheet.pageCount === 1 ? "" : "n"}` : ""
+          eyebrow: worksheet.kindLabel || t("app.preview.worksheet"),
+          title: worksheet.title || t("app.preview.worksheet"),
+          subtitle: worksheet.pageCount ? t(worksheet.pageCount === 1 ? "app.draft.pageCount" : "app.draft.pageCountPlural", { count: worksheet.pageCount }) : ""
         };
       }
       if (mode === "project") {
         return {
-          eyebrow: "Projekt",
-          title: workspace.project?.title || ui.selectedItem?.project?.title || "Projekt",
+          eyebrow: t("app.target.project"),
+          title: workspace.project?.title || ui.selectedItem?.project?.title || t("app.target.project"),
           subtitle: ""
         };
       }
       if (mode === "candidates") {
-        return { eyebrow: "Vorschau", title: "Entwürfe", subtitle: mobilePreviewStatusLabel(workspace, mode) };
+        return { eyebrow: t("app.preview.eyebrow"), title: t("app.preview.drafts"), subtitle: mobilePreviewStatusLabel(workspace, mode) };
       }
       if (mode === "input") {
         return { eyebrow: "Input", title: "Input", subtitle: inputArtifactMeta(workspace) };
       }
       if (mode === "context") {
-        return { eyebrow: "Rahmen", title: "Unterrichtsrahmen", subtitle: workspace.teachingContext?.readiness?.conceptAllowed ? "bereit" : "wird geklärt" };
+        return { eyebrow: t("app.concept.framework"), title: t("app.context.title"), subtitle: workspace.teachingContext?.readiness?.conceptAllowed ? t("app.context.ready") : t("app.context.clarifying") };
       }
       const concept = mobileConceptData(workspace, mode);
       return {
-        eyebrow: concept.eyebrow || "Arbeitsblatt-Konzept",
-        title: "Arbeitsblatt-Konzept",
+        eyebrow: concept.eyebrow || t("app.concept.title"),
+        title: t("app.concept.title"),
         subtitle: worksheetConceptSubtitle(concept.brief, concept.content, workspace.teachingContext || {})
           || mobilePreviewStatusLabel(workspace, mode)
       };
@@ -523,7 +529,7 @@
       if (mode === "candidates") {
         const next = mobileSheetCommand(workspace, ["generate_image_candidate"]);
         const hasCandidates = Boolean(workspace.preview?.candidates?.length || workspace.latestRun?.candidateCount);
-        return `${mobileCommandButton(next, hasCandidates ? "Weiterer Entwurf" : "Entwurf erstellen", true, workspace)}`;
+        return `${mobileCommandButton(next, hasCandidates ? (isEnglish() ? "Another draft" : "Weiterer Entwurf") : t("app.confirm.create"), true, workspace)}`;
       }
       if (mode === "input" || mode === "context") {
         return "";

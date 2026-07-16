@@ -72,6 +72,11 @@ function passStatusLabel(status) {
   return ({ active: "Aktiv", paused: "Pausiert", revoked: "Gesperrt" })[status] || status;
 }
 
+function optionalIsoTimestamp(value) {
+  const normalized = String(value || "").trim();
+  return normalized ? new Date(normalized).toISOString() : null;
+}
+
 function requestKindLabel(kind) {
   return ({
     recovery: "Pass wiederherstellen",
@@ -148,8 +153,10 @@ function renderPasses() {
         <h3>${escapeHtml(pass.label)}</h3>
         <div class="pass-meta">
           <span class="pass-status ${escapeHtml(pass.status)}">${escapeHtml(passStatusLabel(pass.status))}</span>
+          <span class="pass-locale">${pass.invitationLocale === "en" ? "EN" : "DE"}</span>
           <span>${pass.deviceCount} ${pass.deviceCount === 1 ? "Gerät" : "Geräte"}</span>
           <span>Code ···· ${escapeHtml(pass.codeHint || "")}</span>
+          ${pass.expiresAt ? `<span>Ablauf ${escapeHtml(shortDate(pass.expiresAt))}</span>` : ""}
           ${pass.recoveryEmail ? `<span>${escapeHtml(pass.recoveryEmail)}</span>` : ""}
         </div>
       </div>
@@ -275,7 +282,13 @@ elements.createPassForm.addEventListener("submit", async (event) => {
   try {
     const result = await api("/api/admin/passes", {
       method: "POST",
-      body: JSON.stringify({ label: data.get("label"), email: data.get("email"), credits: Number(data.get("credits")) })
+      body: JSON.stringify({
+        label: data.get("label"),
+        email: data.get("email"),
+        credits: Number(data.get("credits")),
+        expiresAt: optionalIsoTimestamp(data.get("expiresAt")),
+        invitationLocale: data.get("invitationLocale")
+      })
     });
     showCard(result, "Sheetify IMG Pass erstellt", `sheetify-img-pass-${result.pass.id}`);
     const notice = emailDeliveryNotice(result.emailDelivery);
@@ -292,7 +305,12 @@ elements.createTopupForm.addEventListener("submit", async (event) => {
   try {
     const result = await api("/api/admin/topup-cards", {
       method: "POST",
-      body: JSON.stringify({ amount: Number(data.get("amount")), label: data.get("label"), email: data.get("email") })
+      body: JSON.stringify({
+        amount: Number(data.get("amount")),
+        label: data.get("label"),
+        email: data.get("email"),
+        locale: data.get("locale")
+      })
     });
     showCard(result, "Guthabenkarte erstellt", `sheetify-guthaben-${result.card.credits}`);
     const notice = emailDeliveryNotice(result.emailDelivery);

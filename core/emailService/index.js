@@ -87,6 +87,7 @@ function createEmailService(options = {}) {
     requireConfigured,
     sendBetaInvitation(input = {}) {
       return sendTemplate(input.email, betaInvitationTemplate({
+        locale: input.locale,
         name: input.name,
         workspaceName: input.workspaceName,
         passCode: input.passCode,
@@ -96,6 +97,7 @@ function createEmailService(options = {}) {
     },
     sendBetaPassActivated(input = {}) {
       return sendTemplate(input.email, betaPassActivatedTemplate({
+        locale: input.locale,
         name: input.name,
         workspaceName: input.workspaceName,
         appUrl: input.appUrl || publicUrl
@@ -109,6 +111,7 @@ function createEmailService(options = {}) {
     },
     sendTopupCard(input = {}) {
       return sendTemplate(input.email, topupCardTemplate({
+        locale: input.locale,
         name: input.name,
         amount: input.amount,
         topupCode: input.topupCode,

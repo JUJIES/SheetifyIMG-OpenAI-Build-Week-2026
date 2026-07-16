@@ -8,74 +8,91 @@
     <link rel="icon" href="/icons/favicon.ico" sizes="any">
     <link rel="apple-touch-icon" href="/icons/app-icon-180.png">
     <link rel="stylesheet" href="/brand.css?v=1">
-    <link rel="stylesheet" href="/pass.css?v=3">
+    <link rel="stylesheet" href="/pass.css?v=4">
+    <style>html:not([data-locale-ready]) body{visibility:hidden}</style>
+    <script src="/locale.js?v=2"></script>
+    <script>
+      try {
+        sheetifyLocale.set(sheetifyLocale.resolve({
+          query: new URLSearchParams(location.search),
+          stored: localStorage.getItem(sheetifyLocale.STORAGE_KEY),
+          browser: navigator.languages
+        }), { persistLocal: false });
+      } catch {
+        sheetifyLocale.set(sheetifyLocale.resolve({ query: new URLSearchParams(location.search), browser: navigator.languages }), { persistLocal: false });
+      }
+    </script>
   </head>
   <body>
     <main class="pass-page">
       <section class="pass-intro" aria-labelledby="passTitle">
-        <a class="pass-brand sheetify-wordmark sheetify-wordmark--large" href="/" aria-label="Sheetify IMG Startseite">
+        <a class="pass-brand sheetify-wordmark sheetify-wordmark--large" href="/" aria-label="Sheetify IMG Startseite" data-i18n-aria-label="pass.brandHome">
           <span>Sheetify</span><span class="sheetify-wordmark__img">IMG</span>
         </a>
         <div class="pass-copy">
-          <p class="pass-eyebrow">Einfach verbinden</p>
-          <h1 id="passTitle">Dein Arbeitsbereich.<br>Auf jedem Gerät.</h1>
-          <p>Mit einem Sheetify IMG Pass teilst du Projekte, Entwürfe und Guthaben – per Code oder QR, ohne Passwort.</p>
+          <p class="pass-eyebrow" data-i18n="pass.intro.eyebrow">Einfach verbinden</p>
+          <h1 id="passTitle"><span data-i18n="pass.intro.titleLine1">Dein Arbeitsbereich.</span><br><span data-i18n="pass.intro.titleLine2">Auf jedem Gerät.</span></h1>
+          <p data-i18n="pass.intro.description">Mit einem Sheetify IMG Pass teilst du Projekte, Entwürfe und Guthaben – per Code oder QR, ohne Passwort.</p>
         </div>
-        <div class="pass-benefits" aria-label="Vorteile">
-          <span>Gemeinsam arbeiten</span>
-          <span>Dauerhaft verbunden</span>
-          <span>Sicher getrennte Bereiche</span>
+        <div class="pass-benefits" aria-label="Vorteile" data-i18n-aria-label="pass.benefits.label">
+          <span data-i18n="pass.benefits.share">Gemeinsam arbeiten</span>
+          <span data-i18n="pass.benefits.persistent">Dauerhaft verbunden</span>
+          <span data-i18n="pass.benefits.separate">Sicher getrennte Bereiche</span>
         </div>
       </section>
 
       <section class="pass-panel" aria-labelledby="connectTitle">
+        <div class="pass-language" role="group" aria-label="Sprache wählen" data-i18n-aria-label="pass.languageLabel">
+          <button type="button" data-pass-locale="de">DE</button>
+          <button type="button" data-pass-locale="en">EN</button>
+        </div>
         <div class="pass-panel-head">
           <span class="pass-mark" aria-hidden="true">S</span>
           <div>
-            <p class="pass-eyebrow">Sheetify IMG Pass</p>
-            <h2 id="connectTitle">Arbeitsbereich öffnen</h2>
+            <p class="pass-eyebrow" data-i18n="pass.panel.eyebrow">Sheetify IMG Pass</p>
+            <h2 id="connectTitle" data-i18n="pass.panel.title">Arbeitsbereich öffnen</h2>
           </div>
         </div>
 
         <div class="pass-notice hidden" id="passNotice" role="status"></div>
 
         <form id="connectForm" class="pass-form">
-          <label for="passCode">Pass- oder Kopplungscode</label>
+          <label for="passCode" data-i18n="pass.form.code">Pass- oder Kopplungscode</label>
           <input id="passCode" name="code" type="text" inputmode="text" autocomplete="one-time-code" spellcheck="false" placeholder="SHEET-••••-••••-••••" required>
-          <button type="submit" class="pass-primary" id="connectButton">Verbinden</button>
+          <button type="submit" class="pass-primary" id="connectButton" data-i18n="pass.form.connect">Verbinden</button>
         </form>
 
-        <div class="pass-divider"><span>oder</span></div>
+        <div class="pass-divider"><span data-i18n="pass.divider">oder</span></div>
 
         <div class="pass-qr-hint">
           <span class="pass-qr-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM19 14h2v2h-2zM14 19h2v2h-2zM18 18h3v3h-3z"/></svg>
           </span>
           <div>
-            <strong>QR-Code bekommen?</strong>
-            <p>Einfach mit der Handykamera scannen. Sheetify IMG verbindet das Gerät automatisch.</p>
+            <strong data-i18n="pass.qr.title">QR-Code bekommen?</strong>
+            <p data-i18n="pass.qr.description">Einfach mit der Handykamera scannen. Sheetify IMG verbindet das Gerät automatisch.</p>
           </div>
         </div>
 
-        <button class="pass-link" type="button" id="supportToggle">Pass weg, Problem oder noch kein Zugang?</button>
+        <button class="pass-link" type="button" id="supportToggle" data-i18n="pass.support.toggle">Pass weg, Problem oder noch kein Zugang?</button>
         <form id="supportForm" class="pass-form pass-support hidden">
-          <label for="requestKind">Wobei können wir helfen?</label>
+          <label for="requestKind" data-i18n="pass.support.kind">Wobei können wir helfen?</label>
           <select id="requestKind">
-            <option value="recovery">Sheetify IMG Pass wiederherstellen</option>
-            <option value="beta_access">Beta-Zugang anfragen</option>
-            <option value="problem">Problem oder Frage melden</option>
+            <option value="recovery" data-i18n="pass.support.recovery">Sheetify IMG Pass wiederherstellen</option>
+            <option value="beta_access" data-i18n="pass.support.access">Beta-Zugang anfragen</option>
+            <option value="problem" data-i18n="pass.support.problem">Problem oder Frage melden</option>
           </select>
-          <label for="supportEmail">Deine E-Mail</label>
-          <input id="supportEmail" type="email" autocomplete="email" placeholder="name@schule.de" required>
-          <label for="supportMessage">Kurze Nachricht <span>(optional)</span></label>
-          <textarea id="supportMessage" rows="3" maxlength="2000" placeholder="Was ist passiert oder was möchtest du testen?"></textarea>
-          <button type="submit" class="pass-secondary" id="supportButton">Anfrage senden</button>
-          <p class="pass-contact">Oder direkt an <a href="mailto:sheetify@jujies.app">sheetify@jujies.app</a></p>
+          <label for="supportEmail" data-i18n="pass.support.email">Deine E-Mail</label>
+          <input id="supportEmail" type="email" autocomplete="email" placeholder="name@schule.de" data-i18n-placeholder="pass.support.emailPlaceholder" required>
+          <label for="supportMessage"><span class="pass-label-main" data-i18n="pass.support.message">Kurze Nachricht</span> <span data-i18n="pass.support.optional">(optional)</span></label>
+          <textarea id="supportMessage" rows="3" maxlength="2000" placeholder="Was ist passiert oder was möchtest du testen?" data-i18n-placeholder="pass.support.messagePlaceholder"></textarea>
+          <button type="submit" class="pass-secondary" id="supportButton" data-i18n="pass.support.submit">Anfrage senden</button>
+          <p class="pass-contact"><span data-i18n="pass.support.direct">Oder direkt an</span> <a href="mailto:sheetify@jujies.app">sheetify@jujies.app</a></p>
         </form>
 
-        <p class="pass-privacy">Ein verbundener Browser bleibt angemeldet. Wer denselben Pass verwendet, teilt denselben Arbeitsbereich und das Entwurfsguthaben.</p>
+        <p class="pass-privacy" data-i18n="pass.privacy">Ein verbundener Browser bleibt angemeldet. Wer denselben Pass verwendet, teilt denselben Arbeitsbereich und das Entwurfsguthaben.</p>
       </section>
     </main>
-    <script src="/pass.js?v=2"></script>
+    <script src="/pass.js?v=3"></script>
   </body>
 </html>

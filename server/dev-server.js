@@ -9,6 +9,7 @@ const path = require("node:path");
 const { createBetaAccessManager } = require("../core/betaAccessManager");
 const { createBetaCard } = require("../core/betaCardManager");
 const { createEmailService } = require("../core/emailService");
+const { normalizeLocale } = require("../core/locale");
 const { readChat, sendChatMessage } = require("../core/aiChatManager");
 const { addInputUpload } = require("../core/inputManager");
 const { transcribeProjectAudio } = require("../core/voiceInputManager");
@@ -338,6 +339,29 @@ function sendJson(response, statusCode, value, headers = {}) {
 
 function requestError(statusCode, message) {
   return Object.assign(new Error(message), { statusCode });
+}
+
+function publicBetaErrorCode(request, error) {
+  const pathname = routePath(request);
+  const message = String(error?.message || "");
+  if (error?.statusCode === 429) return "rate_limited";
+  if (/Pass ist abgelaufen/.test(message)) return "pass_expired";
+  if (/Pass ist derzeit nicht aktiv/.test(message)) return "pass_inactive";
+  if (pathname === "/api/auth/login" && /Pass ist ungültig/.test(message)) return "pass_invalid";
+  if (pathname === "/api/auth/pair" && /Kopplungscode ist ungültig oder abgelaufen/.test(message)) {
+    return "pairing_invalid_or_expired";
+  }
+  if (pathname === "/api/auth/recover" && /Wiederherstellungslink ist ungültig oder abgelaufen/.test(message)) {
+    return "recovery_invalid_or_expired";
+  }
+  if (pathname === "/api/pass/topup" && /Guthabenkarte ist ungültig, abgelaufen oder bereits eingelöst/.test(message)) {
+    return "topup_invalid_or_redeemed";
+  }
+  if (/gültige E-Mail-Adresse/.test(message)) return "email_invalid";
+  if (/Unbekannte Anfrageart/.test(message)) return "request_kind_invalid";
+  if (/Gerätesitzung ist nicht mehr gültig/.test(message)) return "session_invalid";
+  if (/Beta-Einwilligung/.test(message)) return "beta_consent_invalid";
+  return null;
 }
 
 function declaredContentLength(request) {
@@ -754,6 +778,11 @@ function requestOrigin(request) {
   return `${scheme}://${request.headers.host || `${defaultHost}:${defaultPort}`}`;
 }
 
+function localizedEntryUrl(request, locale, kind, secret) {
+  const language = normalizeLocale(locale);
+  return `${requestOrigin(request)}/?lang=${encodeURIComponent(language)}#${kind}=${encodeURIComponent(secret)}`;
+}
+
 function sendRedirect(response, location, statusCode = 302) {
   response.writeHead(statusCode, {
     ...securityHeaders(),
@@ -968,7 +997,11 @@ async function handleAuthApi(request, response) {
   if (request.method === "POST" && pathname === "/api/auth/login") {
     assertAuthAttemptAllowed(request, "pass");
     const body = await readJsonBody(request);
-    const login = await betaAccessManager.loginWithPass(body.code, deviceNameFromRequest(request, body.deviceName));
+    const login = await betaAccessManager.loginWithPass(
+      body.code,
+      deviceNameFromRequest(request, body.deviceName),
+      { uiLocale: body.uiLocale }
+    );
     clearAuthAttempts(request, "pass");
     sendJson(response, 200, { authenticated: true, pass: login.pass, session: login.session, appUrl: "/app" }, {
       "set-cookie": sessionCookie(login.token)
@@ -978,7 +1011,11 @@ async function handleAuthApi(request, response) {
   if (request.method === "POST" && pathname === "/api/auth/pair") {
     assertAuthAttemptAllowed(request, "pair");
     const body = await readJsonBody(request);
-    const login = await betaAccessManager.redeemPairing(body.code, deviceNameFromRequest(request, body.deviceName));
+    const login = await betaAccessManager.redeemPairing(
+      body.code,
+      deviceNameFromRequest(request, body.deviceName),
+      { uiLocale: body.uiLocale }
+    );
     clearAuthAttempts(request, "pair");
     sendJson(response, 200, { authenticated: true, pass: login.pass, session: login.session, appUrl: "/app" }, {
       "set-cookie": sessionCookie(login.token)
@@ -990,6 +1027,24 @@ async function handleAuthApi(request, response) {
     sendJson(response, 200, { loggedOut: true }, { "set-cookie": clearSessionCookie() });
     return true;
   }
+  if (request.method === "PATCH" && pathname === "/api/auth/session") {
+    if (!current) {
+      throw requestError(401, "Die aktuelle Gerätesitzung ist nicht mehr gültig.");
+    }
+    const body = await readJsonBody(request);
+    const session = await betaAccessManager.updateSessionLocale(
+      current.passId,
+      current.sessionId,
+      body.uiLocale
+    );
+    sendJson(response, 200, {
+      authenticated: true,
+      pass: current.pass,
+      session,
+      appUrl: "/app"
+    });
+    return true;
+  }
   if (request.method === "POST" && pathname === "/api/auth/recovery") {
     assertAuthAttemptAllowed(request, "support");
     const body = await readJsonBody(request);
@@ -998,13 +1053,15 @@ async function handleAuthApi(request, response) {
       kind: body.kind || "recovery",
       email: body.email,
       subject: body.subject,
-      message: body.message
+      message: body.message,
+      uiLocale: body.uiLocale
     });
     if (!created.duplicate) {
       await deliverEmail(() => emailService.sendSupportConfirmation({
         email: created.request.email,
         name: created.request.name,
         requestId: created.request.id,
+        locale: created.request.uiLocale,
         idempotencyKey: `support-confirmation:${created.request.id}`
       }));
     }
@@ -1020,7 +1077,8 @@ async function handleAuthApi(request, response) {
     const body = await readJsonBody(request);
     const login = await betaAccessManager.redeemRecovery(
       body.token,
-      deviceNameFromRequest(request, body.deviceName)
+      deviceNameFromRequest(request, body.deviceName),
+      { uiLocale: body.uiLocale }
     );
     clearAuthAttempts(request, "recover");
     sendJson(response, 200, {
@@ -1070,7 +1128,7 @@ async function handlePassApi(request, response, context) {
   }
   if (request.method === "POST" && pathname === "/api/pass/pairings") {
     const pairing = await betaAccessManager.createPairing(context.passId, context.sessionId);
-    const pairUrl = `${requestOrigin(request)}/#pair=${encodeURIComponent(pairing.code)}`;
+    const pairUrl = localizedEntryUrl(request, context.session?.uiLocale, "pair", pairing.code);
     sendJson(response, 201, {
       pairing: {
         ...pairing,
@@ -1096,11 +1154,13 @@ async function handlePassApi(request, response, context) {
 }
 
 async function passCardPayload(request, created) {
-  const url = `${requestOrigin(request)}/#pass=${encodeURIComponent(created.code)}`;
+  const locale = normalizeLocale(created.pass.invitationLocale);
+  const url = localizedEntryUrl(request, locale, "pass", created.code);
   const card = await createBetaCard({
     kind: "pass",
     code: created.code,
     label: created.pass.label,
+    locale,
     qrContent: url
   });
   const { png, ...publicCard } = card;
@@ -1137,6 +1197,7 @@ async function handleAdminApi(request, response) {
         name: body.name,
         workspaceName: created.pass.label,
         passCode: created.code,
+        locale: created.pass.invitationLocale,
         appUrl: payload.url,
         cardContentId: "sheetify-beta-pass",
         attachments: [{
@@ -1167,6 +1228,7 @@ async function handleAdminApi(request, response) {
         email: rotated.pass.recoveryEmail,
         workspaceName: rotated.pass.label,
         passCode: rotated.code,
+        locale: rotated.pass.invitationLocale,
         appUrl: payload.url,
         cardContentId: "sheetify-beta-pass",
         attachments: [{
@@ -1190,6 +1252,7 @@ async function handleAdminApi(request, response) {
         email: pass.recoveryEmail,
         amount: Number(body.amount),
         balance: pass.balance,
+        locale: pass.invitationLocale,
         idempotencyKey: `credit-grant:${pass.id}:${pass.updatedAt}`
       }))
       : { status: "skipped" };
@@ -1199,8 +1262,9 @@ async function handleAdminApi(request, response) {
   if (request.method === "POST" && pathname === "/api/admin/topup-cards") {
     const body = await readJsonBody(request);
     const created = await betaAccessManager.createTopupCard(body.amount, body);
-    const url = `${requestOrigin(request)}/#topup=${encodeURIComponent(created.code)}`;
-    const card = await createBetaCard({ kind: "topup", code: created.code, credits: created.card.credits, qrContent: url });
+    const locale = normalizeLocale(body.locale);
+    const url = localizedEntryUrl(request, locale, "topup", created.code);
+    const card = await createBetaCard({ kind: "topup", code: created.code, credits: created.card.credits, locale, qrContent: url });
     const { png, ...publicCard } = card;
     const email = String(body.email || "").trim();
     const emailDelivery = email
@@ -1209,6 +1273,7 @@ async function handleAdminApi(request, response) {
         name: body.name,
         amount: created.card.credits,
         topupCode: created.code,
+        locale,
         appUrl: url,
         cardContentId: "sheetify-topup-card",
         attachments: [{
@@ -1240,13 +1305,15 @@ async function handleAdminApi(request, response) {
   const recoveryMatch = pathname.match(/^\/api\/admin\/requests\/(request_[A-Za-z0-9-]+)\/recovery-link$/);
   if (request.method === "POST" && recoveryMatch) {
     const recovery = await betaAccessManager.createRecoveryChallenge(recoveryMatch[1]);
-    const url = `${requestOrigin(request)}/#recover=${encodeURIComponent(recovery.token)}`;
+    const locale = normalizeLocale(recovery.request.uiLocale, recovery.request.pass?.invitationLocale);
+    const url = localizedEntryUrl(request, locale, "recover", recovery.token);
     const emailDelivery = await deliverEmail(() => emailService.sendRecoveryLink({
       email: recovery.request.email,
       name: recovery.request.name,
       workspaceName: recovery.request.pass?.label,
       recoveryUrl: url,
       expiresAt: recovery.expiresAt,
+      locale,
       idempotencyKey: `recovery-link:${recovery.request.id}:${Date.parse(recovery.expiresAt)}`
     }));
     sendJson(response, 201, {
@@ -1801,13 +1868,13 @@ async function handleRequest(request, response) {
 
     if (error.statusCode >= 400 && error.statusCode < 600) {
       sendJson(response, error.statusCode, {
-        error: error.statusCode === 413
+        error: publicBetaErrorCode(request, error) || (error.statusCode === 413
           ? "payload_too_large"
           : error.statusCode === 429
             ? "rate_limited"
             : error.statusCode === 503
               ? "temporarily_unavailable"
-              : "bad_request",
+              : "bad_request"),
         message: error.message
       });
       return;

@@ -47,6 +47,7 @@ button, input, select, textarea { font: inherit; }
 .pass-benefits span { padding: 10px 14px; border: 1px solid rgba(31, 99, 214, .13); border-radius: 999px; color: #345070; background: rgba(255,255,255,.62); font-size: 13px; font-weight: 650; }
 
 .pass-panel {
+  position: relative;
   padding: 34px;
   border: 1px solid rgba(217, 222, 231, .9);
   border-radius: 30px;
@@ -54,6 +55,10 @@ button, input, select, textarea { font: inherit; }
   box-shadow: 0 28px 70px rgba(16, 24, 39, .11);
   backdrop-filter: blur(16px);
 }
+
+.pass-language { position: absolute; top: 18px; right: 20px; display: flex; gap: 3px; padding: 3px; border-radius: 10px; background: #f1f4f8; }
+.pass-language button { min-width: 34px; height: 28px; padding: 0 7px; border: 0; border-radius: 7px; color: var(--muted); background: transparent; cursor: pointer; font-size: 11px; font-weight: 800; }
+.pass-language button[aria-pressed="true"] { color: #fff; background: var(--blue); box-shadow: 0 4px 10px rgba(31,99,214,.2); }
 
 .pass-panel-head { display: flex; align-items: center; gap: 15px; margin-bottom: 30px; }
 .pass-panel-head h2 { margin: 0; font-size: 25px; letter-spacing: -.025em; }
@@ -67,6 +72,7 @@ button, input, select, textarea { font: inherit; }
 .pass-form textarea { min-height: 86px; padding-top: 13px; resize: vertical; line-height: 1.45; }
 .pass-form input:focus, .pass-form select:focus, .pass-form textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 4px rgba(31,99,214,.1); }
 .pass-form label span { color: var(--muted); font-weight: 500; }
+.pass-form label .pass-label-main { color: inherit; font-weight: inherit; }
 .pass-primary, .pass-secondary { min-height: 52px; border: 0; border-radius: 14px; cursor: pointer; font-weight: 750; transition: transform .15s ease, opacity .15s ease; }
 .pass-primary { margin-top: 4px; color: #fff; background: var(--blue); box-shadow: 0 12px 26px rgba(31,99,214,.2); }
 .pass-secondary { color: var(--blue); background: var(--blue-soft); }
@@ -96,4 +102,5 @@ button, input, select, textarea { font: inherit; }
   .pass-copy > p:last-child { margin-top: 20px; font-size: 16px; }
   .pass-benefits { margin-top: 24px; }
   .pass-panel { padding: 25px 20px; border-radius: 24px; }
+  .pass-language { top: 14px; right: 14px; }
 }
