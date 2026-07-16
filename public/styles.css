@@ -8282,6 +8282,24 @@ button {
 .worksheet-blueprint-path-note { margin-bottom: 0; }
 .worksheet-blueprint-proposal > .internal-spec-details { margin-bottom: 12px; }
 
+.worksheet-blueprint-revise {
+  width: 100%;
+  margin-top: 2px;
+  padding: 10px 12px;
+  border: 1px solid #bfd0ee;
+  border-radius: 9px;
+  background: #eef4ff;
+  color: #245aa9;
+  cursor: pointer;
+  font: 700 0.76rem/1.2 Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.worksheet-blueprint-revise:hover,
+.worksheet-blueprint-revise:focus-visible {
+  border-color: #76a1e6;
+  background: #e5efff;
+}
+
 @media (max-width: 760px) {
   .worksheet-blueprint { grid-template-columns: 1fr; }
   .worksheet-blueprint-page { flex-basis: min(84vw, 340px); }

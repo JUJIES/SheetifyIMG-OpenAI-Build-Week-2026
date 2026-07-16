@@ -81,7 +81,11 @@ function sanitizeRevisionTarget(value = null, projectId = null) {
       ...target,
       proposalId: textValue(value.proposalId, 160),
       contentMirrorId: textValue(value.contentMirrorId || value.conceptId, 160),
-      conceptVersion: numberValue(value.conceptVersion)
+      conceptVersion: numberValue(value.conceptVersion),
+      elementId: textValue(value.elementId, 160),
+      elementType: textValue(value.elementType, 40),
+      elementLabel: textValue(value.elementLabel, 120),
+      elementPage: numberValue(value.elementPage)
     };
   }
   return {
@@ -755,6 +759,7 @@ module.exports = {
   sendChatMessage,
   __testing: {
     contradictsRequiredConfirmation,
-    prepareInputUploadModelContext
+    prepareInputUploadModelContext,
+    sanitizeRevisionTarget
   }
 };

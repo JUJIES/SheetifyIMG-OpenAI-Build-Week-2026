@@ -11,6 +11,12 @@
 
   function createWorksheetBlueprint(dependencies = {}) {
     const escapeHtml = requiredFunction(dependencies, "escapeHtml");
+    const onSelectionChange = typeof dependencies.onSelectionChange === "function"
+      ? dependencies.onSelectionChange
+      : null;
+    const onRevise = typeof dependencies.onRevise === "function"
+      ? dependencies.onRevise
+      : null;
 
     function text(value) {
       return String(value || "").trim();
@@ -122,6 +128,9 @@
           class="worksheet-blueprint-node type-${escapeHtml(element.type)}${selected ? " selected" : ""}"
           type="button"
           data-blueprint-node="${escapeHtml(element.id)}"
+          data-blueprint-type="${escapeHtml(element.type)}"
+          data-blueprint-label="${escapeHtml(element.label)}"
+          data-blueprint-page="${escapeHtml(element.page)}"
           aria-pressed="${selected ? "true" : "false"}"
           aria-label="${escapeHtml(`${element.kicker}: ${element.label}`)}"
         >
@@ -208,6 +217,7 @@
             ${previous ? `<small>Baut auf „${escapeHtml(previous.action || `Schritt ${previous.index + 1}`)}“ auf.</small>` : ""}
           </section>
           ${thread.path ? `<p class="worksheet-blueprint-path-note"><span>Roter Faden</span>${escapeHtml(thread.path)}</p>` : ""}
+          <button class="worksheet-blueprint-revise" type="button" data-blueprint-revise="${escapeHtml(element.id)}">Dieses Element überarbeiten</button>
         </article>
       `;
     }
@@ -281,6 +291,12 @@
             position.textContent = String(normalizedIndex + 1);
           }
           root.dataset.blueprintIndex = String(normalizedIndex);
+          onSelectionChange?.({
+            id: selectedId,
+            type: selected.dataset.blueprintType || "content",
+            label: selected.dataset.blueprintLabel || selectedId,
+            page: Number(selected.dataset.blueprintPage || 1) || 1
+          });
           if (focus) {
             selected.focus({ preventScroll: true });
           }
@@ -302,6 +318,22 @@
         }
 
         nodes.forEach((node, index) => node.addEventListener("click", () => select(index, { reveal: true })));
+        root.querySelectorAll("[data-blueprint-revise]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const index = nodes.findIndex((node) => node.dataset.blueprintNode === button.dataset.blueprintRevise);
+            if (index < 0) {
+              return;
+            }
+            select(index);
+            const selected = nodes[index];
+            onRevise?.({
+              id: selected.dataset.blueprintNode,
+              type: selected.dataset.blueprintType || "content",
+              label: selected.dataset.blueprintLabel || selected.dataset.blueprintNode,
+              page: Number(selected.dataset.blueprintPage || 1) || 1
+            });
+          });
+        });
         root.querySelector("[data-blueprint-previous]")?.addEventListener("click", () => {
           select(Number(root.dataset.blueprintIndex || 0) - 1, { focus: true });
         });

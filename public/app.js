@@ -194,6 +194,7 @@ const state = {
   },
   composerAttachments: [],
   revisionTarget: null,
+  blueprintSelection: null,
   inputUploadReceipts: [],
   canvasCapture: {
     active: false,
@@ -2319,7 +2320,11 @@ function normalizeRevisionTarget(target = null) {
       ...base,
       contentMirrorId: textTargetValue(target.contentMirrorId || target.conceptId, 160),
       proposalId: textTargetValue(target.proposalId, 160),
-      conceptVersion: numberTargetValue(target.conceptVersion)
+      conceptVersion: numberTargetValue(target.conceptVersion),
+      elementId: textTargetValue(target.elementId, 160),
+      elementType: textTargetValue(target.elementType, 40),
+      elementLabel: textTargetValue(target.elementLabel, 120),
+      elementPage: numberTargetValue(target.elementPage)
     };
   }
   return {
@@ -2349,6 +2354,10 @@ function revisionTargetDisplayLabel(target = null) {
     }
     const labelVersion = label.match(/\b(?:AB-Konzept|Arbeitsblatt-Konzept|Konzept|Version|v)\s*v?(\d+)\b/i);
     const version = numberTargetValue(target.conceptVersion || labelVersion?.[1]);
+    const elementLabel = textTargetValue(target.elementLabel, 120);
+    if (elementLabel) {
+      return version ? `Konzept v${version} · ${elementLabel}` : `Konzept · ${elementLabel}`;
+    }
     if (version) {
       return `Konzept v${version}`;
     }
@@ -2452,6 +2461,15 @@ function candidateRevisionTargetFromElement(node = null) {
 }
 
 function startConceptRevisionFromButton(button = null) {
+  const selectedElement = state.blueprintSelection;
+  const elementTarget = selectedElement
+    ? {
+        elementId: selectedElement.id,
+        elementType: selectedElement.type,
+        elementLabel: selectedElement.label,
+        elementPage: selectedElement.page
+      }
+    : {};
   const proposalId = textTargetValue(button?.dataset.proposalId, 160);
   if (proposalId) {
     return setRevisionTarget({
@@ -2459,7 +2477,8 @@ function startConceptRevisionFromButton(button = null) {
       kind: "concept",
       label: "Offener Konzeptvorschlag",
       projectId: currentProjectId(),
-      proposalId
+      proposalId,
+      ...elementTarget
     });
   }
   const extra = {};
@@ -2478,7 +2497,7 @@ function startConceptRevisionFromButton(button = null) {
     extra.conceptVersion = numberTargetValue(state.activeArtifactSelection.conceptVersion);
   }
   const target = currentConceptRevisionTarget(extra);
-  return setRevisionTarget(target);
+  return setRevisionTarget({ ...target, ...elementTarget });
 }
 
 function startDraftRevisionFromElement(node = null) {
@@ -2619,7 +2638,21 @@ const actionBindings = window.SheetifyIMGActionBindings.createActionBindings({
 });
 
 const worksheetBlueprint = window.SheetifyIMGWorksheetBlueprint.createWorksheetBlueprint({
-  escapeHtml
+  escapeHtml,
+  onSelectionChange(selection) {
+    state.blueprintSelection = selection;
+  },
+  onRevise(selection) {
+    state.blueprintSelection = selection;
+    const updated = startConceptRevisionFromButton();
+    if (!updated) {
+      return;
+    }
+    if (elements.mobilePreviewLayer && !elements.mobilePreviewLayer.classList.contains("hidden")) {
+      closeMobilePreview();
+    }
+    elements.chatInput?.focus();
+  }
 });
 
 const mobilePreviewRenderer = window.SheetifyIMGMobilePreviewRenderer.createMobilePreviewRenderer({
@@ -10873,6 +10906,7 @@ async function sendChatMessage(message, context = {}) {
   const attachments = context.attachments || [];
   const revisionTarget = revisionTargetForRequest(context.revisionTarget || null);
   const voiceInput = context.voiceInput || null;
+  const blueprintSelection = context.blueprintSelection || state.blueprintSelection;
   const pendingChat = {
     projectId,
     message,
@@ -10892,6 +10926,13 @@ async function sendChatMessage(message, context = {}) {
         uiEvent: context.uiEvent || (attachments.length ? "visual_feedback" : "chat_message"),
         canvasFocus: {
           mode: state.activeCanvasMode,
+          ...(blueprintSelection
+            ? {
+                blockId: blueprintSelection.id,
+                selectionType: `concept_${blueprintSelection.type}`,
+                page: blueprintSelection.page
+              }
+            : {}),
           ...(context.canvasFocus || {})
         },
         revisionTarget,
