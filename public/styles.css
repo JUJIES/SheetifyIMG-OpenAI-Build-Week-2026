@@ -7942,6 +7942,357 @@ button {
   }
 }
 
+/* Interactive worksheet concept blueprint */
+.worksheet-blueprint {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(210px, 0.85fr);
+  gap: 18px;
+  width: 100%;
+  color: var(--ink, #182033);
+}
+
+.worksheet-blueprint-overview,
+.worksheet-blueprint-inspector { min-width: 0; }
+
+.worksheet-blueprint-heading {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.worksheet-blueprint-heading > div > span,
+.worksheet-blueprint-heading p > span,
+.worksheet-blueprint-inspector-panel header > span,
+.worksheet-blueprint-inspector-panel section > span,
+.worksheet-blueprint-path-note > span {
+  display: block;
+  margin-bottom: 4px;
+  color: #68718a;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.worksheet-blueprint-heading h3 {
+  margin: 0;
+  font-size: clamp(1rem, 2vw, 1.35rem);
+  line-height: 1.15;
+}
+
+.worksheet-blueprint-heading p {
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid #d9e4ff;
+  border-radius: 12px;
+  background: #f4f7ff;
+  color: #334367;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.worksheet-blueprint-pages {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding: 2px 3px 12px;
+  scroll-snap-type: x proximity;
+}
+
+.worksheet-blueprint-page {
+  flex: 0 0 min(100%, 360px);
+  min-width: 230px;
+  scroll-snap-align: start;
+}
+
+.worksheet-blueprint-paper {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  aspect-ratio: 210 / 297;
+  overflow: hidden;
+  padding: 7%;
+  border: 1px solid #dfe3ec;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgb(39 49 75 / 10%);
+}
+
+.worksheet-blueprint-paper > header {
+  display: grid;
+  gap: 3px;
+  padding-bottom: 7px;
+  border-bottom: 2px solid #4f78e8;
+}
+
+.worksheet-blueprint-paper > header span,
+.worksheet-blueprint-paper > footer {
+  color: #7b8398;
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.worksheet-blueprint-paper > header strong {
+  overflow: hidden;
+  font-size: clamp(0.78rem, 2vw, 1rem);
+  line-height: 1.12;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worksheet-blueprint-page-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  padding: 8px 0;
+}
+
+.worksheet-blueprint-paper > footer {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 5px;
+  border-top: 1px solid #e7e9ef;
+}
+
+.worksheet-blueprint-node {
+  display: grid;
+  gap: 4px;
+  min-height: 0;
+  padding: 7px 8px;
+  overflow: hidden;
+  border: 1px solid #dfe4ec;
+  border-radius: 8px;
+  background: #fbfcfe;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.worksheet-blueprint-node:hover,
+.worksheet-blueprint-node:focus-visible {
+  border-color: #6d8ce8;
+  box-shadow: 0 0 0 2px rgb(83 116 220 / 13%);
+  outline: none;
+}
+
+.worksheet-blueprint-node.selected {
+  border-color: #315fda;
+  background: #f4f7ff;
+  box-shadow: 0 0 0 2px rgb(49 95 218 / 14%);
+  transform: translateY(-1px);
+}
+
+.worksheet-blueprint-node.type-text { flex: 1.35 1 0; }
+.worksheet-blueprint-node.type-image { flex: 0.85 1 0; background: #f5fbf7; }
+.worksheet-blueprint-node.type-task { flex: 0.75 1 0; }
+
+.worksheet-blueprint-node-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #778098;
+  font-size: 0.54rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.worksheet-blueprint-node-heading em {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border-radius: 999px;
+  background: #dfe8ff;
+  color: #315fda;
+  font-size: 0.55rem;
+  font-style: normal;
+}
+
+.worksheet-blueprint-node strong {
+  overflow: hidden;
+  font-size: 0.68rem;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worksheet-blueprint-node small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #5c6579;
+  font-size: 0.58rem;
+  line-height: 1.3;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.worksheet-blueprint-image-placeholder {
+  display: flex;
+  align-items: end;
+  gap: 5px;
+  height: 25px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #e2f1e7, #eef7f0);
+}
+
+.worksheet-blueprint-image-placeholder span {
+  display: block;
+  width: 22%;
+  border-radius: 5px 5px 2px 2px;
+  background: #72ae82;
+}
+
+.worksheet-blueprint-image-placeholder span:nth-child(1) { height: 55%; }
+.worksheet-blueprint-image-placeholder span:nth-child(2) { height: 90%; }
+.worksheet-blueprint-image-placeholder span:nth-child(3) { height: 68%; }
+
+.worksheet-blueprint-empty-page,
+.worksheet-blueprint-empty {
+  margin: auto;
+  color: #768096;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.worksheet-blueprint-inspector {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  max-height: calc(100vh - 190px);
+  overflow: auto;
+  border: 1px solid #e0e4ed;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 9px 24px rgb(45 56 82 / 8%);
+}
+
+.worksheet-blueprint-inspector-nav {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  display: grid;
+  grid-template-columns: 34px 1fr 34px;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  border-bottom: 1px solid #e7e9ef;
+  background: rgb(255 255 255 / 96%);
+  backdrop-filter: blur(8px);
+}
+
+.worksheet-blueprint-inspector-nav button {
+  width: 34px;
+  height: 30px;
+  border: 1px solid #d8dde8;
+  border-radius: 9px;
+  background: #f7f8fb;
+  color: #35415a;
+  cursor: pointer;
+}
+
+.worksheet-blueprint-inspector-nav button:hover,
+.worksheet-blueprint-inspector-nav button:focus-visible {
+  border-color: #6d8ce8;
+  outline: none;
+}
+
+.worksheet-blueprint-inspector-nav span {
+  color: #6c7589;
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+.worksheet-blueprint-inspector-panel { padding: 15px; }
+.worksheet-blueprint-inspector-panel[hidden] { display: none !important; }
+
+.worksheet-blueprint-inspector-panel header h3 {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.worksheet-blueprint-inspector-panel section,
+.worksheet-blueprint-inspector-panel details,
+.worksheet-blueprint-path-note {
+  margin: 13px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid #edf0f5;
+}
+
+.worksheet-blueprint-inspector-panel section p,
+.worksheet-blueprint-inspector-panel details p,
+.worksheet-blueprint-path-note {
+  color: #475168;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.worksheet-blueprint-inspector-panel section p,
+.worksheet-blueprint-inspector-panel details p { margin: 4px 0 0; }
+
+.worksheet-blueprint-inspector-panel details summary {
+  color: #4e5d7b;
+  font-size: 0.76rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.worksheet-blueprint-long-text {
+  max-height: 190px;
+  overflow: auto;
+  color: #475168;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.worksheet-blueprint-rationale {
+  padding: 12px !important;
+  border: 1px solid #dce6ff !important;
+  border-radius: 12px;
+  background: #f4f7ff;
+}
+
+.worksheet-blueprint-rationale.missing {
+  border-color: #e4e6eb !important;
+  background: #f8f8f9;
+}
+
+.worksheet-blueprint-rationale strong,
+.worksheet-blueprint-rationale small { display: block; }
+
+.worksheet-blueprint-rationale strong {
+  color: #283d75;
+  font-size: 0.82rem;
+}
+
+.worksheet-blueprint-rationale small {
+  margin-top: 8px;
+  color: #65708a;
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
+.worksheet-blueprint-path-note { margin-bottom: 0; }
+.worksheet-blueprint-proposal > .internal-spec-details { margin-bottom: 12px; }
+
+@media (max-width: 760px) {
+  .worksheet-blueprint { grid-template-columns: 1fr; }
+  .worksheet-blueprint-page { flex-basis: min(84vw, 340px); }
+  .worksheet-blueprint-inspector {
+    position: static;
+    max-height: none;
+    border-radius: 18px 18px 8px 8px;
+  }
+  .worksheet-blueprint-heading { padding-inline: 2px; }
+}
+
 * {
   box-sizing: border-box;
 }

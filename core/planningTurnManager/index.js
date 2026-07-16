@@ -131,6 +131,16 @@ function compactContent(content = null) {
       purpose: compactText(entry.purpose, 300),
       placement: compactText(entry.placement, 240)
     })),
+    didacticThread: content.didacticThread ? {
+      path: compactText(content.didacticThread.path, 180),
+      steps: (content.didacticThread.steps || []).slice(0, 8).map((step) => ({
+        id: step.id || null,
+        action: compactText(step.action, 120),
+        purpose: compactText(step.purpose, 220),
+        after: step.after || null,
+        refs: (step.refs || []).slice(0, 16)
+      }))
+    } : null,
     solutionNotes: (content.solutionNotes || []).slice(0, 12).map((entry) => compactText(entry, 400))
   };
 }

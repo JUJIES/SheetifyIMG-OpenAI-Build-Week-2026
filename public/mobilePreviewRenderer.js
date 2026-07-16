@@ -23,6 +23,7 @@
     const conceptSectionsFromContent = requiredFunction(dependencies, "conceptSectionsFromContent");
     const renderConceptDocumentHeader = requiredFunction(dependencies, "renderConceptDocumentHeader");
     const renderConceptSections = requiredFunction(dependencies, "renderConceptSections");
+    const renderWorksheetBlueprint = requiredFunction(dependencies, "renderWorksheetBlueprint");
     const proposalForMode = requiredFunction(dependencies, "proposalForMode");
     const buttonActionForCommand = requiredFunction(dependencies, "buttonActionForCommand");
     const isBusyGenerateCandidateAction = requiredFunction(dependencies, "isBusyGenerateCandidateAction");
@@ -211,6 +212,27 @@
 
     function renderMobileConceptBody(workspace = {}, mode = "", ui = {}) {
       const concept = mobileConceptData(workspace, mode, ui);
+      const hasBlueprintContent = [
+        concept.content?.readingTexts,
+        concept.content?.tasks,
+        concept.content?.imageMaterials
+      ].some((items) => Array.isArray(items) && items.length);
+      if (hasBlueprintContent) {
+        return `
+          ${renderMobileConceptVersionSwitcher(workspace, ui, mode)}
+          <div class="mobile-ready-strip ${mobileConceptIsComplete(workspace) ? "done" : ""}">
+            <span>${renderIcon(mobileConceptIsComplete(workspace) ? "check" : "circle", "mobile-ready-icon")}</span>
+            <strong>${escapeHtml(concept.status)}</strong>
+          </div>
+          ${renderWorksheetBlueprint({
+            content: concept.content,
+            brief: concept.brief,
+            project: workspace.project || {},
+            teachingContext: workspace.teachingContext || {},
+            concept: concept.concept || null
+          })}
+        `;
+      }
       const sections = conceptSectionsFromContent(concept.content, {
         brief: concept.brief,
         project: workspace.project || {},

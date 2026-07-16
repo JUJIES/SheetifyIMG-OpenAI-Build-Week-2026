@@ -453,11 +453,11 @@ const statusLabels = {
 const canvasLabels = {
   assignment: "Input",
   brief: "Arbeitsblatt-Konzept",
-  content: "Arbeitsblatt-Konzept",
+  content: "Arbeitsblatt-Bauplan",
   warnings: "Arbeitsblatt-Konzept",
   candidates: "Entwürfe",
   lessonbrief_proposal: "Arbeitsblatt-Konzept",
-  content_proposal: "Arbeitsblatt-Konzept",
+  content_proposal: "Arbeitsblatt-Bauplan",
   warnings_proposal: "Konzept-Feedback",
   image_spec_proposal: "Referenz/Vorlage"
 };
@@ -2618,6 +2618,10 @@ const actionBindings = window.SheetifyIMGActionBindings.createActionBindings({
   openUrl
 });
 
+const worksheetBlueprint = window.SheetifyIMGWorksheetBlueprint.createWorksheetBlueprint({
+  escapeHtml
+});
+
 const mobilePreviewRenderer = window.SheetifyIMGMobilePreviewRenderer.createMobilePreviewRenderer({
   escapeHtml,
   icon,
@@ -2630,6 +2634,7 @@ const mobilePreviewRenderer = window.SheetifyIMGMobilePreviewRenderer.createMobi
   conceptSectionsFromContent,
   renderConceptDocumentHeader,
   renderConceptSections,
+  renderWorksheetBlueprint: worksheetBlueprint.render,
   proposalForMode,
   buttonActionForCommand,
   isBusyGenerateCandidateAction,
@@ -2661,6 +2666,7 @@ const canvasRenderer = window.SheetifyIMGCanvasRenderer.createCanvasRenderer({
   conceptSectionsFromContent,
   renderConceptDocumentHeader,
   renderConceptSections,
+  renderWorksheetBlueprint: worksheetBlueprint.render,
   statusWord,
   workspaceConceptArtifacts,
   currentConceptArtifact,
@@ -10326,6 +10332,7 @@ function bindMobilePreviewActions() {
     });
   });
   bindConceptCopyActions(elements.mobilePreviewBody);
+  worksheetBlueprint.bind(elements.mobilePreviewBody);
   bindPreviewCardActions(elements.mobilePreviewBody);
 }
 
@@ -10440,6 +10447,7 @@ function renderCanvasBrief(workspace) {
 
 function renderCanvasContent(workspace) {
   setCustomScrollContent(elements.canvasBody, canvasRenderer.renderCanvasContent(workspace, canvasUiState()));
+  worksheetBlueprint.bind(elements.canvasBody);
   bindConceptCopyActions(elements.canvasBody);
 }
 
@@ -10648,29 +10656,19 @@ function renderLessonBriefProposal(proposal, workspace = {}) {
 
 function renderContentProposal(proposal, workspace = {}) {
   const content = proposal.data || {};
-  const adopted = proposal.status === "adopted";
   const brief = workspace.documents?.brief?.data || workspace.proposals?.latestLessonBrief?.data || {};
-  const sections = conceptSectionsFromContent(content, {
-    brief,
-    project: workspace.project || {},
-    teachingContext: workspace.teachingContext || {}
-  });
   setCustomScrollContent(elements.canvasBody, `
-    <article class="canvas-document">
-      ${renderConceptDocumentHeader({
-        project: workspace.project || {},
-        brief,
-        content,
-        teachingContext: workspace.teachingContext || {},
-        label: "Arbeitsblatt-Konzept",
-        titleTag: "h3",
-        statusLabel: statusWord(proposal.status),
-        eyebrow: "Arbeitsblatt-Konzept"
-      })}
+    <div class="worksheet-blueprint-proposal">
       ${proposalMeta(proposal)}
-      ${renderConceptSections(sections, { compact: false })}
-    </article>
+      ${worksheetBlueprint.render({
+        content,
+        brief,
+        project: workspace.project || {},
+        teachingContext: workspace.teachingContext || {}
+      })}
+    </div>
   `);
+  worksheetBlueprint.bind(elements.canvasBody);
   bindConceptCopyActions(elements.canvasBody);
 }
 

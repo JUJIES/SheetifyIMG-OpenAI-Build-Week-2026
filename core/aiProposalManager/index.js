@@ -42,6 +42,7 @@ const { explicitPageCountFromText, pagePlanForImageSpec } = require("../pagePlan
 const { normalizeReadingTexts } = require("../readingTextManager");
 const { normalizeExpectedAnswer, normalizeSolutionNotes } = require("../solutionAnchorManager");
 const { normalizeTaskLabelFields } = require("../taskLabelManager");
+const { didacticThreadSchema, normalizeDidacticThread } = require("../didacticThread");
 const { createUsageAttribution } = require("../usageAttributionManager");
 const {
   applyContentDelta,
@@ -522,10 +523,12 @@ function validateContentMirror(data = {}, project) {
       difficulty: "mittel"
     }],
     imageMaterials,
+    didacticThread: null,
     solutionNotes: normalizeSolutionNotes(data.solutionNotes, {
       cleanText: removeExcludedUnsafeMentions
     })
   };
+  content.didacticThread = normalizeDidacticThread(data.didacticThread, content);
   if (!content.title || content.tasks.length === 0) {
     throw new Error("Content mirror proposal is missing title or tasks.");
   }
@@ -728,7 +731,7 @@ function contentMirrorSchema() {
   return {
     type: "object",
     additionalProperties: false,
-    required: ["title", "outputPreference", "readingTexts", "tasks", "imageMaterials", "solutionNotes"],
+    required: ["title", "outputPreference", "readingTexts", "tasks", "imageMaterials", "didacticThread", "solutionNotes"],
     properties: {
       title: { type: "string" },
       outputPreference: {
@@ -794,6 +797,7 @@ function contentMirrorSchema() {
           }
         }
       },
+      didacticThread: didacticThreadSchema(),
       solutionNotes: { type: "array", items: { type: "string" } }
     }
   };

@@ -19,6 +19,7 @@
     const conceptSectionsFromContent = requiredFunction(dependencies, "conceptSectionsFromContent");
     const renderConceptDocumentHeader = requiredFunction(dependencies, "renderConceptDocumentHeader");
     const renderConceptSections = requiredFunction(dependencies, "renderConceptSections");
+    const renderWorksheetBlueprint = requiredFunction(dependencies, "renderWorksheetBlueprint");
     const statusWord = requiredFunction(dependencies, "statusWord");
     const workspaceConceptArtifacts = requiredFunction(dependencies, "workspaceConceptArtifacts");
     const currentConceptArtifact = requiredFunction(dependencies, "currentConceptArtifact");
@@ -121,39 +122,13 @@
       const conceptArtifact = selectedConceptArtifact(workspace, ui);
       const content = conceptArtifact?.data || workspace.documents?.content?.data || {};
       const brief = workspace.documents?.brief?.data || {};
-      const sections = conceptSectionsFromContent(content, {
+      return renderWorksheetBlueprint({
+        content,
         brief,
         project: workspace.project || {},
-        teachingContext: workspace.teachingContext || {}
+        teachingContext: workspace.teachingContext || {},
+        concept: conceptArtifact || null
       });
-      const versionLabel = conceptArtifact?.version ? t("app.concept.version", { number: conceptArtifact.version }) : t("app.concept.current");
-      const statusLabel = [
-        statusWord(conceptArtifact?.status || workspace.documents?.content?.status),
-        conceptArtifact?.current ? t("app.concept.current") : null
-      ].filter(Boolean).join(" · ");
-      return `
-        <article class="canvas-document">
-          ${renderConceptDocumentHeader({
-            project: workspace.project || {},
-            brief,
-            content,
-            teachingContext: workspace.teachingContext || {},
-            label: `${t("app.concept.title")} · ${versionLabel}`,
-            titleTag: "h3",
-            versionLabel,
-            statusLabel
-          })}
-          <div class="detail-grid">
-            <div><span>Version</span><strong>${escapeHtml(versionLabel)}</strong></div>
-            <div><span>${escapeHtml(t("app.concept.status"))}</span><strong>${escapeHtml(statusLabel || t("app.context.openValue"))}</strong></div>
-            <div><span>${escapeHtml(isEnglish() ? "Concept" : "Konzept")}</span><strong>${workspace.approval?.canGenerate ? (isEnglish() ? "adopted" : "übernommen") : t("app.context.openValue")}</strong></div>
-            <div><span>${escapeHtml(t("app.concept.texts"))}</span><strong>${escapeHtml(content.readingTexts?.length || 0)}</strong></div>
-            <div><span>${escapeHtml(t("app.concept.tasks"))}</span><strong>${escapeHtml(content.tasks?.length || 0)}</strong></div>
-            <div><span>${escapeHtml(t("app.concept.images"))}</span><strong>${escapeHtml(content.imageMaterials?.length || 0)}</strong></div>
-          </div>
-          ${renderConceptSections(sections, { compact: false })}
-        </article>
-      `;
     }
 
     function renderCanvasWarnings(workspace = {}) {
