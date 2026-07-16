@@ -6,12 +6,16 @@ const path = require("node:path");
 const { readJsonFileIfExists, writeJsonFile } = require("../jsonFile");
 
 const SCHEMA_VERSION = "sheetifyimg.beta-access.v1";
+const CONSENT_VERSION = "sheetifyimg.beta-evaluation.v1";
 const PASS_CODE_PREFIX = "SHEET";
 const TOPUP_CODE_PREFIX = "PLUS";
 const CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const ACTIVE_PASS_STATUSES = new Set(["active"]);
 const REQUEST_KINDS = new Set(["recovery", "beta_access", "problem", "email"]);
 const REQUEST_STATUSES = new Set(["open", "resolved"]);
+const FEEDBACK_CATEGORIES = new Set(["result", "usability", "problem", "idea", "general"]);
+const FEEDBACK_STATUSES = new Set(["new", "reviewed", "resolved"]);
+const FEEDBACK_TAGS = new Set(["helpful", "unclear", "incorrect", "design", "technical"]);
 
 function nowIso(options = {}) {
   return options.now || new Date().toISOString();
@@ -90,6 +94,17 @@ function cleanLabel(value, fallback = "Sheetify IMG Pass") {
   return String(value || fallback).trim().slice(0, 120) || fallback;
 }
 
+function optionalContextId(value, label) {
+  const id = cleanText(value, 160);
+  if (!id) {
+    return null;
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(id)) {
+    throw Object.assign(new Error(`Ungültige ${label}.`), { statusCode: 400 });
+  }
+  return id;
+}
+
 function emptyState(now) {
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -98,6 +113,7 @@ function emptyState(now) {
     sessions: [],
     pairings: [],
     requests: [],
+    feedback: [],
     recoveryTokens: [],
     topupCards: [],
     reservations: [],
@@ -108,7 +124,7 @@ function emptyState(now) {
 
 function normalizeState(raw, now) {
   const state = { ...emptyState(now), ...(raw || {}) };
-  for (const field of ["passes", "sessions", "pairings", "requests", "recoveryTokens", "topupCards", "reservations", "ledger", "audit"]) {
+  for (const field of ["passes", "sessions", "pairings", "requests", "feedback", "recoveryTokens", "topupCards", "reservations", "ledger", "audit"]) {
     state[field] = Array.isArray(state[field]) ? state[field] : [];
   }
   state.schemaVersion = SCHEMA_VERSION;
@@ -197,6 +213,41 @@ function publicRequest(state, request) {
       status: pass.status,
       codeHint: pass.codeHint || null
     } : null
+  };
+}
+
+function publicFeedback(state, feedback) {
+  const pass = state.passes.find((entry) => entry.id === feedback.passId) || null;
+  const session = state.sessions.find((entry) => entry.id === feedback.sessionId) || null;
+  return {
+    id: feedback.id,
+    status: feedback.status,
+    category: feedback.category,
+    rating: feedback.rating || null,
+    tags: Array.isArray(feedback.tags) ? feedback.tags : [],
+    message: feedback.message || "",
+    projectId: feedback.projectId || null,
+    runId: feedback.runId || null,
+    candidateId: feedback.candidateId || null,
+    page: feedback.page || null,
+    uiView: feedback.uiView || null,
+    deviceClass: feedback.deviceClass || null,
+    consentVersion: feedback.consentVersion,
+    createdAt: feedback.createdAt,
+    updatedAt: feedback.updatedAt,
+    resolvedAt: feedback.resolvedAt || null,
+    adminNote: feedback.adminNote || "",
+    pass: pass ? {
+      id: pass.id,
+      label: pass.label,
+      status: pass.status,
+      codeHint: pass.codeHint || null
+    } : null,
+    participant: session ? {
+      id: session.id,
+      deviceName: session.deviceName,
+      createdAt: session.createdAt
+    } : { id: feedback.sessionId, deviceName: null, createdAt: null }
   };
 }
 
@@ -398,6 +449,158 @@ function createBetaAccessManager(config = {}) {
       request.updatedAt = now;
       addAudit(state, "request_updated", now, { requestId, status: request.status });
       return publicRequest(state, request);
+    }, options);
+  }
+
+  async function betaExperience(passId, sessionId) {
+    const state = await readState();
+    passRecord(state, passId);
+    const session = state.sessions.find((entry) => entry.id === sessionId && entry.passId === passId) || null;
+    if (!session || session.revokedAt) {
+      throw Object.assign(new Error("Die aktuelle Gerätesitzung ist nicht mehr gültig."), { statusCode: 401 });
+    }
+    const ownFeedback = state.feedback.filter((entry) => entry.passId === passId && entry.sessionId === sessionId);
+    return {
+      consent: {
+        requiredVersion: CONSENT_VERSION,
+        accepted: session.consentVersion === CONSENT_VERSION,
+        acceptedAt: session.consentVersion === CONSENT_VERSION ? session.consentAcceptedAt || null : null
+      },
+      feedback: {
+        count: ownFeedback.length,
+        lastSubmittedAt: ownFeedback.map((entry) => entry.createdAt).sort().at(-1) || null
+      }
+    };
+  }
+
+  async function acceptConsent(passId, sessionId, input = {}, options = {}) {
+    if (input.accepted !== true) {
+      throw Object.assign(new Error("Die Beta-Einwilligung wurde nicht bestätigt."), { statusCode: 400 });
+    }
+    return transact((state, now) => {
+      const session = state.sessions.find((entry) => entry.id === sessionId && entry.passId === passId) || null;
+      if (!session || session.revokedAt || session.expiresAt <= now) {
+        throw Object.assign(new Error("Die aktuelle Gerätesitzung ist nicht mehr gültig."), { statusCode: 401 });
+      }
+      session.consentVersion = CONSENT_VERSION;
+      session.consentAcceptedAt = now;
+      addAudit(state, "beta_consent_accepted", now, {
+        passId,
+        sessionId,
+        consentVersion: CONSENT_VERSION
+      });
+      return {
+        requiredVersion: CONSENT_VERSION,
+        accepted: true,
+        acceptedAt: now
+      };
+    }, options);
+  }
+
+  async function createFeedback(passId, sessionId, input = {}, options = {}) {
+    const category = String(input.category || "general");
+    if (!FEEDBACK_CATEGORIES.has(category)) {
+      throw Object.assign(new Error("Unbekannte Feedback-Kategorie."), { statusCode: 400 });
+    }
+    const rating = input.rating === undefined || input.rating === null || input.rating === ""
+      ? null
+      : Number(input.rating);
+    if (rating !== null && (!Number.isSafeInteger(rating) || rating < 1 || rating > 5)) {
+      throw Object.assign(new Error("Die Bewertung muss zwischen 1 und 5 liegen."), { statusCode: 400 });
+    }
+    const tags = [...new Set(Array.isArray(input.tags) ? input.tags.map(String).filter((tag) => FEEDBACK_TAGS.has(tag)) : [])].slice(0, 5);
+    const message = cleanText(input.message, 4000);
+    if (rating === null && !tags.length && !message) {
+      throw Object.assign(new Error("Bitte eine Bewertung oder eine kurze Rückmeldung angeben."), { statusCode: 400 });
+    }
+    const projectId = optionalContextId(input.projectId, "Projekt-ID");
+    const runId = optionalContextId(input.runId, "Run-ID");
+    const candidateId = optionalContextId(input.candidateId, "Entwurf-ID");
+    const page = input.page === undefined || input.page === null || input.page === ""
+      ? null
+      : positiveInteger(input.page, 0);
+    if (input.page !== undefined && input.page !== null && input.page !== "" && (!page || page > 100)) {
+      throw Object.assign(new Error("Ungültige Seitenangabe."), { statusCode: 400 });
+    }
+    const uiView = cleanText(input.uiView, 80) || null;
+    const deviceClass = ["mobile", "tablet", "desktop"].includes(String(input.deviceClass))
+      ? String(input.deviceClass)
+      : null;
+
+    return transact((state, now) => {
+      passRecord(state, passId);
+      const session = state.sessions.find((entry) => entry.id === sessionId && entry.passId === passId) || null;
+      if (!session || session.revokedAt || session.expiresAt <= now) {
+        throw Object.assign(new Error("Die aktuelle Gerätesitzung ist nicht mehr gültig."), { statusCode: 401 });
+      }
+      if (session.consentVersion !== CONSENT_VERSION) {
+        throw Object.assign(new Error("Bitte zuerst der Beta-Auswertung zustimmen."), { statusCode: 403 });
+      }
+      const feedback = {
+        id: randomId("feedback"),
+        passId,
+        sessionId,
+        status: "new",
+        category,
+        rating,
+        tags,
+        message,
+        projectId,
+        runId,
+        candidateId,
+        page,
+        uiView,
+        deviceClass,
+        consentVersion: CONSENT_VERSION,
+        createdAt: now,
+        updatedAt: now,
+        resolvedAt: null,
+        adminNote: ""
+      };
+      state.feedback.push(feedback);
+      if (state.feedback.length > 5000) {
+        const removable = state.feedback.findIndex((entry) => entry.status === "resolved");
+        state.feedback.splice(removable >= 0 ? removable : 0, 1);
+      }
+      addAudit(state, "feedback_created", now, {
+        feedbackId: feedback.id,
+        passId,
+        sessionId,
+        projectId,
+        runId,
+        candidateId
+      });
+      return publicFeedback(state, feedback);
+    }, options);
+  }
+
+  async function listFeedback() {
+    const state = await readState();
+    return state.feedback
+      .map((feedback) => publicFeedback(state, feedback))
+      .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
+  }
+
+  async function updateFeedback(feedbackId, input = {}, options = {}) {
+    return transact((state, now) => {
+      const feedback = state.feedback.find((entry) => entry.id === feedbackId) || null;
+      if (!feedback) {
+        throw Object.assign(new Error("Feedback wurde nicht gefunden."), { statusCode: 404 });
+      }
+      if (input.status !== undefined) {
+        const status = String(input.status);
+        if (!FEEDBACK_STATUSES.has(status)) {
+          throw Object.assign(new Error("Unbekannter Feedback-Status."), { statusCode: 400 });
+        }
+        feedback.status = status;
+        feedback.resolvedAt = status === "resolved" ? now : null;
+      }
+      if (input.adminNote !== undefined) {
+        feedback.adminNote = cleanText(input.adminNote, 1000);
+      }
+      feedback.updatedAt = now;
+      addAudit(state, "feedback_updated", now, { feedbackId, status: feedback.status });
+      return publicFeedback(state, feedback);
     }, options);
   }
 
@@ -854,8 +1057,11 @@ function createBetaAccessManager(config = {}) {
   }
 
   return Object.freeze({
+    acceptConsent,
     authenticateToken,
+    betaExperience,
     createPairing,
+    createFeedback,
     createPass,
     createRecoveryChallenge,
     createRequest,
@@ -864,6 +1070,7 @@ function createBetaAccessManager(config = {}) {
     ensureStorage,
     grant,
     listPasses,
+    listFeedback,
     listRequests,
     loginWithPass,
     logout,
@@ -878,11 +1085,13 @@ function createBetaAccessManager(config = {}) {
     rotatePass,
     settleGeneration,
     updatePass,
+    updateFeedback,
     updateRequest
   });
 }
 
 module.exports = {
+  CONSENT_VERSION,
   PASS_CODE_PREFIX,
   SCHEMA_VERSION,
   TOPUP_CODE_PREFIX,

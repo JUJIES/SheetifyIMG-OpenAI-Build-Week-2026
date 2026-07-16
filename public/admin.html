@@ -6,7 +6,7 @@
     <title>Sheetify IMG Beta Admin</title>
     <link rel="icon" href="/icons/favicon.ico">
     <link rel="stylesheet" href="/brand.css?v=1">
-    <link rel="stylesheet" href="/admin.css?v=4">
+    <link rel="stylesheet" href="/admin.css?v=5">
   </head>
   <body>
     <header class="admin-topbar">
@@ -75,6 +75,18 @@
         <p class="generated-secret">Der vollständige Code wird nur jetzt angezeigt. Sheetify IMG speichert ihn ausschließlich als Prüfsumme.</p>
       </section>
 
+      <section class="feedback-section">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Beta-Auswertung</p>
+            <h2>Feedback der Tester</h2>
+          </div>
+          <button type="button" class="ghost" id="refreshFeedback">Aktualisieren</button>
+        </div>
+        <p class="section-intro">Rückmeldungen bleiben mit dem verwendeten Gerät, Projekt, Run und Entwurf verknüpft.</p>
+        <div class="feedback-list" id="feedbackList"></div>
+      </section>
+
       <section class="requests-section">
         <div class="section-head">
           <div>
@@ -105,6 +117,6 @@
       </section>
     </main>
     <div class="admin-toast hidden" id="adminToast" role="status"></div>
-    <script src="/admin.js?v=4"></script>
+    <script src="/admin.js?v=5"></script>
   </body>
 </html>

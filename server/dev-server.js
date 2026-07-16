@@ -1037,6 +1037,33 @@ async function handleAuthApi(request, response) {
 async function handlePassApi(request, response, context) {
   assertSameOriginMutation(request);
   const pathname = routePath(request);
+  if (request.method === "GET" && pathname === "/api/beta/experience") {
+    sendJson(response, 200, {
+      enabled: true,
+      ...(await betaAccessManager.betaExperience(context.passId, context.sessionId))
+    });
+    return true;
+  }
+  if (request.method === "POST" && pathname === "/api/beta/consent") {
+    sendJson(response, 200, {
+      consent: await betaAccessManager.acceptConsent(
+        context.passId,
+        context.sessionId,
+        await readJsonBody(request)
+      )
+    });
+    return true;
+  }
+  if (request.method === "POST" && pathname === "/api/beta/feedback") {
+    sendJson(response, 201, {
+      feedback: await betaAccessManager.createFeedback(
+        context.passId,
+        context.sessionId,
+        await readJsonBody(request)
+      )
+    });
+    return true;
+  }
   if (request.method === "GET" && pathname === "/api/pass") {
     sendJson(response, 200, await betaAccessManager.passSummary(context.passId, context.sessionId));
     return true;
@@ -1087,6 +1114,7 @@ async function handleAdminApi(request, response) {
     sendJson(response, 200, {
       passes: await betaAccessManager.listPasses(),
       requests: await betaAccessManager.listRequests(),
+      feedback: await betaAccessManager.listFeedback(),
       beta: {
         enabled: serverConfig.betaAccess.enabled,
         paidGenerationEnabled: serverConfig.betaAccess.paidGenerationEnabled,
@@ -1202,6 +1230,13 @@ async function handleAdminApi(request, response) {
     });
     return true;
   }
+  const feedbackMatch = pathname.match(/^\/api\/admin\/feedback\/(feedback_[A-Za-z0-9-]+)$/);
+  if (request.method === "PATCH" && feedbackMatch) {
+    sendJson(response, 200, {
+      feedback: await betaAccessManager.updateFeedback(feedbackMatch[1], await readJsonBody(request))
+    });
+    return true;
+  }
   const recoveryMatch = pathname.match(/^\/api\/admin\/requests\/(request_[A-Za-z0-9-]+)\/recovery-link$/);
   if (request.method === "POST" && recoveryMatch) {
     const recovery = await betaAccessManager.createRecoveryChallenge(recoveryMatch[1]);
@@ -1239,6 +1274,17 @@ async function handleApi(request, response, context = {}) {
 
   if (context.passId && await handlePassApi(request, response, context)) {
     return;
+  }
+
+  if (context.passId && ["POST", "PATCH", "PUT", "DELETE"].includes(request.method)) {
+    const experience = await betaAccessManager.betaExperience(context.passId, context.sessionId);
+    if (!experience.consent.accepted) {
+      sendJson(response, 403, {
+        error: "beta_consent_required",
+        message: "Bitte zuerst der Beta-Auswertung zustimmen."
+      });
+      return;
+    }
   }
 
   if (request.method === "GET" && pathname === "/api/share/targets") {

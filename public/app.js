@@ -11414,6 +11414,19 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+window.sheetifyBetaFeedbackContext = () => {
+  const viewerItem = currentCandidateViewerItem();
+  const source = viewerItem?.source || {};
+  const artifact = state.activeArtifactSelection || {};
+  return {
+    projectId: currentProjectId() || null,
+    runId: source.runId || viewerItem?.runId || artifact.runId || null,
+    candidateId: source.candidateId || artifact.candidateId || null,
+    page: Number(source.page || viewerItem?.page || 0) || null,
+    uiView: state.mode === "workspace" ? "workspace" : state.libraryView
+  };
+};
+
 initializeCustomScrollbars();
 updateVoiceButton();
 loadTree();

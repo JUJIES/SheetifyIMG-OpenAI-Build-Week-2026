@@ -19,8 +19,10 @@ const elements = {
   downloadSvg: document.querySelector("#downloadCardSvg"),
   passList: document.querySelector("#passList"),
   requestList: document.querySelector("#requestList"),
+  feedbackList: document.querySelector("#feedbackList"),
   refreshPasses: document.querySelector("#refreshPasses"),
   refreshRequests: document.querySelector("#refreshRequests"),
+  refreshFeedback: document.querySelector("#refreshFeedback"),
   contact: document.querySelector(".admin-contact"),
   toast: document.querySelector("#adminToast")
 };
@@ -77,6 +79,30 @@ function requestKindLabel(kind) {
     problem: "Problem oder Frage",
     email: "Eingehende E-Mail"
   })[kind] || kind;
+}
+
+function feedbackCategoryLabel(category) {
+  return ({
+    result: "Ergebnis / Entwurf",
+    usability: "Bedienung",
+    problem: "Technisches Problem",
+    idea: "Idee oder Wunsch",
+    general: "Allgemein"
+  })[category] || category;
+}
+
+function feedbackStatusLabel(status) {
+  return ({ new: "Neu", reviewed: "Geprüft", resolved: "Erledigt" })[status] || status;
+}
+
+function feedbackTagLabel(tag) {
+  return ({
+    helpful: "Hilfreich",
+    unclear: "Unklar",
+    incorrect: "Inhaltlich falsch",
+    design: "Design",
+    technical: "Technik"
+  })[tag] || tag;
 }
 
 function shortDate(value) {
@@ -185,17 +211,62 @@ function renderRequests() {
   }).join("");
 }
 
+function renderFeedback() {
+  const feedback = state.overview?.feedback || [];
+  if (!feedback.length) {
+    elements.feedbackList.innerHTML = '<div class="empty">Noch kein Beta-Feedback.</div>';
+    return;
+  }
+  elements.feedbackList.innerHTML = feedback.map((entry) => {
+    const context = [
+      entry.pass?.label || null,
+      entry.participant?.deviceName || null,
+      entry.projectId ? `Projekt ${entry.projectId}` : null,
+      entry.runId ? `Run ${entry.runId}` : null,
+      entry.candidateId ? `Entwurf ${entry.candidateId}` : null,
+      entry.page ? `Seite ${entry.page}` : null
+    ].filter(Boolean);
+    const tags = entry.tags?.length
+      ? `<div class="feedback-tags">${entry.tags.map((tag) => `<span>${escapeHtml(feedbackTagLabel(tag))}</span>`).join("")}</div>`
+      : "";
+    return `
+      <article class="feedback-row ${escapeHtml(entry.status)}" data-feedback-id="${escapeHtml(entry.id)}">
+        <div class="request-head">
+          <div class="request-tags">
+            <span class="feedback-status ${escapeHtml(entry.status)}">${escapeHtml(feedbackStatusLabel(entry.status))}</span>
+            <span>${escapeHtml(feedbackCategoryLabel(entry.category))}</span>
+            ${entry.deviceClass ? `<span>${escapeHtml(entry.deviceClass)}</span>` : ""}
+          </div>
+          <time datetime="${escapeHtml(entry.createdAt)}">${escapeHtml(shortDate(entry.createdAt))}</time>
+        </div>
+        <div class="feedback-summary">
+          <strong>${entry.rating ? `${entry.rating}/5` : "Ohne Bewertung"}</strong>
+          <span>${escapeHtml(context.slice(0, 2).join(" · ") || "Pseudonymer Beta-Tester")}</span>
+        </div>
+        ${entry.message ? `<p class="request-message">${escapeHtml(entry.message)}</p>` : ""}
+        ${tags}
+        ${context.length > 2 ? `<details class="feedback-context"><summary>Technischen Kontext anzeigen</summary><p>${escapeHtml(context.slice(2).join(" · "))}</p></details>` : ""}
+        <div class="request-actions">
+          ${entry.status !== "reviewed" ? '<button class="secondary" type="button" data-feedback-status="reviewed">Als geprüft markieren</button>' : ""}
+          ${entry.status !== "resolved" ? '<button class="ghost" type="button" data-feedback-status="resolved">Erledigt</button>' : '<button class="ghost" type="button" data-feedback-status="new">Wieder öffnen</button>'}
+        </div>
+      </article>`;
+  }).join("");
+}
+
 async function loadOverview() {
   state.overview = await api("/api/admin/overview");
   const beta = state.overview.beta;
   const openRequests = state.overview.requests.filter((request) => request.status === "open").length;
-  elements.status.textContent = `${state.overview.passes.length}/10 Pässe · ${openRequests} offen · Entwürfe ${beta.paidGenerationEnabled ? "aktiv" : "pausiert"} · Postfach ${beta.inboundMailEnabled ? "gespiegelt" : "manuell"}`;
+  const newFeedback = state.overview.feedback.filter((entry) => entry.status === "new").length;
+  elements.status.textContent = `${state.overview.passes.length}/10 Pässe · ${newFeedback} Feedback neu · ${openRequests} Anfragen offen · Entwürfe ${beta.paidGenerationEnabled ? "aktiv" : "pausiert"}`;
   if (elements.contact && beta.contactEmail) {
     elements.contact.textContent = beta.contactEmail;
     elements.contact.href = `mailto:${beta.contactEmail}`;
   }
   renderPasses();
   renderRequests();
+  renderFeedback();
 }
 
 elements.createPassForm.addEventListener("submit", async (event) => {
@@ -285,6 +356,19 @@ elements.requestList.addEventListener("click", async (event) => {
   } catch (error) { toast(error.message); }
 });
 
+elements.feedbackList.addEventListener("click", async (event) => {
+  const row = event.target.closest("[data-feedback-id]");
+  const button = event.target.closest("button[data-feedback-status]");
+  if (!row || !button) return;
+  try {
+    await api(`/api/admin/feedback/${encodeURIComponent(row.dataset.feedbackId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: button.dataset.feedbackStatus })
+    });
+    await loadOverview();
+  } catch (error) { toast(error.message); }
+});
+
 elements.downloadSvg.addEventListener("click", () => {
   if (!state.cardSvg) return;
   const link = document.createElement("a");
@@ -304,4 +388,5 @@ elements.downloadPng.addEventListener("click", () => {
 
 elements.refreshPasses.addEventListener("click", () => loadOverview().catch((error) => toast(error.message)));
 elements.refreshRequests.addEventListener("click", () => loadOverview().catch((error) => toast(error.message)));
+elements.refreshFeedback.addEventListener("click", () => loadOverview().catch((error) => toast(error.message)));
 loadOverview().catch((error) => toast(error.message));
