@@ -1328,11 +1328,15 @@ async function handleAdminApi(request, response) {
 }
 
 async function handleApi(request, response, context = {}) {
+  const pathname = routePath(request);
+  if (!serverConfig.betaAccess.enabled && request.method === "GET" && pathname === "/api/beta/experience") {
+    sendJson(response, 200, { enabled: false });
+    return;
+  }
   if (serverConfig.betaAccess.enabled && !context.passId) {
     sendAuthRequired(response);
     return;
   }
-  const pathname = routePath(request);
   const requestRepoRoot = context.repoRoot || repoRoot;
   const requestPromptRoot = context.promptRoot || repoRoot;
   const projectsDir = context.projectsDir || defaultProjectsDir;
