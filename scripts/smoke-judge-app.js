@@ -442,11 +442,18 @@ async function main() {
       await mobileConceptButton.scrollIntoViewIfNeeded();
       await demoPause(650);
       await mobileConceptButton.click();
-      await mobilePage.locator("#mobilePreviewSheet [data-worksheet-blueprint]").waitFor();
+      const mobileBlueprint = mobilePage.locator("#mobilePreviewSheet [data-worksheet-blueprint]");
+      await mobileBlueprint.waitFor();
+      assert.equal(await mobileBlueprint.getAttribute("data-blueprint-mode"), "concept");
       await demoPause(1800);
       const firstBlueprintNode = mobilePage.locator("#mobilePreviewSheet [data-blueprint-node]").first();
       if (await firstBlueprintNode.count()) {
         await firstBlueprintNode.click();
+        assert.equal(await mobileBlueprint.getAttribute("data-blueprint-mode"), "details");
+        await mobileBlueprint.locator("[data-blueprint-mode='concept']").click();
+        assert.equal(await mobileBlueprint.getAttribute("data-blueprint-mode"), "concept");
+        await mobileBlueprint.locator("[data-blueprint-mode='details']").click();
+        assert.equal(await mobileBlueprint.getAttribute("data-blueprint-mode"), "details");
         await demoPause(1700);
       }
       const nextBlueprintNode = mobilePage.locator("#mobilePreviewSheet [data-blueprint-next]");

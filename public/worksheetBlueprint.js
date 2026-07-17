@@ -31,6 +31,30 @@
       ));
     }
 
+    function uiLabel(name) {
+      const english = label("app.blueprint.title", "Arbeitsblatt-Bauplan") === "Worksheet blueprint";
+      const copy = english
+        ? {
+            concept: "Concept",
+            details: "Details",
+            switchView: "Switch concept view",
+            previousPage: "Previous page",
+            nextPage: "Next page"
+          }
+        : {
+            concept: "Konzept",
+            details: "Details",
+            switchView: "Konzeptansicht wechseln",
+            previousPage: "Vorherige Seite",
+            nextPage: "Nächste Seite"
+          };
+      return copy[name] || name;
+    }
+
+    function lucide(name, className = "icon icon-small") {
+      return `<svg class="${escapeHtml(className)}" aria-hidden="true"><use href="/icons/lucide-sprite.svg?v=17#${escapeHtml(name)}"></use></svg>`;
+    }
+
     function text(value) {
       return String(value || "").trim();
     }
@@ -163,10 +187,10 @@
       `;
     }
 
-    function renderPage(content, elements, thread, page, selectedId) {
+    function renderPage(content, elements, thread, page) {
       const pageElements = elements.filter((entry) => entry.page === page).sort((a, b) => a.order - b.order);
       return `
-        <section class="worksheet-blueprint-page" aria-label="${escapeHtml(label("app.blueprint.sheet", "Blatt"))} ${page}">
+        <section class="worksheet-blueprint-page" data-blueprint-page="${page}" aria-label="${escapeHtml(label("app.blueprint.sheet", "Blatt"))} ${page}" ${page === 1 ? "" : "hidden"}>
           <div class="worksheet-blueprint-paper">
             <header>
               <span>${pageCount(content, elements) > 1
@@ -179,7 +203,7 @@
                 ? pageElements.map((element) => renderNode(
                   element,
                   thread.byElementId.get(element.id),
-                  element.id === selectedId
+                  false
                 )).join("")
                 : `<p class="worksheet-blueprint-empty-page">${escapeHtml(label("app.blueprint.emptyPage", "Für dieses Blatt sind noch keine Elemente vorgesehen."))}</p>`}
             </div>
@@ -221,10 +245,10 @@
       `;
     }
 
-    function renderInspectorPanel(element, step, thread, selected) {
+    function renderInspectorPanel(element, step, thread) {
       const previous = step?.previous;
       return `
-        <article class="worksheet-blueprint-inspector-panel${selected ? " selected" : ""}" data-blueprint-panel="${escapeHtml(element.id)}" ${selected ? "" : "hidden"}>
+        <article class="worksheet-blueprint-inspector-panel" data-blueprint-panel="${escapeHtml(element.id)}" tabindex="-1" hidden>
           <header>
             <span>${escapeHtml(element.kicker)} · ${escapeHtml(label("app.blueprint.sheet", "Blatt"))} ${escapeHtml(element.page)}</span>
             <h3>${escapeHtml(element.label)}</h3>
@@ -249,35 +273,52 @@
         return `<div class="worksheet-blueprint-empty">${escapeHtml(label("app.blueprint.empty", "Noch keine Texte, Aufgaben oder Bildmaterialien für den Bauplan vorhanden."))}</div>`;
       }
       const thread = threadModel(content, elements);
-      const selectedId = elements[0].id;
       const pages = Array.from({ length: pageCount(content, elements) }, (_, index) => index + 1);
       return `
-        <div class="worksheet-blueprint" data-worksheet-blueprint>
-          <div class="worksheet-blueprint-overview">
-            <div class="worksheet-blueprint-heading">
-              <div>
-                <span>${escapeHtml(label("app.blueprint.title", "Arbeitsblatt-Bauplan"))}</span>
-                <h3>${escapeHtml(text(content.title) || label("app.concept.title", "Arbeitsblatt-Konzept"))}</h3>
-              </div>
-              ${thread.path ? `<p><span>${escapeHtml(label("app.blueprint.thread", "Roter Faden"))}</span>${escapeHtml(thread.path)}</p>` : ""}
-            </div>
-            <div class="worksheet-blueprint-pages">
-              ${pages.map((page) => renderPage(content, elements, thread, page, selectedId)).join("")}
+        <div class="worksheet-blueprint" data-worksheet-blueprint data-blueprint-mode="concept" data-blueprint-index="-1" data-blueprint-page-index="1">
+          <div class="worksheet-blueprint-toolbar">
+            <div class="worksheet-blueprint-mode-switch" role="tablist" aria-label="${escapeHtml(uiLabel("switchView"))}">
+              <button class="selected" type="button" role="tab" aria-selected="true" data-blueprint-mode="concept">
+                ${lucide("file-text")}
+                <span>${escapeHtml(uiLabel("concept"))}</span>
+              </button>
+              <button type="button" role="tab" aria-selected="false" data-blueprint-mode="details" disabled>
+                ${lucide("rows-3")}
+                <span>${escapeHtml(uiLabel("details"))}</span>
+              </button>
             </div>
           </div>
-          <aside class="worksheet-blueprint-inspector" aria-live="polite">
-            <div class="worksheet-blueprint-inspector-nav">
-              <button type="button" data-blueprint-previous aria-label="${escapeHtml(label("app.blueprint.previousElement", "Vorheriges Element"))}">←</button>
-              <span><strong data-blueprint-position>1</strong> ${escapeHtml(label("app.blueprint.of", "von"))} ${elements.length}</span>
-              <button type="button" data-blueprint-next aria-label="${escapeHtml(label("app.blueprint.nextElement", "Nächstes Element"))}">→</button>
+          <div class="worksheet-blueprint-stage">
+            <div class="worksheet-blueprint-overview" data-blueprint-view="concept">
+              <div class="worksheet-blueprint-heading">
+                <div>
+                  <span>${escapeHtml(label("app.blueprint.title", "Arbeitsblatt-Bauplan"))}</span>
+                  <h3>${escapeHtml(text(content.title) || label("app.concept.title", "Arbeitsblatt-Konzept"))}</h3>
+                </div>
+                ${thread.path ? `<p><span>${escapeHtml(label("app.blueprint.thread", "Roter Faden"))}</span>${escapeHtml(thread.path)}</p>` : ""}
+              </div>
+              <nav class="worksheet-blueprint-page-nav" aria-label="${escapeHtml(label("app.blueprint.page", "Seite"))}">
+                <button class="previous" type="button" data-blueprint-page-previous aria-label="${escapeHtml(uiLabel("previousPage"))}">${lucide("chevron-right")}</button>
+                <span>${escapeHtml(label("app.blueprint.page", "Seite"))} <strong data-blueprint-page-position>1</strong> ${escapeHtml(label("app.blueprint.of", "von"))} ${pages.length}</span>
+                <button type="button" data-blueprint-page-next aria-label="${escapeHtml(uiLabel("nextPage"))}">${lucide("chevron-right")}</button>
+              </nav>
+              <div class="worksheet-blueprint-pages">
+                ${pages.map((page) => renderPage(content, elements, thread, page)).join("")}
+              </div>
             </div>
-            ${elements.map((element) => renderInspectorPanel(
-              element,
-              thread.byElementId.get(element.id),
-              thread,
-              element.id === selectedId
-            )).join("")}
-          </aside>
+            <aside class="worksheet-blueprint-inspector" data-blueprint-view="details" aria-live="polite" aria-hidden="true" inert>
+              <div class="worksheet-blueprint-inspector-nav">
+                <button class="previous" type="button" data-blueprint-previous aria-label="${escapeHtml(label("app.blueprint.previousElement", "Vorheriges Element"))}">${lucide("chevron-right")}</button>
+                <span><strong data-blueprint-position>1</strong> ${escapeHtml(label("app.blueprint.of", "von"))} ${elements.length}</span>
+                <button type="button" data-blueprint-next aria-label="${escapeHtml(label("app.blueprint.nextElement", "Nächstes Element"))}">${lucide("chevron-right")}</button>
+              </div>
+              ${elements.map((element) => renderInspectorPanel(
+                element,
+                thread.byElementId.get(element.id),
+                thread
+              )).join("")}
+            </aside>
+          </div>
         </div>
       `;
     }
@@ -290,14 +331,115 @@
         const nodes = Array.from(root.querySelectorAll("[data-blueprint-node]"));
         const panels = Array.from(root.querySelectorAll("[data-blueprint-panel]"));
         const position = root.querySelector("[data-blueprint-position]");
+        const pagePosition = root.querySelector("[data-blueprint-page-position]");
+        const pages = Array.from(root.querySelectorAll("[data-blueprint-page]"));
+        const previousPageButton = root.querySelector("[data-blueprint-page-previous]");
+        const nextPageButton = root.querySelector("[data-blueprint-page-next]");
+        const overview = root.querySelector("[data-blueprint-view='concept']");
+        const inspector = root.querySelector("[data-blueprint-view='details']");
+        const conceptModeButton = root.querySelector("[data-blueprint-mode='concept']");
+        const detailsModeButton = root.querySelector("[data-blueprint-mode='details']");
         if (!nodes.length || !panels.length) {
           return;
         }
 
-        function select(index, { focus = false, reveal = false } = {}) {
+        let selectedIndex = -1;
+        let currentPage = 1;
+        let conceptScrollTop = null;
+
+        function scroller() {
+          return root.closest(".simplebar-content-wrapper");
+        }
+
+        function clearSelection() {
+          selectedIndex = -1;
+          root.dataset.blueprintIndex = "-1";
+          nodes.forEach((node) => {
+            node.classList.remove("selected");
+            node.setAttribute("aria-pressed", "false");
+          });
+          panels.forEach((panel) => {
+            panel.hidden = true;
+            panel.classList.remove("selected");
+          });
+          if (detailsModeButton) {
+            detailsModeButton.disabled = true;
+          }
+          onSelectionChange?.(null);
+        }
+
+        function setPage(page, { focus = false, clearCurrentSelection = false } = {}) {
+          const normalizedPage = Math.min(Math.max(Number(page) || 1, 1), pages.length);
+          const changed = normalizedPage !== currentPage;
+          currentPage = normalizedPage;
+          root.dataset.blueprintPageIndex = String(normalizedPage);
+          pages.forEach((pageElement) => {
+            const active = Number(pageElement.dataset.blueprintPage || 1) === normalizedPage;
+            pageElement.hidden = !active;
+          });
+          if (pagePosition) {
+            pagePosition.textContent = String(normalizedPage);
+          }
+          if (previousPageButton) {
+            previousPageButton.disabled = normalizedPage === 1;
+          }
+          if (nextPageButton) {
+            nextPageButton.disabled = normalizedPage === pages.length;
+          }
+          if (changed && clearCurrentSelection) {
+            clearSelection();
+          }
+          if (focus) {
+            pages.find((pageElement) => !pageElement.hidden)?.focus?.({ preventScroll: true });
+          }
+        }
+
+        function setMode(mode, { focus = false, restoreScroll = false } = {}) {
+          const nextMode = mode === "details" && selectedIndex >= 0 ? "details" : "concept";
+          const scrollContainer = scroller();
+          if (nextMode === "details" && root.dataset.blueprintMode !== "details") {
+            conceptScrollTop = scrollContainer?.scrollTop ?? null;
+          }
+          root.dataset.blueprintMode = nextMode;
+          const conceptActive = nextMode === "concept";
+          overview?.setAttribute("aria-hidden", conceptActive ? "false" : "true");
+          inspector?.setAttribute("aria-hidden", conceptActive ? "true" : "false");
+          if (overview) overview.inert = !conceptActive;
+          if (inspector) inspector.inert = conceptActive;
+          conceptModeButton?.classList.toggle("selected", conceptActive);
+          conceptModeButton?.setAttribute("aria-selected", conceptActive ? "true" : "false");
+          detailsModeButton?.classList.toggle("selected", !conceptActive);
+          detailsModeButton?.setAttribute("aria-selected", conceptActive ? "false" : "true");
+
+          if (nextMode === "details" && scrollContainer) {
+            global.requestAnimationFrame(() => {
+              const rootRect = root.getBoundingClientRect();
+              const scrollerRect = scrollContainer.getBoundingClientRect();
+              scrollContainer.scrollTo({
+                top: scrollContainer.scrollTop + rootRect.top - scrollerRect.top,
+                behavior: "smooth"
+              });
+            });
+          } else if (restoreScroll && scrollContainer && conceptScrollTop !== null) {
+            global.requestAnimationFrame(() => scrollContainer.scrollTo({ top: conceptScrollTop, behavior: "smooth" }));
+          }
+
+          if (focus) {
+            global.requestAnimationFrame(() => {
+              if (conceptActive) {
+                nodes[selectedIndex]?.focus({ preventScroll: true });
+              } else {
+                panels.find((panel) => !panel.hidden)?.focus({ preventScroll: true });
+              }
+            });
+          }
+        }
+
+        function select(index, { focus = false, openDetails = true } = {}) {
           const normalizedIndex = (index + nodes.length) % nodes.length;
           const selected = nodes[normalizedIndex];
           const selectedId = selected.dataset.blueprintNode;
+          selectedIndex = normalizedIndex;
           nodes.forEach((node, nodeIndex) => {
             const active = nodeIndex === normalizedIndex;
             node.classList.toggle("selected", active);
@@ -312,33 +454,28 @@
             position.textContent = String(normalizedIndex + 1);
           }
           root.dataset.blueprintIndex = String(normalizedIndex);
+          setPage(Number(selected.dataset.blueprintPage || 1) || 1);
+          if (detailsModeButton) {
+            detailsModeButton.disabled = false;
+          }
           onSelectionChange?.({
             id: selectedId,
             type: selected.dataset.blueprintType || "content",
             label: selected.dataset.blueprintLabel || selectedId,
             page: Number(selected.dataset.blueprintPage || 1) || 1
           });
-          if (focus) {
+          if (openDetails) {
+            setMode("details", { focus });
+          } else if (focus) {
             selected.focus({ preventScroll: true });
-          }
-          if (reveal && global.matchMedia?.("(max-width: 760px)").matches) {
-            const selectedPanel = panels.find((panel) => panel.dataset.blueprintPanel === selectedId);
-            global.requestAnimationFrame(() => {
-              const scroller = selectedPanel?.closest(".simplebar-content-wrapper");
-              if (!selectedPanel || !scroller) {
-                return;
-              }
-              const panelRect = selectedPanel.getBoundingClientRect();
-              const scrollerRect = scroller.getBoundingClientRect();
-              scroller.scrollTo({
-                top: scroller.scrollTop + panelRect.top - scrollerRect.top - 12,
-                behavior: "smooth"
-              });
-            });
           }
         }
 
-        nodes.forEach((node, index) => node.addEventListener("click", () => select(index, { reveal: true })));
+        nodes.forEach((node, index) => node.addEventListener("click", () => select(index, { focus: true })));
+        conceptModeButton?.addEventListener("click", () => setMode("concept", { focus: true, restoreScroll: true }));
+        detailsModeButton?.addEventListener("click", () => setMode("details", { focus: true }));
+        previousPageButton?.addEventListener("click", () => setPage(currentPage - 1, { clearCurrentSelection: true }));
+        nextPageButton?.addEventListener("click", () => setPage(currentPage + 1, { clearCurrentSelection: true }));
         root.querySelectorAll("[data-blueprint-revise]").forEach((button) => {
           button.addEventListener("click", () => {
             const index = nodes.findIndex((node) => node.dataset.blueprintNode === button.dataset.blueprintRevise);
@@ -356,12 +493,13 @@
           });
         });
         root.querySelector("[data-blueprint-previous]")?.addEventListener("click", () => {
-          select(Number(root.dataset.blueprintIndex || 0) - 1, { focus: true });
+          select(selectedIndex - 1, { focus: true });
         });
         root.querySelector("[data-blueprint-next]")?.addEventListener("click", () => {
-          select(Number(root.dataset.blueprintIndex || 0) + 1, { focus: true });
+          select(selectedIndex + 1, { focus: true });
         });
-        select(0);
+        setPage(1);
+        setMode("concept");
       });
     }
 

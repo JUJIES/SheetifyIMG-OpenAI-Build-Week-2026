@@ -1185,11 +1185,12 @@ function resetCanvasLayout() {
   if (state.canvasLayout?.resizeFrame) {
     window.cancelAnimationFrame(state.canvasLayout.resizeFrame);
   }
+  const defaultWidth = Math.max(CANVAS_DEFAULT_WIDTH, Math.round((window.innerWidth || CANVAS_DEFAULT_WIDTH * 3) / 3));
   state.canvasLayout = {
     collapsed: true,
     docked: false,
-    width: CANVAS_DEFAULT_WIDTH,
-    lastExpandedWidth: CANVAS_DEFAULT_WIDTH,
+    width: defaultWidth,
+    lastExpandedWidth: defaultWidth,
     resizing: false,
     pointerId: null,
     startX: 0,
