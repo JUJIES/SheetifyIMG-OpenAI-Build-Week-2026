@@ -124,41 +124,10 @@
           order: 300 + index,
           label: text(entry.groupLabel) || `${label("app.blueprint.task", "Aufgabe")} ${index + 1}`,
           body: text(entry.prompt),
-          expected: text(entry.expectedAnswer),
           difficulty: text(entry.difficulty),
           kicker: `${label("app.blueprint.task", "Aufgabe")} ${index + 1}`
         }))
       ];
-    }
-
-    function threadModel(content = {}, elements = []) {
-      const raw = content.didacticThread && typeof content.didacticThread === "object"
-        ? content.didacticThread
-        : {};
-      const elementIds = new Set(elements.map((entry) => entry.id));
-      const steps = (Array.isArray(raw.steps) ? raw.steps : []).map((step, index) => ({
-        id: text(step?.id) || `step_${index + 1}`,
-        action: text(step?.action),
-        purpose: text(step?.purpose),
-        after: text(step?.after) || null,
-        refs: (Array.isArray(step?.refs) ? step.refs : []).map(text).filter((ref) => elementIds.has(ref))
-      }));
-      const byId = new Map(steps.map((step) => [step.id, step]));
-      const byElementId = new Map();
-      steps.forEach((step, index) => {
-        step.index = index;
-        step.previous = step.after ? byId.get(step.after) || null : null;
-        step.refs.forEach((ref) => {
-          if (!byElementId.has(ref)) {
-            byElementId.set(ref, step);
-          }
-        });
-      });
-      return {
-        path: text(raw.path),
-        steps,
-        byElementId
-      };
     }
 
     function pageCount(content = {}, elements = []) {
@@ -182,8 +151,7 @@
       return `<small>${escapeHtml(short(element.body, element.type === "text" ? 170 : 120))}</small>`;
     }
 
-    function renderNode(element, step, selected) {
-      const role = step?.purpose || "";
+    function renderNode(element, selected) {
       const imageNode = element.type === "image";
       const repeatedHeading = repeatsVisibleLabel(element.kicker, element.label);
       const accessibleLabel = imageNode
@@ -204,7 +172,6 @@
         >
           <span class="worksheet-blueprint-node-heading">
             <span>${escapeHtml(imageNode ? element.label : element.kicker)}</span>
-            ${step ? `<em title="${escapeHtml(role)}">${escapeHtml(String(step.index + 1))}</em>` : ""}
           </span>
           ${imageNode || repeatedHeading ? "" : `<strong>${escapeHtml(short(element.label, 90))}</strong>`}
           ${blockPreview(element)}
@@ -212,13 +179,13 @@
       `;
     }
 
-    function renderPageElements(elements, thread) {
+    function renderPageElements(elements) {
       const rendered = [];
       let index = 0;
       while (index < elements.length) {
         const element = elements[index];
         if (element.type !== "image") {
-          rendered.push(renderNode(element, thread.byElementId.get(element.id), false));
+          rendered.push(renderNode(element, false));
           index += 1;
           continue;
         }
@@ -229,18 +196,14 @@
         }
         rendered.push(`
           <div class="worksheet-blueprint-image-strip" aria-label="${escapeHtml(label("app.blueprint.imageMaterial", "Bildmaterial"))}">
-            ${imageElements.map((image) => renderNode(
-              image,
-              thread.byElementId.get(image.id),
-              false
-            )).join("")}
+            ${imageElements.map((image) => renderNode(image, false)).join("")}
           </div>
         `);
       }
       return rendered.join("");
     }
 
-    function renderPage(content, elements, thread, page, options = {}) {
+    function renderPage(content, elements, page, options = {}) {
       const pageElements = elements.filter((entry) => entry.page === page).sort((a, b) => a.order - b.order);
       const showPageNavigation = options.pageCount > 1;
       return `
@@ -261,7 +224,7 @@
             </header>
             <div class="worksheet-blueprint-page-content">
               ${pageElements.length
-                ? renderPageElements(pageElements, thread)
+                ? renderPageElements(pageElements)
                 : `<p class="worksheet-blueprint-empty-page">${escapeHtml(label("app.blueprint.emptyPage", "Für dieses Blatt sind noch keine Elemente vorgesehen."))}</p>`}
             </div>
             <footer><span>${escapeHtml(label("app.blueprint.structurePreview", "Strukturvorschau"))}</span><span>${page}/${pageCount(content, elements)}</span></footer>
@@ -277,12 +240,6 @@
             <span>${escapeHtml(label("app.blueprint.taskText", "Aufgabentext"))}</span>
             <p>${escapeHtml(element.body)}</p>
           </section>
-          ${element.expected ? `
-            <details>
-              <summary>${escapeHtml(label("app.blueprint.answerAnchor", "Prüfanker ansehen"))}</summary>
-              <p>${escapeHtml(element.expected)}</p>
-            </details>
-          ` : ""}
         `;
       }
       if (element.type === "image") {
@@ -303,8 +260,7 @@
       `;
     }
 
-    function renderInspectorPanel(element, step, thread) {
-      const previous = step?.previous;
+    function renderInspectorPanel(element) {
       return `
         <article class="worksheet-blueprint-inspector-panel" data-blueprint-panel="${escapeHtml(element.id)}" tabindex="-1" hidden>
           <header>
@@ -312,14 +268,6 @@
             <h3>${escapeHtml(element.label)}</h3>
           </header>
           ${detailRows(element)}
-          <section class="worksheet-blueprint-rationale${step ? "" : " missing"}">
-            <span>${escapeHtml(label("app.blueprint.didacticRole", "Didaktische Rolle"))}</span>
-            ${step
-              ? `<strong>${escapeHtml(step.action || `${label("app.blueprint.step", "Schritt")} ${step.index + 1}`)}</strong><p>${escapeHtml(step.purpose)}</p>`
-              : `<strong>${escapeHtml(label("app.blueprint.notStructured", "Noch nicht strukturiert"))}</strong><p>${escapeHtml(label("app.blueprint.legacyRationale", "Diese ältere Konzeptfassung enthält noch keine explizite didaktische Begründung."))}</p>`}
-            ${previous ? `<small>${escapeHtml(label("app.blueprint.buildsOn", "Baut auf „{{action}}“ auf.", { action: previous.action || `${label("app.blueprint.step", "Schritt")} ${previous.index + 1}` }))}</small>` : ""}
-          </section>
-          ${thread.path ? `<p class="worksheet-blueprint-path-note"><span>${escapeHtml(label("app.blueprint.thread", "Roter Faden"))}</span>${escapeHtml(thread.path)}</p>` : ""}
           <button class="worksheet-blueprint-revise" type="button" data-blueprint-revise="${escapeHtml(element.id)}">${escapeHtml(label("app.blueprint.reviseElement", "Dieses Element überarbeiten"))}</button>
         </article>
       `;
@@ -330,7 +278,6 @@
       if (!elements.length) {
         return `<div class="worksheet-blueprint-empty">${escapeHtml(label("app.blueprint.empty", "Noch keine Texte, Aufgaben oder Bildmaterialien für den Bauplan vorhanden."))}</div>`;
       }
-      const thread = threadModel(content, elements);
       const pages = Array.from({ length: pageCount(content, elements) }, (_, index) => index + 1);
       return `
         <div class="worksheet-blueprint" data-worksheet-blueprint data-blueprint-mode="concept" data-blueprint-index="-1" data-blueprint-page-index="1">
@@ -349,7 +296,7 @@
           <div class="worksheet-blueprint-stage">
             <div class="worksheet-blueprint-overview" data-blueprint-view="concept">
               <div class="worksheet-blueprint-pages">
-                ${pages.map((page) => renderPage(content, elements, thread, page, { pageCount: pages.length })).join("")}
+                ${pages.map((page) => renderPage(content, elements, page, { pageCount: pages.length })).join("")}
               </div>
             </div>
             <aside class="worksheet-blueprint-inspector" data-blueprint-view="details" aria-live="polite" aria-hidden="true" inert>
@@ -358,11 +305,7 @@
                 <span><strong data-blueprint-position>1</strong> ${escapeHtml(label("app.blueprint.of", "von"))} ${elements.length}</span>
                 <button type="button" data-blueprint-next aria-label="${escapeHtml(label("app.blueprint.nextElement", "Nächstes Element"))}">${lucide("chevron-right")}</button>
               </div>
-              ${elements.map((element) => renderInspectorPanel(
-                element,
-                thread.byElementId.get(element.id),
-                thread
-              )).join("")}
+              ${elements.map((element) => renderInspectorPanel(element)).join("")}
             </aside>
           </div>
         </div>

@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "sheetifyimg-static-v90";
+const CACHE_NAME = "sheetifyimg-static-v91";
 const APP_SHELL_URLS = [
   "/vendor/simplebar/simplebar.min.css?v=1",
   "/brand.css?v=3",
@@ -19,7 +19,7 @@ const APP_SHELL_URLS = [
   "/pwa.js?v=1",
   "/candidateCards.js?v=3",
   "/actionBindings.js?v=2",
-  "/worksheetBlueprint.js?v=6",
+  "/worksheetBlueprint.js?v=7",
   "/mobilePreviewRenderer.js?v=10",
   "/canvasRenderer.js?v=2",
   "/manifest.webmanifest",
