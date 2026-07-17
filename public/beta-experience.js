@@ -421,7 +421,6 @@
       feedbackDrag.dragging = true;
       elements.feedbackTrigger.classList.remove("is-nudged");
       elements.feedbackTrigger.classList.add("is-dragging");
-      if (feedbackDrag.reminderVisible) hideReminder();
     }
     event.preventDefault();
     const bounded = applyFeedbackPixelPosition(
@@ -430,6 +429,7 @@
     );
     feedbackDrag.left = bounded.left;
     feedbackDrag.top = bounded.top;
+    if (feedbackDrag.reminderVisible) positionFeedbackReminder();
   }
 
   function finishFeedbackDrag(event) {
@@ -455,10 +455,7 @@
     event.preventDefault();
     suppressFeedbackClick = true;
     persistFeedbackPosition(completed.left, completed.top);
-    if (completed.reminderVisible) {
-      elements.feedbackReminder.classList.remove("hidden");
-      requestAnimationFrame(positionFeedbackReminder);
-    }
+    if (completed.reminderVisible) positionFeedbackReminder();
     setTimeout(() => {
       suppressFeedbackClick = false;
     }, 0);
