@@ -10,6 +10,11 @@ const SETTINGS_STORAGE_KEY = "sheetifyimg.settings.v1";
 const VOICE_TRANSCRIPT_REVIEW_MIN_CHARS = 120;
 const VOICE_MICROPHONE_START_TIMEOUT_MS = 15000;
 const VOICE_TRANSCRIPTION_REQUEST_TIMEOUT_MS = 75000;
+const BETA_DRAFT_IMAGE_SETTINGS = Object.freeze({
+  imageProvider: "openai",
+  imageQualityPreset: "standard",
+  openAiImageStreaming: false
+});
 const imageProviderSettingIds = new Set(["codex_cli", "openai"]);
 const imageQualitySettingIds = new Set(["sparsam", "standard", "druckqualitaet"]);
 const ASSISTANT_WORDMARK_HTML = '<span class="sheetify-wordmark sheetify-wordmark--inline"><span>Sheetify</span><span class="sheetify-wordmark__suffix">AI</span></span>';
@@ -6999,8 +7004,7 @@ function defaultImageProviderForCommand(command = null, workspace = state.worksp
 }
 
 function configuredImageProviderId(command = null, workspace = state.workspace) {
-  return normalizeImageProviderSetting(state.settings.imageProvider)
-    || defaultImageProviderForCommand(command, workspace);
+  return BETA_DRAFT_IMAGE_SETTINGS.imageProvider;
 }
 
 function defaultImageQualityPresetForCommand(command = null, workspace = state.workspace) {
@@ -7010,8 +7014,7 @@ function defaultImageQualityPresetForCommand(command = null, workspace = state.w
 }
 
 function configuredImageQualityPreset(command = null, workspace = state.workspace) {
-  return normalizeImageQualitySetting(state.settings.imageQualityPreset, null)
-    || defaultImageQualityPresetForCommand(command, workspace);
+  return BETA_DRAFT_IMAGE_SETTINGS.imageQualityPreset;
 }
 
 function commandUsesImageProvider(command = {}) {
@@ -7027,7 +7030,7 @@ function withConfiguredImageProvider(command = {}, payload = {}) {
     ...payload,
     imageProvider,
     imageQualityPreset: configuredImageQualityPreset(command, state.workspace),
-    openAiImageStreaming: imageProvider === "openai" && state.settings.openAiImageStreaming === true
+    openAiImageStreaming: BETA_DRAFT_IMAGE_SETTINGS.openAiImageStreaming
   };
 }
 

@@ -25,10 +25,22 @@ function processEnvWithoutApiKeys(overrides = {}) {
   return env;
 }
 
+function executableCommand(command, args = []) {
+  const executable = String(command || "").trim();
+  if (/\.(?:cjs|mjs|js)$/i.test(executable)) {
+    return {
+      command: process.execPath,
+      args: [executable, ...args]
+    };
+  }
+  return { command: executable, args };
+}
+
 function runProcess(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : DEFAULT_TIMEOUT_MS;
-    const child = spawn(command, args, {
+    const executable = executableCommand(command, args);
+    const child = spawn(executable.command, executable.args, {
       cwd: options.cwd,
       env: processEnvWithoutApiKeys(options.env),
       stdio: ["pipe", "pipe", "pipe"]
