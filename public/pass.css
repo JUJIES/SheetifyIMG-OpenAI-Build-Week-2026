@@ -47,10 +47,10 @@ button, input, select, textarea { font: inherit; }
 .pass-panel {
   position: relative;
   padding: 34px;
-  border: 1px solid rgba(217, 222, 231, .9);
+  border: 1px solid rgba(31, 99, 214, .42);
   border-radius: 30px;
   background: rgba(255,255,255,.94);
-  box-shadow: 0 28px 70px rgba(16, 24, 39, .11);
+  box-shadow: 0 0 0 3px rgba(31, 99, 214, .055), 0 28px 70px rgba(16, 24, 39, .11);
   backdrop-filter: blur(16px);
 }
 
