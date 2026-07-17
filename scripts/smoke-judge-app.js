@@ -174,6 +174,12 @@ async function main() {
     englishPage.on("pageerror", (error) => pageErrors.push(error.message));
     await englishPage.goto(createdPass.url, { waitUntil: "domcontentloaded" });
     await demoPause(1200);
+    await englishPage.locator("#passCode").waitFor();
+    assert.equal(await englishPage.locator("#passCode").inputValue(), "");
+    const sessionBeforeManualEntry = await englishPage.evaluate(() => fetch("/api/auth/session").then((response) => response.json()));
+    assert.equal(sessionBeforeManualEntry.authenticated, false);
+    await englishPage.locator("#passCode").fill(createdPass.code);
+    await englishPage.locator("#connectButton").click();
     await englishPage.waitForURL(`${baseUrl}/app`, { timeout: 30000 });
     await demoPause(900);
     await englishPage.getByRole("button", { name: "Agree and start the beta" }).click();
@@ -294,6 +300,12 @@ async function main() {
 
     await englishPage.getByRole("button", { name: "My SheetifyIMG Pass" }).click();
     await englishPage.getByRole("heading", { name: "My SheetifyIMG Pass" }).waitFor();
+    const passLanguageOptions = englishPage.locator(".pass-ui-language-option");
+    assert.equal(await passLanguageOptions.count(), 2);
+    assert.deepEqual(
+      await passLanguageOptions.locator("img").evaluateAll((images) => images.map((image) => image.getAttribute("src"))),
+      ["/icons/flags/de.svg", "/icons/flags/gb.svg"]
+    );
     const grantResponse = await fetch(`${baseUrl}/api/admin/passes/${createdPass.pass.id}/grant`, {
       method: "POST",
       headers: {

@@ -31,7 +31,11 @@
 .pass-ui-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 25px; padding-top: 20px; border-top: 1px solid var(--line-soft); }
 .pass-ui-footer p { margin: 0; color: var(--muted); font-size: 11px; }
 .pass-ui-footer a { color: var(--blue); font-weight: 700; text-decoration: none; }
-.pass-ui-language { display: flex; flex-wrap: wrap; gap: 9px; }
+.pass-ui-language { display: flex; flex-wrap: wrap; align-items: center; gap: 11px; }
+.pass-ui-language-option { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; opacity: .5; transition: transform .16s ease, opacity .16s ease, box-shadow .16s ease; }
+.pass-ui-language-option img { width: 23px; height: 23px; filter: saturate(.8); }
+.pass-ui-language-option[aria-pressed="true"] { opacity: 1; transform: scale(1.1); box-shadow: 0 0 0 2px rgba(31,99,214,.18); }
+.pass-ui-language-option:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .pass-ui-message { padding: 12px; border-radius: 11px; color: #28513d; background: var(--green-soft); font-size: 12px; }
 .pass-ui-message.error { color: var(--danger); background: var(--danger-soft); }
 @media (max-width: 600px) { .pass-modal-layer { padding: 0; place-items: end center; } .pass-modal { width: 100%; max-height: 92vh; border-radius: 24px 24px 0 0; } .pairing-result { grid-template-columns: 1fr; text-align: center; } .pairing-result svg { margin: auto; } .pass-ui-footer { align-items: flex-start; flex-direction: column; } }

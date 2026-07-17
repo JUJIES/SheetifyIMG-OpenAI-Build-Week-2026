@@ -17,6 +17,10 @@
     return locale?.t(key, variables) || key;
   }
 
+  function languageFlag(language) {
+    return language === "de" ? "/icons/flags/de.svg" : "/icons/flags/gb.svg";
+  }
+
   function localizedError(payload = {}) {
     const passKey = `pass.error.${payload.error || "default"}`;
     const passMessage = t(passKey);
@@ -71,7 +75,7 @@
       <section class="pass-ui-section">
         <div class="pass-ui-section-head"><div><h3>${escapeHtml(t("passUi.language.title"))}</h3><p class="pass-ui-help">${escapeHtml(t("passUi.language.help"))}</p></div></div>
         <div class="pass-ui-language" role="group" aria-label="${escapeHtml(t("pass.languageLabel"))}">
-          ${locale.SUPPORTED_LOCALES.map((language) => `<button class="pass-ui-button ${locale.current() === language ? "primary" : ""}" type="button" data-pass-ui-locale="${language}" aria-pressed="${locale.current() === language ? "true" : "false"}">${escapeHtml(t(`language.${language}`))}</button>`).join("")}
+          ${locale.SUPPORTED_LOCALES.map((language) => `<button class="pass-ui-language-option" type="button" data-pass-ui-locale="${language}" aria-pressed="${locale.current() === language ? "true" : "false"}" aria-label="${escapeHtml(t(`language.${language}`))}" title="${escapeHtml(t(`language.${language}`))}"><img src="${languageFlag(language)}" alt=""></button>`).join("")}
         </div>
       </section>
       <footer class="pass-ui-footer">
