@@ -3,6 +3,8 @@
 (() => {
   const REMINDER_KEY = "sheetifyimg.feedback-reminder.v2";
   const RENDER_NUDGE_KEY = "sheetifyimg.feedback-render-nudge.v1";
+  const FEEDBACK_POSITION_KEY = "sheetifyimg.feedback-position.v1";
+  const FEEDBACK_DRAG_THRESHOLD = 6;
   const locale = window.sheetifyLocale;
   let experience = null;
   let activeContext = {};
@@ -10,6 +12,9 @@
   let lastFocusedElement = null;
   let pendingCreditNotice = null;
   let creditPollRunning = false;
+  let feedbackDrag = null;
+  let suppressFeedbackClick = false;
+  let feedbackResizeFrame = 0;
 
   const root = document.createElement("div");
   root.id = "betaExperienceRoot";
@@ -117,6 +122,137 @@
     } catch {
       return null;
     }
+  }
+
+  function clamp(value, minimum, maximum) {
+    return Math.min(Math.max(value, minimum), maximum);
+  }
+
+  function readFeedbackPosition() {
+    try {
+      const stored = JSON.parse(sessionStorage.getItem(FEEDBACK_POSITION_KEY) || "null");
+      if (!stored || !Number.isFinite(stored.x) || !Number.isFinite(stored.y)) return null;
+      return { x: clamp(stored.x, 0, 1), y: clamp(stored.y, 0, 1) };
+    } catch {
+      return null;
+    }
+  }
+
+  let feedbackPosition = readFeedbackPosition();
+
+  function feedbackViewport() {
+    const visualViewport = window.visualViewport;
+    return {
+      width: visualViewport?.width || document.documentElement.clientWidth || window.innerWidth,
+      height: visualViewport?.height || document.documentElement.clientHeight || window.innerHeight
+    };
+  }
+
+  function feedbackEdgeMargin() {
+    return window.innerWidth <= 700 ? 10 : 12;
+  }
+
+  function triggerBounds(left, top) {
+    const rect = elements.feedbackTrigger.getBoundingClientRect();
+    const viewport = feedbackViewport();
+    const margin = feedbackEdgeMargin();
+    return {
+      left: clamp(left, margin, Math.max(margin, viewport.width - rect.width - margin)),
+      top: clamp(top, margin, Math.max(margin, viewport.height - rect.height - margin)),
+      width: rect.width,
+      height: rect.height,
+      viewport,
+      margin
+    };
+  }
+
+  function applyFeedbackPixelPosition(left, top) {
+    const bounded = triggerBounds(left, top);
+    elements.feedbackTrigger.classList.add("is-positioned");
+    elements.feedbackTrigger.style.setProperty("--beta-feedback-left", `${Math.round(bounded.left)}px`);
+    elements.feedbackTrigger.style.setProperty("--beta-feedback-top", `${Math.round(bounded.top)}px`);
+    return bounded;
+  }
+
+  function normalizedFeedbackPosition(left, top) {
+    const bounded = triggerBounds(left, top);
+    const availableX = Math.max(0, bounded.viewport.width - bounded.width - (bounded.margin * 2));
+    const availableY = Math.max(0, bounded.viewport.height - bounded.height - (bounded.margin * 2));
+    return {
+      x: availableX ? (bounded.left - bounded.margin) / availableX : 0,
+      y: availableY ? (bounded.top - bounded.margin) / availableY : 0
+    };
+  }
+
+  function persistFeedbackPosition(left, top) {
+    feedbackPosition = normalizedFeedbackPosition(left, top);
+    try {
+      sessionStorage.setItem(FEEDBACK_POSITION_KEY, JSON.stringify(feedbackPosition));
+    } catch {
+      // The in-memory position remains stable when storage is unavailable.
+    }
+  }
+
+  function applyStoredFeedbackPosition() {
+    if (!feedbackPosition || elements.feedbackTrigger.classList.contains("hidden")) return;
+    const rect = elements.feedbackTrigger.getBoundingClientRect();
+    const viewport = feedbackViewport();
+    const margin = feedbackEdgeMargin();
+    const availableX = Math.max(0, viewport.width - rect.width - (margin * 2));
+    const availableY = Math.max(0, viewport.height - rect.height - (margin * 2));
+    applyFeedbackPixelPosition(
+      margin + (feedbackPosition.x * availableX),
+      margin + (feedbackPosition.y * availableY)
+    );
+  }
+
+  function clearReminderPosition() {
+    elements.feedbackReminder.classList.remove("is-positioned");
+    elements.feedbackReminder.style.removeProperty("--beta-feedback-reminder-left");
+    elements.feedbackReminder.style.removeProperty("--beta-feedback-reminder-top");
+  }
+
+  function positionFeedbackReminder() {
+    if (elements.feedbackReminder.classList.contains("hidden")) return;
+    if (!elements.feedbackTrigger.classList.contains("is-positioned")) {
+      clearReminderPosition();
+      return;
+    }
+    const triggerRect = elements.feedbackTrigger.getBoundingClientRect();
+    const reminderRect = elements.feedbackReminder.getBoundingClientRect();
+    const viewport = feedbackViewport();
+    const margin = feedbackEdgeMargin();
+    const gap = 10;
+    const left = clamp(
+      triggerRect.left + ((triggerRect.width - reminderRect.width) / 2),
+      margin,
+      Math.max(margin, viewport.width - reminderRect.width - margin)
+    );
+    const above = triggerRect.top - reminderRect.height - gap;
+    const top = clamp(
+      above >= margin ? above : triggerRect.bottom + gap,
+      margin,
+      Math.max(margin, viewport.height - reminderRect.height - margin)
+    );
+    elements.feedbackReminder.classList.add("is-positioned");
+    elements.feedbackReminder.style.setProperty("--beta-feedback-reminder-left", `${Math.round(left)}px`);
+    elements.feedbackReminder.style.setProperty("--beta-feedback-reminder-top", `${Math.round(top)}px`);
+  }
+
+  function showFeedbackTrigger() {
+    elements.feedbackTrigger.classList.remove("hidden");
+    requestAnimationFrame(() => {
+      applyStoredFeedbackPosition();
+      positionFeedbackReminder();
+    });
+  }
+
+  function scheduleFeedbackPositionRefresh() {
+    cancelAnimationFrame(feedbackResizeFrame);
+    feedbackResizeFrame = requestAnimationFrame(() => {
+      applyStoredFeedbackPosition();
+      positionFeedbackReminder();
+    });
   }
 
   function applyLocale() {
@@ -252,6 +388,87 @@
     elements.reminderTitle.textContent = t(`beta.reminder.${kind}.title`);
     elements.reminderBody.textContent = t(`beta.reminder.${kind}.body`);
     elements.feedbackReminder.classList.remove("hidden");
+    requestAnimationFrame(positionFeedbackReminder);
+  }
+
+  function beginFeedbackDrag(event) {
+    if (!event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) return;
+    suppressFeedbackClick = false;
+    const rect = elements.feedbackTrigger.getBoundingClientRect();
+    feedbackDrag = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startLeft: rect.left,
+      startTop: rect.top,
+      left: rect.left,
+      top: rect.top,
+      dragging: false,
+      reminderVisible: !elements.feedbackReminder.classList.contains("hidden")
+    };
+    elements.feedbackTrigger.setPointerCapture?.(event.pointerId);
+  }
+
+  function moveFeedbackDrag(event) {
+    if (!feedbackDrag || feedbackDrag.pointerId !== event.pointerId) return;
+    const deltaX = event.clientX - feedbackDrag.startX;
+    const deltaY = event.clientY - feedbackDrag.startY;
+    if (!feedbackDrag.dragging && Math.hypot(deltaX, deltaY) < FEEDBACK_DRAG_THRESHOLD) return;
+    if (!feedbackDrag.dragging) {
+      feedbackDrag.dragging = true;
+      elements.feedbackTrigger.classList.remove("is-nudged");
+      elements.feedbackTrigger.classList.add("is-dragging");
+      if (feedbackDrag.reminderVisible) hideReminder();
+    }
+    event.preventDefault();
+    const bounded = applyFeedbackPixelPosition(
+      feedbackDrag.startLeft + deltaX,
+      feedbackDrag.startTop + deltaY
+    );
+    feedbackDrag.left = bounded.left;
+    feedbackDrag.top = bounded.top;
+  }
+
+  function finishFeedbackDrag(event) {
+    if (!feedbackDrag || feedbackDrag.pointerId !== event.pointerId) return;
+    const completed = feedbackDrag;
+    feedbackDrag = null;
+    elements.feedbackTrigger.classList.remove("is-dragging");
+    try {
+      elements.feedbackTrigger.releasePointerCapture?.(event.pointerId);
+    } catch {
+      // Pointer capture may already be released by the browser.
+    }
+    if (!completed.dragging) {
+      if (event.type === "pointerup" && event.pointerType !== "mouse") {
+        suppressFeedbackClick = true;
+        openFeedback();
+        setTimeout(() => {
+          suppressFeedbackClick = false;
+        }, 0);
+      }
+      return;
+    }
+    event.preventDefault();
+    suppressFeedbackClick = true;
+    persistFeedbackPosition(completed.left, completed.top);
+    if (completed.reminderVisible) {
+      elements.feedbackReminder.classList.remove("hidden");
+      requestAnimationFrame(positionFeedbackReminder);
+    }
+    setTimeout(() => {
+      suppressFeedbackClick = false;
+    }, 0);
+  }
+
+  function activateFeedbackTrigger(event) {
+    if (suppressFeedbackClick) {
+      event.preventDefault();
+      event.stopPropagation();
+      suppressFeedbackClick = false;
+      return;
+    }
+    openFeedback();
   }
 
   function openFeedback() {
@@ -329,7 +546,7 @@
       }
       if (experience.consent?.accepted) {
         elements.consentLayer.classList.add("hidden");
-        elements.feedbackTrigger.classList.remove("hidden");
+        showFeedbackTrigger();
         observeFeedbackMoments();
         maybeShowCreditNotice();
       } else {
@@ -358,7 +575,7 @@
         feedback: experience?.feedback || { count: 0, lastSubmittedAt: null }
       };
       elements.consentLayer.classList.add("hidden");
-      elements.feedbackTrigger.classList.remove("hidden");
+      showFeedbackTrigger();
       observeFeedbackMoments();
       maybeShowCreditNotice();
     } catch (error) {
@@ -430,7 +647,11 @@
     };
   }, true);
 
-  elements.feedbackTrigger.addEventListener("click", openFeedback);
+  elements.feedbackTrigger.addEventListener("pointerdown", beginFeedbackDrag);
+  elements.feedbackTrigger.addEventListener("pointermove", moveFeedbackDrag);
+  elements.feedbackTrigger.addEventListener("pointerup", finishFeedbackDrag);
+  elements.feedbackTrigger.addEventListener("pointercancel", finishFeedbackDrag);
+  elements.feedbackTrigger.addEventListener("click", activateFeedbackTrigger);
   elements.reminderAction.addEventListener("click", openFeedback);
   elements.reminderClose.addEventListener("click", hideReminder);
   elements.feedbackClose.addEventListener("click", closeFeedback);
@@ -451,6 +672,8 @@
   });
 
   window.addEventListener("focus", pollCreditNotice);
+  window.addEventListener("resize", scheduleFeedbackPositionRefresh);
+  window.visualViewport?.addEventListener("resize", scheduleFeedbackPositionRefresh);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") pollCreditNotice();
   });
