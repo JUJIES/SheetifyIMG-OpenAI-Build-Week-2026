@@ -4545,7 +4545,12 @@ button {
   grid-template-areas: "preview caption";
   align-items: start;
   gap: 12px;
-  padding: 9px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+  padding: 0;
 }
 
 .candidate-chat-preview {
@@ -4560,12 +4565,10 @@ button {
 .candidate-chat-card img {
   display: block;
   width: 136px;
-  height: 176px;
-  object-fit: contain;
-  object-position: center top;
-  border: 1px solid #d6dce6;
-  background: #ffffff;
-  box-shadow: 0 8px 18px rgba(16, 24, 39, 0.11);
+  height: auto;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .candidate-chat-preview-actions {
@@ -4775,6 +4778,17 @@ button {
   color: #344054;
   font-size: 13px;
   line-height: 1.45;
+}
+
+.concept-pitch-copy,
+.concept-pitch-copy p {
+  color: #1f2c3f;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.concept-pitch-copy p:last-child {
+  margin-bottom: 0;
 }
 
 .chat-result-meta-grid {
@@ -5370,6 +5384,42 @@ button {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.concept-decision-actions,
+.candidate-decision-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+}
+
+.concept-decision-actions .message-action-wrap,
+.concept-decision-actions .concept-decision-forward-button,
+.concept-decision-actions .concept-decision-preview-button,
+.candidate-decision-actions .message-action-wrap,
+.candidate-decision-actions .candidate-decision-deposit-button,
+.candidate-decision-actions .candidate-decision-variant-button {
+  width: 100%;
+  min-width: 0;
+}
+
+.concept-decision-actions .message-action-wrap,
+.candidate-decision-actions .message-action-wrap {
+  display: flex;
+}
+
+.concept-decision-actions .concept-decision-forward-button,
+.concept-decision-actions .concept-decision-preview-button,
+.candidate-decision-actions .candidate-decision-deposit-button,
+.candidate-decision-actions .candidate-decision-variant-button {
+  min-height: 40px;
+  white-space: nowrap;
+}
+
+.concept-decision-actions .concept-decision-preview-button .icon {
+  width: 16px;
+  height: 16px;
+  color: var(--blue);
 }
 
 .message-action-reference-pill {
@@ -6630,6 +6680,22 @@ button {
     padding: 0 10px;
   }
 
+  .candidate-decision-actions {
+    gap: 6px;
+  }
+
+  .candidate-decision-actions .candidate-decision-deposit-button,
+  .candidate-decision-actions .candidate-decision-variant-button {
+    gap: 5px;
+    padding: 0 7px;
+    font-size: 11px;
+  }
+
+  .candidate-decision-actions .icon {
+    width: 14px;
+    height: 14px;
+  }
+
   .candidate-chat-card {
     grid-template-columns: 1fr;
     grid-template-areas:
@@ -6637,7 +6703,7 @@ button {
       "caption";
     justify-items: center;
     gap: 12px;
-    padding: 12px 12px 14px;
+    padding: 0;
   }
 
   .candidate-chat-preview {

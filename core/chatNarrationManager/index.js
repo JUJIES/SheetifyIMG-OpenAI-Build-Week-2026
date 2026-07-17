@@ -94,20 +94,6 @@ function compactMessages(messages = []) {
     .filter((message) => message.content);
 }
 
-function compactTasks(tasks = []) {
-  return (Array.isArray(tasks) ? tasks : [])
-    .slice(0, 5)
-    .map((task) => truncate(task.prompt || task.text || task.title, 220))
-    .filter(Boolean);
-}
-
-function compactImageMaterials(materials = []) {
-  return (Array.isArray(materials) ? materials : [])
-    .slice(0, 4)
-    .map((material) => truncate(material.prompt || material.description || material.purpose, 220))
-    .filter(Boolean);
-}
-
 function compactContent(content = {}) {
   const data = content.data || content;
   if (!data || typeof data !== "object") {
@@ -121,12 +107,31 @@ function compactContent(content = {}) {
     textCount: readingTexts.length,
     taskCount: tasks.length,
     imageMaterialCount: imageMaterials.length,
-    textTitles: readingTexts
-      .slice(0, 3)
-      .map((entry) => truncate(entry.title, 140))
-      .filter(Boolean),
-    tasks: compactTasks(tasks),
-    imageMaterials: compactImageMaterials(imageMaterials)
+    outputPreference: data.outputPreference ? {
+      layout: truncate(data.outputPreference.layout, 80),
+      hierarchy: truncate(data.outputPreference.hierarchy, 80)
+    } : null,
+    readingTexts: readingTexts.slice(0, 2).map((entry) => ({
+      role: truncate(entry.role, 80),
+      title: truncate(entry.title, 140),
+      excerpt: truncate(entry.body, 360)
+    })),
+    tasks: tasks.slice(0, 5).map((task) => ({
+      label: truncate(task.groupLabel || task.title, 100),
+      prompt: truncate(task.prompt || task.text, 220),
+      difficulty: truncate(task.difficulty, 60)
+    })).filter((task) => task.prompt),
+    imageMaterials: imageMaterials.slice(0, 3).map((material) => ({
+      purpose: truncate(material.purpose, 240),
+      description: truncate(material.prompt || material.description, 260)
+    })).filter((material) => material.purpose || material.description),
+    didacticThread: data.didacticThread ? {
+      path: truncate(data.didacticThread.path, 320),
+      steps: (data.didacticThread.steps || []).slice(0, 5).map((step) => ({
+        action: truncate(step.action, 160),
+        purpose: truncate(step.purpose, 200)
+      })).filter((step) => step.action || step.purpose)
+    } : null
   };
 }
 
@@ -148,9 +153,19 @@ function compactProposal(proposal = {}) {
     title: truncate(proposal.title, 180),
     summary: truncate(proposal.summary, 260),
     content: proposal.kind === "content_mirror" ? compactContent(proposal.data) : null,
-    topic: truncate(proposal.data?.topic || proposal.data?.title, 180),
-    targetGroup: truncate(proposal.data?.targetGroup, 140),
-    goal: truncate(proposal.data?.goal, 220),
+    conceptFrame: proposal.conceptFrame ? {
+      subject: truncate(proposal.conceptFrame.subject, 120),
+      topic: truncate(proposal.conceptFrame.topic, 180),
+      targetGroup: truncate(proposal.conceptFrame.targetGroup, 140),
+      goal: truncate(proposal.conceptFrame.goal, 240),
+      requirements: (proposal.conceptFrame.requirements || [])
+        .slice(0, 5)
+        .map((item) => truncate(item, 180))
+        .filter(Boolean)
+    } : null,
+    topic: truncate(proposal.conceptFrame?.topic || proposal.data?.topic || proposal.data?.title, 180),
+    targetGroup: truncate(proposal.conceptFrame?.targetGroup || proposal.data?.targetGroup, 140),
+    goal: truncate(proposal.conceptFrame?.goal || proposal.data?.goal, 220),
     pageCount: Number(proposal.data?.pageCount || proposal.data?.pagePlan?.length || 0) || null,
     referencePolicy
   };
@@ -377,8 +392,12 @@ function narrationInstructions() {
     "Keine internen Begriffe wie Lesson Brief, Content Mirror, ImageSpec, Tool Call oder Run.",
     "Interne Bildplanung ist noch kein Entwurf. Sage nie, ein Entwurf sei übernommen oder fertig, solange moment.kind proposal_ready/proposal_adopted und proposal.kind image_spec ist.",
     "Bei moment.kind suggested_action oder local_action_offer in der Input-Phase: Wenn eine Lehrkraft eine Arbeitsblattidee nennt, beginne mit einer sehr kurzen Mini-Zusammenfassung der Idee und einer konkreten Stärke, bevor du den nächsten Schritt nennst.",
-    "Bei moment.kind proposal_ready und proposal.kind content_mirror: Mache klar, dass jetzt ein sichtbarer Konzeptvorschlag vorliegt. Schreibe eine kurze didaktische Einschätzung zum Arbeitsblatt-Konzept. Satz 1: was aus Aufgaben, Text oder Bildidee gut trägt. Satz 2: eine mögliche Unschärfe oder Schwäche mit Begründung aus dem Konzept. Satz 3: biete einen Entwurf aus diesem Konzept oder eine weitere Anpassung an; verlange keinen separaten Übernahme- oder Freigabeschritt.",
-    "Bei dieser Konzept-Einschätzung keine Schnelloptionen oder Alternativbuttons vorschlagen. Die Lehrkraft kann natürlich im Chat nachschärfen.",
+    "Bei moment.kind proposal_ready und proposal.kind content_mirror: Stelle den fertigen Konzeptvorschlag als lockeren, konkreten Kurzpitch vor, nicht als Bewertung. Beginne sinngemaess mit 'Hey, dein Konzept ist fertig. Ich habe es so gedacht:' und variiere die Formulierung natuerlich.",
+    "Leite die passende Form des Blatts frei aus dem tatsaechlichen Konzept ab; verwende keine feste Typenliste und presse freie Blaetter, Formulare oder andere Materialien nicht in ein Leseblatt-Schema.",
+    "Der Pitch beschreibt in zwei bis drei kurzen Saetzen den inhaltlichen Kern, wie Text oder sichtbares Material und Bildidee zusammenspielen und welche Lern- oder Nutzungsbewegung daraus entsteht. Nutze dafuer conceptFrame, content.readingTexts, content.imageMaterials, content.tasks und content.didacticThread.",
+    "Nenne im Konzept-Pitch keine Zaehler, Seitenzahl, Metadaten, Pruefaufforderung, Staerken-Schwaechen-Bewertung oder routinemaessige Unklarheit. Erfinde nichts und wiederhole keine vollstaendigen Aufgaben- oder Materialtexte.",
+    "Tonbeispiel nur fuer Richtung und Lockerheit, nie fuer Inhalte: 'Hey, dein Konzept ist fertig. Ich habe es als ruhiges Leseblatt gedacht: Ein kurzer Text erklaert den Kern, unterstuetzt durch ein klares Schaubild. So koennen die Kinder erst beobachten, dann Zusammenhaenge erklaeren und das Gelernte am Ende anwenden.'",
+    "Die sichtbare Aktion bietet den naechsten Schritt bereits an. Beende den Pitch deshalb ohne erzwungene Frage, Kritik oder Aufforderung, das Konzept zu pruefen; die Lehrkraft kann im Chat nachschaerfen oder die Details im Canvas oeffnen.",
     "Bei moment.kind candidate_created ist die Bildgenerierung bereits abgeschlossen. Bitte keine Bestätigung mehr verlangen und nicht sagen, der User müsse die Bildgenerierung bestätigen.",
     "Bei moment.kind candidate_created beschreibe das fertige Ergebnis. Nicht schreiben: ich lege jetzt an, ich starte, ich erzeuge jetzt oder ich erstelle jetzt.",
     "Bei moment.kind workflow_followup ist die genannte Workflow-Aktion bereits erledigt. Frage nicht, ob die erledigte Aktion noch übernommen, freigegeben oder ausgeführt werden soll.",
@@ -536,5 +555,11 @@ module.exports = {
   normalizeNarrationSurface,
   validateNarrationPolicy,
   contradictsCompletedActivation,
-  violatesActionConsistency
+  violatesActionConsistency,
+  __testing: {
+    compactContent,
+    compactMoment,
+    compactProposal,
+    narrationInstructions
+  }
 };

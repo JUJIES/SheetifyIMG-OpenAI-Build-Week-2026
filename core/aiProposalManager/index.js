@@ -1806,72 +1806,31 @@ function referencePolicyMessage(referencePolicy = null) {
   return "";
 }
 
-function wordCount(value) {
-  return String(value || "").split(/\s+/).map((word) => word.trim()).filter(Boolean).length;
-}
-
-function contentProposalStrength(content = {}) {
-  const tasks = Array.isArray(content.tasks) ? content.tasks : [];
-  const readingTexts = Array.isArray(content.readingTexts) ? content.readingTexts : [];
-  const imageMaterials = Array.isArray(content.imageMaterials) ? content.imageMaterials : [];
-  const tasksUseMaterial = tasks.some((task) => Array.isArray(task.materialRefs) && task.materialRefs.length > 0);
-
-  if (imageMaterials.length && tasksUseMaterial) {
-    return `Bildidee und Aufgaben sind miteinander verbunden; dadurch ist das Bild nicht nur Deko, sondern kann beim Bearbeiten wirklich helfen.`;
-  }
-  if (tasks.length >= 3) {
-    return `Die Aufgabenfolge ist klar genug angelegt und bietet mit ${tasks.length} Aufgaben mehrere Zugriffspunkte auf das Thema.`;
-  }
-  if (readingTexts.length) {
-    return `Der sichtbare Text gibt dem Blatt eine erkennbare Grundlage, auf die die Aufgaben aufbauen können.`;
-  }
-  return "Der Aufbau ist grundsätzlich übersichtlich und lässt sich als Arbeitsblatt-Konzept gut prüfen.";
-}
-
-function contentProposalConcern(content = {}, context = {}) {
-  const tasks = Array.isArray(content.tasks) ? content.tasks : [];
-  const readingTexts = Array.isArray(content.readingTexts) ? content.readingTexts : [];
-  const imageMaterials = Array.isArray(content.imageMaterials) ? content.imageMaterials : [];
-  const totalWords = readingTexts.reduce((sum, entry) => sum + wordCount(entry.body), 0);
-  const plannedPages = Number(content.pageCount || content.outputPreference?.pages || context.currentBrief?.outputPreference?.pages || 0);
-  const tasksUseMaterial = tasks.some((task) => Array.isArray(task.materialRefs) && task.materialRefs.length > 0);
-  const tasksWithExpectedAnswer = tasks.filter((task) => String(task.expectedAnswer || "").trim()).length;
-
-  if (plannedPages > 0 && plannedPages <= 1 && tasks.length >= 4) {
-    return "Etwas eng könnte der Platz werden, weil mehrere Aufgaben auf eine Seite müssen; das kann Lesbarkeit und Arbeitsruhe schwächen.";
-  }
-  if (totalWords > 220) {
-    return "Etwas unsicher ist die Textmenge: Der Leseteil ist relativ umfangreich und könnte auf dem Blatt schnell dominant werden.";
-  }
-  if (imageMaterials.length && !tasksUseMaterial) {
-    return "Noch nicht ganz stark ist die Bildnutzung: Die Bildidee ist vorhanden, aber die Aufgaben greifen sie bisher nur schwach auf.";
-  }
-  if (!imageMaterials.length) {
-    return "Noch offen ist die visuelle Stütze, weil im Konzept kein klares Bildmaterial vorgesehen ist.";
-  }
-  if (tasks.length && tasksWithExpectedAnswer < tasks.length) {
-    return "Bei einzelnen Aufgaben könnte die Erwartung noch präziser sein, damit später klarer prüfbar ist, was eine gute Antwort wäre.";
-  }
-  return "Die größte offene Frage ist eher die Feinabstimmung: ob Niveau, Umfang und Bildgewicht genau zu deiner Lerngruppe passen.";
-}
-
-function contentProposalAssessmentFallback(proposal = {}, context = {}) {
+function contentProposalPitchFallback(proposal = {}, context = {}) {
   const content = proposal.data || {};
-  const title = content.title || context.project?.title || "das Konzept";
+  const title = content.title || proposal.title || "dein Material";
+  const readingText = (Array.isArray(content.readingTexts) ? content.readingTexts : [])[0] || null;
+  const imageMaterial = (Array.isArray(content.imageMaterials) ? content.imageMaterials : [])[0] || null;
+  const didacticPath = String(content.didacticThread?.path || "").trim();
   const revisionMode = proposal.source?.revisionMode || "";
   const isRevision = Boolean(revisionMode || proposal.source?.currentContentMirrorId);
   const intro = revisionMode === "followup_concept"
-    ? `Ich habe daraus einen neuen Konzeptvorschlag für den Folgebogen vorbereitet:`
+    ? "Hey, dein Konzept für den Folgebogen ist fertig."
     : revisionMode === "new_concept_from_context"
-      ? `Ich habe daraus einen neuen Konzeptvorschlag vorbereitet:`
-    : isRevision
-      ? `Ich habe daraus eine angepasste Konzeptfassung vorbereitet:`
-      : `Ich sehe bei „${title}“ eine tragfähige Richtung:`;
-  return [
-    `${intro} ${contentProposalStrength(content)}`,
-    contentProposalConcern(content, context),
-    "Daraus kann direkt ein Entwurf entstehen, oder du passt den Vorschlag noch weiter an."
-  ].join(" ");
+      ? "Hey, dein neues Konzept ist fertig."
+      : isRevision
+        ? "Hey, die angepasste Konzeptfassung ist fertig."
+        : "Hey, dein Konzept ist fertig.";
+  const textPart = readingText
+    ? `Der Text${readingText.title ? ` „${readingText.title}“` : ""} bildet die inhaltliche Grundlage`
+    : `Der sichtbare Inhalt zu „${title}“ bildet die Grundlage`;
+  const materialPart = imageMaterial
+    ? ", unterstützt durch eine passende Visualisierung"
+    : "";
+  const learningPart = didacticPath
+    ? didacticPath
+    : "Die Aufgaben greifen diesen Kern auf und führen die Lernenden schrittweise weiter.";
+  return `${intro} Ich habe es so gedacht: ${textPart}${materialPart}. ${learningPart}`;
 }
 
 async function appendAssistantProposalMessage(projectDir, proposal, now, context = {}) {
@@ -1901,7 +1860,7 @@ async function appendAssistantProposalMessage(projectDir, proposal, now, context
     }];
   const fallback = proposal.kind === PROPOSAL_KINDS.CONTENT_MIRROR
     ? [
-        contentProposalAssessmentFallback(proposal, context),
+        contentProposalPitchFallback(proposal, context),
         nextCandidateReferenceImages.length
           ? "Die gewünschte visuelle Referenz ist für den nächsten Entwurf vorgemerkt."
           : ""
@@ -2429,6 +2388,7 @@ module.exports = {
     persistentImageSpecReferences,
     usesContentDelta,
     validateContentMirror,
-    validateImageSpec
+    validateImageSpec,
+    contentProposalPitchFallback
   }
 };

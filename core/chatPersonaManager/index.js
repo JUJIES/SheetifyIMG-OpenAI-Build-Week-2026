@@ -295,9 +295,9 @@ function responsePlanForMoment(moment = {}) {
   if (moment.kind === "proposal_ready" && moment.proposal?.kind === "content_mirror") {
     return responsePlan(
       RESPONSE_DEPTHS.REFLECTIVE,
-      RELATIONSHIP_MOVES.ENCOURAGE,
+      RELATIONSHIP_MOVES.ACKNOWLEDGE,
       3,
-      "Kurze Konzept-Einschaetzung: konkrete Staerke, echte moegliche Stolperstelle, dann Entscheidung oder Nachschaerfung anbieten."
+      "Lockerer Konzept-Pitch: inhaltlichen Kern, Zusammenspiel der Materialien und Lern- oder Nutzungsbewegung knapp vorstellen; nicht bewerten."
     );
   }
 

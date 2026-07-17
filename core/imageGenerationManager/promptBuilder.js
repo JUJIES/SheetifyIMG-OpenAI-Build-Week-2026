@@ -127,6 +127,24 @@ function compactPromptItems(items = [], maxItems = MAX_IMAGE_SPEC_ITEM_COUNT, ma
     .filter(Boolean);
 }
 
+function didacticControlInstruction(lessonBrief = {}) {
+  const goal = compactForPrompt(lessonBrief.goal, 240);
+  const requirements = compactPromptItems(
+    (Array.isArray(lessonBrief.requirements) ? lessonBrief.requirements : [])
+      .filter((item) => !isSolutionText(item)),
+    4,
+    150
+  );
+  if (!goal && !requirements.length) {
+    return "";
+  }
+  return [
+    "Didaktischer Steuerungskontext (nur intern; nicht als zusaetzlichen sichtbaren Text setzen):",
+    goal ? `Lernziel: ${goal}` : "",
+    requirements.length ? `Wichtige Anforderungen: ${requirements.join("; ")}` : ""
+  ].filter(Boolean).join("\n");
+}
+
 function canonicalRuleDirective(rule = {}) {
   const id = String(rule.id || "").trim();
   const known = {
@@ -933,6 +951,7 @@ function promptForPage({
     "Fachkontext fuer die Illustration:",
     `Thema: ${contentMirror.title || lessonBrief.topic || "Arbeitsblatt"}`,
     `Fach/Zielgruppe: ${lessonBrief.subject || "Unterricht"} ${lessonBrief.targetGroup || ""}`.trim(),
+    didacticControlInstruction(lessonBrief),
     actualPageCount > 1
       ? `Illustrationsrolle: ${actualRole}, Seite ${pageNumber} von ${actualPageCount}`
       : `Illustrationsrolle: ${actualRole}`,

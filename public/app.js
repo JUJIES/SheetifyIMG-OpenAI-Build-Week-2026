@@ -8810,11 +8810,71 @@ function renderChatIntro(workspace) {
   `;
 }
 
-function renderActionButtons(actions = []) {
+const conceptDecisionCommandIds = new Set([
+  "adopt_content_mirror_proposal",
+  "approve_current_content",
+  "generate_candidate_from_content_proposal",
+  "generate_image_candidate"
+]);
+
+function renderConceptDecisionPreviewButton(preview = {}) {
+  const proposalAttrs = preview.proposalRef?.proposalId
+    ? `data-artifact-kind="proposal" data-artifact-id="${escapeHtml(preview.proposalRef.proposalId)}" data-proposal-kind="${escapeHtml(preview.proposalRef.kind || "")}"`
+    : "";
+  const label = t("app.chat.viewConcept");
+  return `
+    <button class="secondary-button mini-button concept-decision-preview-button" type="button" data-canvas-mode="${escapeHtml(preview.canvasMode || "content")}" ${proposalAttrs} aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">
+      ${icon("eye", "icon icon-small")}
+      <span>${escapeHtml(label)}</span>
+    </button>
+  `;
+}
+
+function uniqueActionsByCommand(actions = []) {
+  const seen = new Set();
+  return actions.filter((action) => {
+    const commandId = action.id || action.command || "";
+    if (!commandId || seen.has(commandId)) {
+      return false;
+    }
+    seen.add(commandId);
+    return true;
+  });
+}
+
+function renderedActionButtonLabel(action = {}, options = {}) {
+  if (options.candidateDecision && (action.id || action.command) === "generate_image_candidate") {
+    return t("app.chat.createAnotherVariant");
+  }
+  return normalizeVisibleProductTerminology(action.label || decisionButtonLabel({ id: action.id || action.command }));
+}
+
+function renderedActionButtonIcon(action = {}, options = {}) {
+  if (options.candidateDecision && (action.id || action.command) === "deposit_worksheet") {
+    return icon("file-text", "icon icon-small");
+  }
+  return "";
+}
+
+function renderActionButtons(actions = [], options = {}) {
   if (!actions.length) {
     return "";
   }
   const buttonActions = actions.filter((action) => !isBusyGenerateCandidateAction(action));
+  const conceptForwardActionIndex = options.conceptPreview
+    ? buttonActions.findIndex((action) => conceptDecisionCommandIds.has(action.id || action.command || ""))
+    : -1;
+  const showConceptDecision = conceptForwardActionIndex >= 0;
+  const candidateDepositActionIndex = options.candidateDecision
+    ? buttonActions.findIndex((action) => (action.id || action.command) === "deposit_worksheet")
+    : -1;
+  const candidateVariantActionIndex = options.candidateDecision
+    ? buttonActions.findIndex((action) => (action.id || action.command) === "generate_image_candidate")
+    : -1;
+  const showCandidateDecision = candidateDepositActionIndex >= 0 && candidateVariantActionIndex >= 0;
+  const decisionClass = showConceptDecision
+    ? " concept-decision-actions"
+    : showCandidateDecision ? " candidate-decision-actions" : "";
   const disabledStatus = [...new Set(actions
     .filter((action) => action.disabled)
     .map((action) => action.id === "generate_image_candidate"
@@ -8827,14 +8887,15 @@ function renderActionButtons(actions = []) {
       : "";
   }
   return `
-    <div class="message-actions">${buttonActions.map((action) => `
+    <div class="message-actions${decisionClass}">${buttonActions.map((action, index) => `
       <span class="message-action-wrap">
-        <button class="secondary-button mini-button" type="button" data-command="${escapeHtml(action.id || action.command)}" data-payload="${escapeHtml(JSON.stringify(action.payload || {}))}"${action.reason ? ` title="${escapeHtml(normalizeVisibleProductTerminology(action.reason))}"` : ""}${action.disabled ? " disabled" : ""}>
-          ${escapeHtml(normalizeVisibleProductTerminology(action.label || decisionButtonLabel({ id: action.id || action.command })))}
+        <button class="${(showConceptDecision && index === conceptForwardActionIndex) || (showCandidateDecision && index === candidateDepositActionIndex) ? "primary-button" : "secondary-button"} mini-button${showConceptDecision && index === conceptForwardActionIndex ? " concept-decision-forward-button" : ""}${showCandidateDecision && index === candidateDepositActionIndex ? " candidate-decision-deposit-button" : ""}${showCandidateDecision && index === candidateVariantActionIndex ? " candidate-decision-variant-button" : ""}" type="button" data-command="${escapeHtml(action.id || action.command)}" data-payload="${escapeHtml(JSON.stringify(action.payload || {}))}"${action.reason ? ` title="${escapeHtml(normalizeVisibleProductTerminology(action.reason))}"` : ""}${action.disabled ? " disabled" : ""}>
+          ${renderedActionButtonIcon(action, options)}
+          <span>${escapeHtml(renderedActionButtonLabel(action, options))}</span>
         </button>
         ${renderActionReferenceHint(action)}
       </span>
-    `).join("")}</div>
+    `).join("")}${showConceptDecision ? renderConceptDecisionPreviewButton(options.conceptPreview) : ""}</div>
     ${disabledStatus.length ? `<div class="message-action-status">${escapeHtml(disabledStatus.join(" "))}</div>` : ""}
   `;
 }
@@ -9075,7 +9136,6 @@ function renderCandidateChatCard(card = {}, workspace) {
   }
   const displayCandidate = candidateForDisplay(candidate, workspace);
   const displayCandidateId = draftDisplayLabel(displayCandidate);
-  const pageCount = pages.length || Number(candidate.generation?.generatedPageCount || candidate.generation?.pageCount || 0) || 1;
   const basisLabel = draftChatBasisLabel(displayCandidate);
   const imageDownloads = candidateImageDownloads(pages, draftFilePrefix(displayCandidate));
   const candidatePreviewActions = `
@@ -9092,9 +9152,6 @@ function renderCandidateChatCard(card = {}, workspace) {
       ${renderCandidateImageDownloadButton(imageDownloads)}
     </span>
   `;
-  const candidateStoreAction = pageCount
-    ? renderCandidateWorksheetStoreAction(displayCandidate, pageCount, workspace)
-    : "";
   return `
     <figure
       class="chat-result-card candidate-chat-card"
@@ -9118,29 +9175,9 @@ function renderCandidateChatCard(card = {}, workspace) {
             ${basisLabel ? `<small>${escapeHtml(basisLabel)}</small>` : ""}
           </span>
         </div>
-        ${candidateStoreAction ? `<div class="candidate-chat-actions">${candidateStoreAction}</div>` : ""}
       </figcaption>
     </figure>
   `;
-}
-
-function shouldSuppressCardAction(action = {}, message = {}) {
-  if (message.productionCard?.kind !== "candidate") {
-    return false;
-  }
-  const commandId = action.id || action.command || "";
-  const label = String(action.label || "").toLowerCase();
-  return commandId === "deposit_worksheet"
-    || label.includes("arbeitsblatt ablegen")
-    || label.includes("arbeitsblätter ablegen");
-}
-
-function suppressDuplicateCardActionEntries(actionEntries = [], message = {}) {
-  return actionEntries.filter(({ action }) => !shouldSuppressCardAction(action, message));
-}
-
-function suppressDuplicateCardActions(actions = [], message = {}) {
-  return actions.filter((action) => !shouldSuppressCardAction(action, message));
 }
 
 function conceptPreviewFromMessage(message = {}, workspace = {}) {
@@ -9150,26 +9187,19 @@ function conceptPreviewFromMessage(message = {}, workspace = {}) {
   }
   if (proposal?.kind === "content_mirror") {
     const content = proposal.data || {};
-    const readingTexts = content.readingTexts || [];
-    const tasks = content.tasks || [];
-    const imageMaterials = content.imageMaterials || [];
     const brief = workspace.documents?.brief?.data || workspace.proposals?.latestLessonBrief?.data || {};
     const proposalState = conceptProposalDisplayState(proposal);
     return {
       title: content.title || proposal.title || "Arbeitsblatt-Konzept",
       eyebrow: proposalState.eyebrow,
+      presentation: "pitch",
       canvasMode: "content_proposal",
       proposalRef: {
         proposalId: proposal.proposalId || null,
         kind: proposal.kind
       },
       summary: proposalState.summary,
-      rows: [
-        ["Texte", readingTexts.length],
-        ["Aufgaben", tasks.length],
-        ["Bildmaterial", imageMaterials.length],
-        ["Seiten", content.pageCount || content.outputPreference?.pages]
-      ],
+      rows: [],
       sections: conceptSectionsFromContent(content, {
         brief,
         project: workspace.project || {},
@@ -9278,28 +9308,26 @@ function conceptPreviewFromMessage(message = {}, workspace = {}) {
 function conceptProposalDisplayState(proposal = {}) {
   if (proposal.status === "adopted") {
     return {
-      eyebrow: "Arbeitsblatt-Konzept",
-      summary: "Gespeicherte Fassung: Rahmen, Blattaufbau, Aufgabenlogik, sichtbaren Inhalt und Bild/Layout prüfen."
+      eyebrow: t("app.chat.conceptReady"),
+      summary: ""
     };
   }
   const revisionMode = proposal.source?.revisionMode || "";
   if (revisionMode === "followup_concept" || revisionMode === "new_concept_from_context") {
     return {
-      eyebrow: "Arbeitsblatt-Konzept",
-      summary: revisionMode === "followup_concept"
-        ? "Neue Fassung für den Folgebogen prüfen; daraus kann direkt ein Entwurf entstehen."
-        : "Neue Fassung aus dem bisherigen Kontext prüfen; daraus kann direkt ein Entwurf entstehen."
+      eyebrow: t("app.chat.conceptUpdated"),
+      summary: ""
     };
   }
   if (revisionMode || proposal.source?.currentContentMirrorId) {
     return {
-      eyebrow: "Arbeitsblatt-Konzept",
-      summary: "Angepasste Fassung prüfen; daraus kann direkt ein Entwurf entstehen."
+      eyebrow: t("app.chat.conceptUpdated"),
+      summary: ""
     };
   }
   return {
-    eyebrow: "Arbeitsblatt-Konzept",
-    summary: "Prüfe Rahmen, Blattaufbau, Aufgabenlogik, sichtbaren Inhalt und Bild/Layout."
+    eyebrow: t("app.chat.conceptReady"),
+    summary: ""
   };
 }
 
@@ -9314,6 +9342,10 @@ function renderConceptChatCard(message = {}, workspace = {}) {
   const proposalId = preview.proposalRef?.kind === "content_mirror"
     ? preview.proposalRef?.proposalId || ""
     : "";
+  const pitchHtml = preview.presentation === "pitch" && message.content
+    ? `<div class="concept-pitch-copy">${renderMessageCopy(message, workspace)}</div>`
+    : "";
+  const rows = (preview.rows || []).filter(([, value]) => value !== undefined && value !== null && value !== "");
   return `
     <article class="chat-result-card concept-chat-card">
       <div class="chat-result-card-header">
@@ -9328,11 +9360,12 @@ function renderConceptChatCard(message = {}, workspace = {}) {
       </div>
       <h3>${escapeHtml(preview.title)}</h3>
       ${preview.summary ? `<p>${escapeHtml(preview.summary)}</p>` : ""}
-      <div class="chat-result-meta-grid">
-        ${(preview.rows || []).filter(([, value]) => value !== undefined && value !== null && value !== "").map(([label, value]) => `
+      ${pitchHtml}
+      ${rows.length ? `<div class="chat-result-meta-grid">
+        ${rows.map(([label, value]) => `
           <div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>
         `).join("")}
-      </div>
+      </div>` : ""}
       ${(preview.bullets || []).length ? `<ul>${preview.bullets.slice(0, 3).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
     </article>
   `;
@@ -9353,6 +9386,12 @@ function isConceptViewerOnlyMessage(message = {}) {
 function isConceptNarrationMessage(message = {}) {
   const proposalKind = message.proposal?.kind || "";
   return Boolean(message.content && (proposalKind === "lessonbrief" || proposalKind === "content_mirror"));
+}
+
+function isConceptPitchMessage(message = {}) {
+  return message.role !== "user"
+    && message.proposal?.kind === "content_mirror"
+    && Boolean(message.content);
 }
 
 function renderConceptNarrationCopy(message = {}) {
@@ -9485,17 +9524,17 @@ function renderChatMessage(message, visibleCommandIds = new Set(), extraCommands
     return renderThinkingMessage();
   }
   const role = message.role === "user" ? "user" : "assistant";
-  const actionEntries = suppressDuplicateCardActionEntries((message.suggestedActions || []).map((action) => ({
+  const actionEntries = (message.suggestedActions || []).map((action) => ({
     action,
     ...actionState(action, workspace, isActionHost, visibleCommandIds)
-  })).filter(({ action }) => isVisibleSuggestedAction(action)), message);
+  })).filter(({ action }) => isVisibleSuggestedAction(action));
   const suggestedActions = currentSuggestedActionButtons(actionEntries, workspace);
   const staleActions = actionEntries.filter((entry) => !entry.current);
   const extraActions = extraCommands.flatMap((command) => decisionButtons(command, workspace));
-  const actions = suppressDuplicateCardActions(
-    suggestedActions.length ? suggestedActions : (actionEntries.length ? [] : extraActions),
-    message
-  );
+  const candidateDecision = isActionHost && message.productionCard?.kind === "candidate";
+  const actions = candidateDecision
+    ? uniqueActionsByCommand([...suggestedActions, ...extraActions])
+    : suggestedActions.length ? suggestedActions : (actionEntries.length ? [] : extraActions);
   const stateClass = message.pending ? " pending" : message.failed ? " failed" : message.streaming ? " streaming" : "";
   const commandClass = message.productionCard?.kind === "command_pending" ? " command-pending" : "";
   const metaSuffix = message.pending
@@ -9507,9 +9546,13 @@ function renderChatMessage(message, visibleCommandIds = new Set(), extraCommands
         : message.createdAt ? ` · ${escapeHtml(timeOnly(message.createdAt))}` : "";
   const hideConceptCopy = isConceptViewerOnlyMessage(message) && !message.streaming && !message.failed;
   const hasCopy = !hideConceptCopy && (messageDisplayContent(message, workspace) || message.streaming || message.failed);
-  const copyHtml = hasCopy ? `<div class="message-copy">${renderMessageCopy(message, workspace)}</div>` : "";
-  const copyAfterCard = isConceptNarrationMessage(message) && hasCopy;
+  const copyInsideConceptCard = isConceptPitchMessage(message) && hasCopy;
+  const copyHtml = hasCopy && !copyInsideConceptCard ? `<div class="message-copy">${renderMessageCopy(message, workspace)}</div>` : "";
+  const copyAfterCard = isConceptNarrationMessage(message) && hasCopy && !copyInsideConceptCard;
   const conceptFeedbackHtml = copyAfterCard ? renderConceptNarrationCopy(message) : "";
+  const conceptDecisionPreview = isActionHost && isConceptPitchMessage(message)
+    ? conceptPreviewFromMessage(message, workspace)
+    : null;
   return `
     <div class="chat-message ${role}${stateClass}${commandClass}">
       ${role === "assistant" ? '<div class="assistant-avatar">AI</div>' : ""}
@@ -9520,7 +9563,10 @@ function renderChatMessage(message, visibleCommandIds = new Set(), extraCommands
         ${renderChatAttachments(message.attachments || [])}
         ${renderProductionCard(message, workspace)}
         ${copyAfterCard ? conceptFeedbackHtml : ""}
-        ${message.streaming ? "" : renderActionButtons(actions)}
+        ${message.streaming ? "" : renderActionButtons(actions, {
+          conceptPreview: conceptDecisionPreview,
+          candidateDecision
+        })}
         ${message.streaming ? "" : renderCompletedActionButtons(staleActions, { messages, index: messageIndex, workspace })}
       </div>
     </div>
