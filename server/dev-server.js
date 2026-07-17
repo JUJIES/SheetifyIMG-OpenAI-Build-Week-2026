@@ -795,7 +795,7 @@ function sendRedirect(response, location, statusCode = 302) {
 function sendAuthRequired(response) {
   sendJson(response, 401, {
     error: "authentication_required",
-    message: "Bitte mit einem Sheetify IMG Pass verbinden."
+    message: "Bitte mit einem SheetifyIMG Pass verbinden."
   });
 }
 

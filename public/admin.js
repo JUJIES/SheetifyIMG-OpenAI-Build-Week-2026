@@ -117,12 +117,12 @@ function shortDate(value) {
 
 function mailtoHref(request, recoveryUrl = "") {
   const subject = recoveryUrl
-    ? "Dein Sheetify IMG Pass – Wiederherstellung"
+    ? "Dein SheetifyIMG Pass – Wiederherstellung"
     : `Re: ${request.subject || requestKindLabel(request.kind)}`;
   const greeting = request.name ? `Hallo ${request.name},` : "Hallo,";
   const body = recoveryUrl
-    ? `${greeting}\n\nhier ist dein einmaliger Sheetify-IMG-Wiederherstellungslink. Er ist 30 Minuten gültig:\n\n${recoveryUrl}\n\nViele Grüße\nSheetify IMG`
-    : `${greeting}\n\nvielen Dank für deine Nachricht.\n\n\nViele Grüße\nSheetify IMG`;
+    ? `${greeting}\n\nhier ist dein einmaliger SheetifyIMG-Wiederherstellungslink. Er ist 30 Minuten gültig:\n\n${recoveryUrl}\n\nViele Grüße\nSheetifyIMG`
+    : `${greeting}\n\nvielen Dank für deine Nachricht.\n\n\nViele Grüße\nSheetifyIMG`;
   return `mailto:${request.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
@@ -144,7 +144,7 @@ async function copyText(value) {
 function renderPasses() {
   const passes = state.overview?.passes || [];
   if (!passes.length) {
-    elements.passList.innerHTML = '<div class="empty">Noch keine Sheetify IMG Pässe.</div>';
+    elements.passList.innerHTML = '<div class="empty">Noch keine SheetifyIMG Pässe.</div>';
     return;
   }
   elements.passList.innerHTML = passes.map((pass) => `
@@ -290,7 +290,7 @@ elements.createPassForm.addEventListener("submit", async (event) => {
         invitationLocale: data.get("invitationLocale")
       })
     });
-    showCard(result, "Sheetify IMG Pass erstellt", `sheetify-img-pass-${result.pass.id}`);
+    showCard(result, "SheetifyIMG Pass erstellt", `sheetify-img-pass-${result.pass.id}`);
     const notice = emailDeliveryNotice(result.emailDelivery);
     if (notice) toast(notice.trim());
     elements.createPassForm.reset();
@@ -332,7 +332,7 @@ elements.passList.addEventListener("click", async (event) => {
     } else if (button.hasAttribute("data-rotate")) {
       if (!confirm("Passcode erneuern und alle verbundenen Geräte abmelden?")) return;
       const result = await api(`/api/admin/passes/${encodeURIComponent(passId)}/rotate`, { method: "POST", body: JSON.stringify({ revokeSessions: true }) });
-      showCard(result, "Neuer Sheetify IMG Pass", `sheetify-img-pass-${passId}`);
+      showCard(result, "Neuer SheetifyIMG Pass", `sheetify-img-pass-${passId}`);
       const notice = emailDeliveryNotice(result.emailDelivery);
       if (notice) toast(notice.trim());
     }
