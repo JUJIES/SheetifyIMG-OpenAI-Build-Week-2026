@@ -135,11 +135,9 @@ function contextTexts({ project = {}, context = {}, input = {} } = {}) {
   const brief = context.currentBrief || {};
   const content = context.currentContent || {};
   return [
-    project.title,
     project.subject,
     project.topic,
     project.manifest?.targetGroup,
-    context.project?.title,
     context.project?.subject,
     context.project?.topic,
     context.project?.targetGroup,

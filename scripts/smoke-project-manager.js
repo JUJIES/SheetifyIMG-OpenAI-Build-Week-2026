@@ -22,18 +22,19 @@ async function main() {
   };
 
   const single = await createSingleWorksheetProject({
-    title: "Fossilien als Belege der Evolution",
-    subject: "Biologie",
-    topic: "Evolution"
+    title: "Material für nächste Woche"
   }, options);
   assert.equal(single.projectType, "single_worksheet");
   assert.equal(single.status, "draft");
+  assert.equal(single.subject, null);
+  assert.equal(single.topic, null);
+  assert.equal(single.targetGroup, null);
 
   const projects = await listProjects({ projectsDir: smokeRoot });
   assert.equal(projects.length, 1);
 
   const reopened = await openProject(single.projectId, { projectsDir: smokeRoot });
-  assert.equal(reopened.title, "Fossilien als Belege der Evolution");
+  assert.equal(reopened.title, "Material für nächste Woche");
   assert.equal(reopened.derivedStatus.hasDraftContent, false);
   assert.equal(reopened.derivedStatus.canGenerate, false);
 

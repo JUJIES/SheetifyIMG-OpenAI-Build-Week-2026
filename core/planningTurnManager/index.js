@@ -28,6 +28,7 @@ const TARGET_KINDS = Object.freeze([
 const FIELD_OPERATIONS = Object.freeze(["keep", "set", "clear"]);
 const FIELD_STATUSES = Object.freeze(["known", "partial", "assumed", "missing"]);
 const TEACHING_FIELD_IDS = Object.freeze([
+  "subject",
   "topic",
   "targetGroup",
   "lessonGoal",
@@ -148,9 +149,21 @@ function compactContent(content = null) {
 function compactWorkspace(workspace = {}) {
   const currentContent = workspace.documents?.content?.data || null;
   const openProposal = workspace.proposals?.latestContentMirror || null;
+  const project = workspace.project || {};
+  const teachingFields = workspace.teachingContext?.fields || {};
   return {
-    project: workspace.project || null,
-    teachingContext: workspace.teachingContext || null,
+    project: {
+      projectId: project.projectId || null,
+      projectType: project.projectType || null,
+      projectName: project.title || null,
+      subject: project.subject || null,
+      topic: project.topic || null,
+      targetGroup: project.targetGroup || null,
+      status: project.status || null
+    },
+    teachingContext: {
+      fields: Object.fromEntries(TEACHING_FIELD_IDS.map((id) => [id, teachingFields[id] || null]))
+    },
     inputReadiness: workspace.inputReadiness || null,
     currentConcept: compactContent(currentContent),
     openConceptProposal: openProposal ? {

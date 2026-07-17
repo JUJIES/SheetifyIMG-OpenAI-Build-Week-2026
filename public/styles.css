@@ -1824,7 +1824,8 @@ button {
 }
 
 .missing-preview,
-.no-preview {
+.no-preview,
+.canvas-body > .worksheet-blueprint-empty {
   display: flex;
   min-height: 280px;
   align-items: center;
@@ -5785,7 +5786,7 @@ button {
   padding: 0;
   cursor: pointer;
   box-shadow: none;
-  transition: background 140ms ease, color 140ms ease, opacity 140ms ease, transform 140ms ease;
+  transition: background 140ms ease, color 140ms ease, opacity 140ms ease, transform 140ms ease, box-shadow 180ms ease;
 }
 
 .chat-transcript-review-button {
@@ -5843,9 +5844,27 @@ button {
   box-shadow: 0 0 0 3px rgba(31, 99, 214, 0.16);
 }
 
-.chat-voice-button.listening {
-  background: #fff1f0;
-  color: var(--danger);
+.chat-voice-button.listening,
+.chat-voice-button.listening:hover:not(:disabled),
+.chat-voice-button.listening:focus-visible {
+  background: var(--danger);
+  color: #ffffff;
+  transform: scale(1.04);
+  box-shadow: 0 0 0 4px rgba(196, 46, 31, 0.14), 0 6px 16px rgba(150, 38, 28, 0.24);
+}
+
+.chat-voice-button.listening .icon {
+  opacity: 0;
+}
+
+.chat-voice-button.listening::before {
+  content: "";
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: #ffffff;
+  pointer-events: none;
 }
 
 .chat-voice-button.starting,
@@ -5866,7 +5885,8 @@ button {
 }
 
 .chat-voice-button.listening::after {
-  border: 1px solid rgba(196, 46, 31, 0.34);
+  inset: -5px;
+  border: 2px solid rgba(196, 46, 31, 0.42);
 }
 
 .chat-voice-button.starting::after,
@@ -8049,8 +8069,7 @@ button {
 .worksheet-blueprint-image-placeholder span:nth-child(2) { height: 90%; }
 .worksheet-blueprint-image-placeholder span:nth-child(3) { height: 68%; }
 
-.worksheet-blueprint-empty-page,
-.worksheet-blueprint-empty {
+.worksheet-blueprint-empty-page {
   margin: auto;
   color: #768096;
   font-size: 0.78rem;

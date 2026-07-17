@@ -377,7 +377,7 @@ function validateLessonBrief(data = {}, project) {
   const outputPreference = data.outputPreference || {};
   const brief = {
     subject: stringOrNull(data.subject) || project.subject || null,
-    topic: stringOrNull(data.topic) || project.topic || project.title,
+    topic: stringOrNull(data.topic) || project.topic,
     targetGroup: stringOrNull(data.targetGroup) || project.manifest?.targetGroup || null,
     goal: stringOrNull(data.goal) || "Unterrichtsmaterial strukturiert vorbereiten.",
     requirements: arrayOfStrings(data.requirements),
@@ -511,7 +511,7 @@ function validateContentMirror(data = {}, project) {
     placement: removeExcludedUnsafeMentions(material.placement) || "auto"
   })).filter((material) => material.prompt);
   const content = {
-    title: stringOrNull(data.title) || project.title,
+    title: stringOrNull(data.title),
     outputPreference: normalizeOutputPreference(data.outputPreference || {}),
     readingTexts,
     tasks: tasks.length ? tasks : [{
@@ -587,7 +587,7 @@ function validateImageSpec(data = {}, project, context = {}, ruleSelection = {})
   const aspectRatio = "portrait_a4_page";
   const textPolicy = "approved_text_only";
   const style = stringOrNull(data.style) || "clean_scientific";
-  const topic = stringOrNull(data.topic) || project.topic || project.title;
+  const topic = stringOrNull(data.topic) || project.topic;
   const purpose = compactImageSpecText(
     visibleImageSpecText(data.purpose, "Arbeitsblattseite aus Arbeitsblatt-Konzept"),
     IMAGE_SPEC_TEXT_LIMITS.purpose
@@ -1145,7 +1145,7 @@ function projectContext({ project, currentBrief, currentContent, currentWarnings
   return {
     project: {
       projectId: project.projectId,
-      title: project.title,
+      projectName: project.title,
       subject: project.subject,
       topic: project.topic,
       targetGroup: project.manifest?.targetGroup || null,

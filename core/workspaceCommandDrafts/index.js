@@ -5,7 +5,7 @@ const { requestedConstraints } = require("../contentReadiness");
 function defaultBriefDraft(project, payload = {}) {
   return {
     subject: payload.subject || project.subject || null,
-    topic: payload.topic || project.topic || project.title,
+    topic: payload.topic || project.topic || "Arbeitsblatt",
     targetGroup: payload.targetGroup || project.manifest?.targetGroup || null,
     goal: payload.goal || "Unterrichtsmaterial sauber als Bild-Arbeitsblatt vorbereiten.",
     requirements: payload.requirements || [],
@@ -29,7 +29,6 @@ function normalizedText(value) {
 
 function contextText(project = {}, brief = {}, events = []) {
   return normalizedText([
-    project.title,
     project.subject,
     project.topic,
     project.manifest?.targetGroup,
@@ -91,7 +90,7 @@ function defaultTasksForConcept(project, brief = {}, payload = {}, events = []) 
   const constraints = requestedConstraints({ events, brief });
   const requestedCount = constraints.exactTasks || constraints.minTasks || (constraints.mentionsAfb ? 3 : 1);
   const taskCount = Math.max(1, Math.min(Number(payload.taskCount) || requestedCount, 8));
-  const topic = brief.topic || project.topic || project.title;
+  const topic = brief.topic || project.topic || "Arbeitsblatt";
   const templates = isReadingWorksheet(project, brief, events) ? readingTaskTemplates(topic) : [
     {
       prompt: `Beschreibe die wichtigsten Beobachtungen zum Material "${topic}".`,
@@ -159,7 +158,7 @@ function defaultDidacticThread(tasks = [], readingTexts = [], imageMaterials = [
 }
 
 function defaultContentDraft(project, payload = {}, brief = {}, events = []) {
-  const topic = brief.topic || project.topic || project.title;
+  const topic = brief.topic || project.topic || "Arbeitsblatt";
   const constraints = requestedConstraints({ events, brief });
   const tasks = defaultTasksForConcept(project, brief, payload, events);
   const readingWorksheet = isReadingWorksheet(project, brief, events);
@@ -180,7 +179,7 @@ function defaultContentDraft(project, payload = {}, brief = {}, events = []) {
     placement: readingWorksheet ? "bei Lesetext und Aufgaben dezent unterstuetzend" : "zentral auf der Arbeitsblattseite"
   }];
   return {
-    title: payload.title || project.title,
+    title: payload.title || brief.topic || project.topic || "Arbeitsblatt",
     outputPreference: payload.outputPreference || brief.outputPreference || {
       pages: 1,
       layout: "auto",

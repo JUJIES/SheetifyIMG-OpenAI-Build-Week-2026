@@ -14,7 +14,7 @@ function textList(value) {
 function normalizeConceptFrame(value = {}, project = {}) {
   const frame = {
     subject: textValue(value.subject) || textValue(project.subject),
-    topic: textValue(value.topic) || textValue(project.topic) || textValue(project.title),
+    topic: textValue(value.topic) || textValue(project.topic),
     targetGroup: textValue(value.targetGroup) || textValue(project.targetGroup) || textValue(project.manifest?.targetGroup),
     goal: textValue(value.goal) || "Die Lernenden bearbeiten das Arbeitsblatt fachlich nachvollziehbar.",
     requirements: textList(value.requirements),
@@ -104,6 +104,7 @@ function conceptFrameFromTeachingContext(teachingContext = {}, fallbackInput = {
   ];
   return normalizeConceptFrame({
     ...fallback,
+    subject: teachingFieldValue(teachingContext, "subject") || fallback.subject,
     topic: teachingFieldValue(teachingContext, "topic") || fallback.topic,
     targetGroup: teachingFieldValue(teachingContext, "targetGroup") || fallback.targetGroup,
     goal: teachingFieldValue(teachingContext, "lessonGoal") || fallback.goal,

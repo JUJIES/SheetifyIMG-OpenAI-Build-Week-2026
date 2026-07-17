@@ -36,14 +36,11 @@ function teachingContextValue(workspace = {}, fieldId) {
 function starterProjectContext(workspace = {}) {
   const project = workspace.project || {};
   const topic = teachingContextValue(workspace, "topic")
-    || cleanContextValue(project.topic)
-    || cleanContextValue(project.title);
+    || cleanContextValue(project.topic);
   const targetGroup = teachingContextValue(workspace, "targetGroup")
     || cleanContextValue(project.targetGroup);
   const subject = cleanContextValue(project.subject);
-  const title = cleanContextValue(project.title);
   return {
-    title,
     subject,
     topic,
     targetGroup
