@@ -229,6 +229,37 @@ function adminPass(state, pass) {
   };
 }
 
+function adminTopupCard(state, card, now = new Date().toISOString()) {
+  const redeemedPass = card.redeemedByPassId
+    ? state.passes.find((entry) => entry.id === card.redeemedByPassId) || null
+    : null;
+  const status = card.revokedAt
+    ? "revoked"
+    : card.redeemedAt
+      ? "redeemed"
+      : card.expiresAt && card.expiresAt <= now
+        ? "expired"
+        : "active";
+  return {
+    id: card.id,
+    codeHint: card.codeHint,
+    credits: card.credits,
+    label: card.label,
+    locale: normalizeLocale(card.locale),
+    recipientEmail: card.recipientEmail || null,
+    createdAt: card.createdAt,
+    expiresAt: card.expiresAt || null,
+    redeemedAt: card.redeemedAt || null,
+    revokedAt: card.revokedAt || null,
+    status,
+    redeemedByPass: redeemedPass ? {
+      id: redeemedPass.id,
+      label: redeemedPass.label,
+      codeHint: redeemedPass.codeHint || null
+    } : null
+  };
+}
+
 function publicSession(session, currentSessionId = null) {
   return {
     id: session.id,
@@ -423,6 +454,13 @@ function createBetaAccessManager(config = {}) {
   async function listPasses() {
     const state = await readState();
     return state.passes.map((pass) => adminPass(state, pass))
+      .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
+  }
+
+  async function listTopupCards(options = {}) {
+    const state = await readState();
+    const now = nowIso(options);
+    return state.topupCards.map((card) => adminTopupCard(state, card, now))
       .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
   }
 
@@ -1104,10 +1142,13 @@ function createBetaAccessManager(config = {}) {
         codeHint: rawCode.slice(-4),
         credits,
         label: cleanLabel(input.label, `${credits} Entwurfsseiten`),
+        locale: normalizeLocale(input.locale),
+        recipientEmail: optionalEmail(input.email),
         createdAt: now,
         expiresAt: input.expiresAt || null,
         redeemedAt: null,
-        redeemedByPassId: null
+        redeemedByPassId: null,
+        revokedAt: null
       };
       state.topupCards.push(card);
       addAudit(state, "topup_card_created", now, { cardId: card.id, credits });
@@ -1121,7 +1162,7 @@ function createBetaAccessManager(config = {}) {
     return transact((state, now) => {
       const pass = passRecord(state, passId);
       assertPassActive(pass, now);
-      const card = state.topupCards.find((entry) => !entry.redeemedAt && (!entry.expiresAt || entry.expiresAt > now) && safeEqual(entry.codeDigest, codeDigest)) || null;
+      const card = state.topupCards.find((entry) => !entry.redeemedAt && !entry.revokedAt && (!entry.expiresAt || entry.expiresAt > now) && safeEqual(entry.codeDigest, codeDigest)) || null;
       if (!card) {
         throw Object.assign(new Error("Die Guthabenkarte ist ungültig, abgelaufen oder bereits eingelöst."), { statusCode: 400 });
       }
@@ -1130,6 +1171,23 @@ function createBetaAccessManager(config = {}) {
       state.ledger.push(ledgerEntry(passId, "topup_card", card.credits, now, { cardId: card.id }));
       addAudit(state, "topup_card_redeemed", now, { passId, cardId: card.id, credits: card.credits });
       return { pass: publicPass(state, pass), credits: card.credits };
+    }, options);
+  }
+
+  async function revokeTopupCard(cardId, options = {}) {
+    return transact((state, now) => {
+      const card = state.topupCards.find((entry) => entry.id === cardId) || null;
+      if (!card) {
+        throw Object.assign(new Error("Guthabenkarte wurde nicht gefunden."), { statusCode: 404 });
+      }
+      if (card.redeemedAt) {
+        throw Object.assign(new Error("Eine bereits eingelöste Guthabenkarte kann nicht widerrufen werden."), { statusCode: 409 });
+      }
+      if (!card.revokedAt) {
+        card.revokedAt = now;
+        addAudit(state, "topup_card_revoked", now, { cardId: card.id, credits: card.credits });
+      }
+      return adminTopupCard(state, card, now);
     }, options);
   }
 
@@ -1264,6 +1322,7 @@ function createBetaAccessManager(config = {}) {
     ensureStorage,
     grant,
     listPasses,
+    listTopupCards,
     listFeedback,
     listRequests,
     loginWithPass,
@@ -1276,6 +1335,7 @@ function createBetaAccessManager(config = {}) {
     refundGeneration,
     reserveGeneration,
     revokeDevice,
+    revokeTopupCard,
     rotatePass,
     settleGeneration,
     updatePass,

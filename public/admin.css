@@ -107,6 +107,7 @@ h3 { margin-bottom: 0; font-size: 18px; letter-spacing: -.025em; }
 .workspace-layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); align-items: start; gap: 20px; }
 .credit-layout { display: grid; grid-template-columns: minmax(360px, .9fr) minmax(300px, 1.1fr); align-items: stretch; gap: 20px; }
 .admin-card, .pass-directory, .credit-note { padding: 22px; border: 1px solid #e4e8ef; border-radius: 17px; background: var(--panel-soft); }
+.credit-directory { min-width: 0; }
 .admin-card--form { background: #fff; box-shadow: 0 10px 26px rgba(16,24,39,.045); }
 .admin-form { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 20px; }
 .admin-form--stacked { grid-template-columns: 1fr; }
@@ -140,6 +141,8 @@ button.compact { min-height: 36px; font-size: 11px; }
 .pass-status.active { color: var(--green); background: var(--green-soft); }
 .pass-status.paused { color: var(--warn); background: var(--warn-soft); }
 .pass-status.revoked { color: var(--danger); background: var(--danger-soft); }
+.pass-status.redeemed { color: var(--blue); background: var(--blue-soft); }
+.pass-status.expired { color: #667085; background: #eef1f5; }
 .pass-locale { padding: 4px 7px; border-radius: 99px; color: var(--blue); background: var(--blue-soft); font-weight: 800; letter-spacing: .05em; }
 .pass-card-ready { grid-column: 1 / -1; color: #5a6f95; font-size: 9px; text-align: right; }
 

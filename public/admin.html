@@ -33,7 +33,7 @@
           <span>Pässe &amp; Arbeitsbereiche</span><small id="passTabCount">–</small>
         </button>
         <button class="admin-tab" id="tab-credits" type="button" role="tab" aria-selected="false" aria-controls="panel-credits" data-admin-tab="credits">
-          <span>Guthaben</span>
+          <span>Guthaben</span><small id="topupTabCount">–</small>
         </button>
         <button class="admin-tab" id="tab-feedback" type="button" role="tab" aria-selected="false" aria-controls="panel-feedback" data-admin-tab="feedback">
           <span>Feedback</span><small id="feedbackTabCount" hidden>0</small>
@@ -113,11 +113,15 @@
               <button type="submit" class="primary">Guthabenkarte erstellen</button>
             </form>
           </article>
-          <aside class="credit-note">
-            <p class="eyebrow">Einlösung</p>
-            <h3>Die Karte ergänzt einen Pass.</h3>
-            <p>Ist das Gerät bereits verbunden, wird das Guthaben direkt gebucht. Andernfalls muss zuerst ein vorhandener Pass verbunden werden.</p>
-          </aside>
+          <section class="pass-directory credit-directory" aria-labelledby="topupDirectoryTitle">
+            <div class="directory-heading">
+              <div>
+                <h3 id="topupDirectoryTitle">Erstellte Guthabenkarten</h3>
+                <p>Aktive Karten widerrufen oder eingelöste Karten einem Arbeitsbereich zuordnen.</p>
+              </div>
+            </div>
+            <div class="pass-list" id="topupList"></div>
+          </section>
         </div>
 
         <section class="generated-card hidden" id="generatedCard" data-generated-result="topup" aria-live="polite">

@@ -1073,6 +1073,7 @@ async function handleAdminApi(request, response) {
   if (request.method === "GET" && pathname === "/api/admin/overview") {
     sendJson(response, 200, {
       passes: await betaAccessManager.listPasses(),
+      topupCards: await betaAccessManager.listTopupCards(),
       requests: await betaAccessManager.listRequests(),
       feedback: await betaAccessManager.listFeedback(),
       beta: {
@@ -1188,6 +1189,15 @@ async function handleAdminApi(request, response) {
       }))
       : { status: "skipped" };
     sendJson(response, 201, { ...created, url, ...publicCard, emailDelivery });
+    return true;
+  }
+  const topupCardMatch = pathname.match(/^\/api\/admin\/topup-cards\/(card_[A-Za-z0-9-]+)$/);
+  if (request.method === "PATCH" && topupCardMatch) {
+    const body = await readJsonBody(request);
+    if (body.status !== "revoked") {
+      throw Object.assign(new Error("Unbekannter Guthabenkarten-Status."), { statusCode: 400 });
+    }
+    sendJson(response, 200, { card: await betaAccessManager.revokeTopupCard(topupCardMatch[1]) });
     return true;
   }
   const requestMatch = pathname.match(/^\/api\/admin\/requests\/(request_[A-Za-z0-9-]+)$/);

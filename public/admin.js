@@ -20,6 +20,7 @@ const elements = {
   downloadPng: document.querySelector("#downloadCardPng"),
   downloadSvg: document.querySelector("#downloadCardSvg"),
   passList: document.querySelector("#passList"),
+  topupList: document.querySelector("#topupList"),
   requestList: document.querySelector("#requestList"),
   feedbackList: document.querySelector("#feedbackList"),
   refreshPasses: document.querySelector("#refreshPasses"),
@@ -28,6 +29,7 @@ const elements = {
   tabs: [...document.querySelectorAll("[data-admin-tab]")],
   panels: [...document.querySelectorAll("[data-admin-panel]")],
   passTabCount: document.querySelector("#passTabCount"),
+  topupTabCount: document.querySelector("#topupTabCount"),
   feedbackTabCount: document.querySelector("#feedbackTabCount"),
   inboxTabCount: document.querySelector("#inboxTabCount"),
   contact: document.querySelector(".admin-contact"),
@@ -69,12 +71,14 @@ function showCard(payload, title, fileName, options = {}) {
   state.generatedCard = {
     kind: options.kind || "topup",
     passId: options.passId || null,
+    cardId: options.cardId || null,
     title,
     svg: payload.svg,
     pngDataUrl: payload.pngDataUrl,
     fileName
   };
   renderPasses();
+  renderTopupCards();
   if (state.generatedCard.kind === "pass") {
     elements.generated.classList.add("hidden");
     return;
@@ -119,6 +123,10 @@ function setActiveTab(value, options = {}) {
 
 function passStatusLabel(status) {
   return ({ active: "Aktiv", paused: "Pausiert", revoked: "Gesperrt" })[status] || status;
+}
+
+function topupStatusLabel(status) {
+  return ({ active: "Aktiv", redeemed: "Eingelöst", revoked: "Widerrufen", expired: "Abgelaufen" })[status] || status;
 }
 
 function optionalIsoTimestamp(value) {
@@ -227,6 +235,38 @@ function renderPasses() {
   }).join("");
 }
 
+function renderTopupCards() {
+  const cards = state.overview?.topupCards || [];
+  if (!cards.length) {
+    elements.topupList.innerHTML = '<div class="empty">Noch keine Guthabenkarten.</div>';
+    return;
+  }
+  elements.topupList.innerHTML = cards.map((card) => {
+    const generated = state.generatedCard?.kind === "topup" && state.generatedCard.cardId === card.id
+      ? '<span class="pass-card-ready">Karte gerade erstellt · Download nur jetzt verfügbar</span>'
+      : "";
+    const redemption = card.redeemedByPass
+      ? `<span>Eingelöst für ${escapeHtml(card.redeemedByPass.label)}</span>`
+      : "";
+    return `
+      <article class="pass-row topup-row" data-topup-card-id="${escapeHtml(card.id)}">
+        <div>
+          <h3>${escapeHtml(card.label)}</h3>
+          <div class="pass-meta">
+            <span class="pass-status ${escapeHtml(card.status)}">${escapeHtml(topupStatusLabel(card.status))}</span>
+            <span>Code ···· ${escapeHtml(card.codeHint)}</span>
+            <span>Erstellt ${escapeHtml(shortDate(card.createdAt))}</span>
+            ${card.recipientEmail ? `<span>${escapeHtml(card.recipientEmail)}</span>` : ""}
+            ${redemption}
+          </div>
+        </div>
+        <div class="pass-balance"><strong>${card.credits}</strong><span>Entwurfsseiten</span></div>
+        ${card.status === "active" ? '<div class="pass-actions"><button class="danger" type="button" data-revoke-topup>Widerrufen</button></div>' : ""}
+        ${generated}
+      </article>`;
+  }).join("");
+}
+
 function renderRequests() {
   const requests = state.overview?.requests || [];
   if (!requests.length) {
@@ -319,11 +359,13 @@ function renderFeedback() {
 
 async function loadOverview() {
   state.overview = await api("/api/admin/overview");
+  state.overview.topupCards = state.overview.topupCards || [];
   const beta = state.overview.beta;
   const openRequests = state.overview.requests.filter((request) => request.status === "open").length;
   const newFeedback = state.overview.feedback.filter((entry) => entry.status === "new").length;
   elements.status.textContent = `${state.overview.passes.length}/10 Pässe · ${newFeedback} Feedback neu · ${openRequests} Anfragen offen · Entwürfe ${beta.paidGenerationEnabled ? "aktiv" : "pausiert"}`;
   elements.passTabCount.textContent = String(state.overview.passes.length);
+  elements.topupTabCount.textContent = String(state.overview.topupCards.length);
   elements.feedbackTabCount.textContent = String(newFeedback);
   elements.feedbackTabCount.hidden = newFeedback === 0;
   elements.inboxTabCount.textContent = String(openRequests);
@@ -333,6 +375,7 @@ async function loadOverview() {
     elements.contact.href = `mailto:${beta.contactEmail}`;
   }
   renderPasses();
+  renderTopupCards();
   renderRequests();
   renderFeedback();
 }
@@ -373,12 +416,30 @@ elements.createTopupForm.addEventListener("submit", async (event) => {
         locale: data.get("locale")
       })
     });
+    await loadOverview();
     showCard(result, "Guthabenkarte erstellt", `sheetify-guthaben-${result.card.credits}`, {
       kind: "topup",
+      cardId: result.card.id,
       summary: `${result.card.credits} Entwurfsseiten · Karte jetzt herunterladen oder per E-Mail weitergeben.`
     });
     const notice = emailDeliveryNotice(result.emailDelivery);
     if (notice) toast(notice.trim());
+  } catch (error) { toast(error.message); }
+});
+
+elements.topupList.addEventListener("click", async (event) => {
+  const row = event.target.closest("[data-topup-card-id]");
+  const button = event.target.closest("button[data-revoke-topup]");
+  if (!row || !button) return;
+  const card = state.overview?.topupCards?.find((entry) => entry.id === row.dataset.topupCardId);
+  if (!confirm(`„${card?.label || "Diese Guthabenkarte"}“ widerrufen? Der Code kann danach nicht mehr eingelöst werden.`)) return;
+  try {
+    await api(`/api/admin/topup-cards/${encodeURIComponent(row.dataset.topupCardId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "revoked" })
+    });
+    await loadOverview();
+    toast("Guthabenkarte wurde widerrufen.");
   } catch (error) { toast(error.message); }
 });
 
