@@ -8807,7 +8807,7 @@ function renderChatIntro(workspace) {
     <div class="chat-message assistant">
       <div class="assistant-avatar">AI</div>
       <div class="message-bubble">
-        <strong>Sheetify IMG AI</strong>
+        <strong>SheetifyAI</strong>
         <div class="message-copy">${markdownToHtml(text)}</div>
       </div>
     </div>
@@ -9561,7 +9561,7 @@ function renderChatMessage(message, visibleCommandIds = new Set(), extraCommands
     <div class="chat-message ${role}${stateClass}${commandClass}">
       ${role === "assistant" ? '<div class="assistant-avatar">AI</div>' : ""}
       <div class="message-bubble">
-        <div class="message-meta">${role === "user" ? t("app.chat.me") : "Sheetify IMG AI"}${metaSuffix}</div>
+        <div class="message-meta">${role === "user" ? t("app.chat.me") : "SheetifyAI"}${metaSuffix}</div>
         ${renderChatRevisionTarget(message.revisionTarget)}
         ${copyAfterCard ? "" : copyHtml}
         ${renderChatAttachments(message.attachments || [])}
@@ -9582,7 +9582,7 @@ function renderThinkingMessage() {
     <div class="chat-message assistant thinking">
       <div class="assistant-avatar">AI</div>
       <div class="message-bubble">
-        <div class="message-meta">Sheetify IMG AI</div>
+        <div class="message-meta">SheetifyAI</div>
         <p class="thinking-line"><span></span><span></span><span></span><em>${escapeHtml(t("app.chat.thinking"))}</em></p>
       </div>
     </div>
