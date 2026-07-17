@@ -187,18 +187,21 @@ async function main() {
     await englishPage.getByRole("heading", { name: "Projects" }).waitFor();
     await demoPause(1000);
 
-    const createdProject = await pageApi(englishPage, "/api/projects/single", {
-      method: "POST",
-      body: JSON.stringify({
-        projectId: "devpost-judge-english-core",
-        title: demoProjectTitle,
-        subject: demoMode ? "Biology" : "English",
-        topic: demoMode ? "Evidence for evolution" : "Summer snapshot",
-        targetGroup: demoMode ? "Grade 10" : "Grade 7"
-      })
-    });
-    assert.equal(createdProject.ok, true, createdProject.body.message || createdProject.status);
-    const projectId = createdProject.body.project.projectId;
+    await englishPage.locator("#newWorksheetButton").click();
+    await englishPage.locator("#newWorksheetTitle").fill(demoProjectTitle);
+    await englishPage.locator("#newWorksheetSubject").fill(demoMode ? "Biology" : "English");
+    await englishPage.locator("#newWorksheetTopic").fill(demoMode ? "Evidence for evolution" : "Summer snapshot");
+    await englishPage.locator("#newWorksheetTargetGroup").fill(demoMode ? "Grade 10" : "Grade 7");
+    await englishPage.locator("#createNewWorksheetButton").click();
+    await englishPage.locator("#workspaceView:not(.hidden)").waitFor({ state: "visible", timeout: 30000 });
+    await englishPage.getByRole("heading", { name: "Sheetify AI" }).waitFor();
+    assert.equal((await englishPage.locator("#librarySidebar").getAttribute("class")).includes("hidden"), true);
+
+    const createdProjects = await pageApi(englishPage, "/api/projects");
+    assert.equal(createdProjects.ok, true, createdProjects.body.message || createdProjects.status);
+    const createdProject = createdProjects.body.projects.find((project) => project.title === demoProjectTitle);
+    assert.ok(createdProject, "The project created through the UI is missing from the project list.");
+    const projectId = createdProject.projectId;
     const projectDir = await findProjectDir(tempRoot, projectId);
     assert.ok(projectDir, `Project directory not found for ${projectId}`);
     await appendEvent(projectDir, {
@@ -421,6 +424,7 @@ async function main() {
       providerFree: true,
       realEmailSent: false,
       paidGenerationTriggered: false,
+      newProjectAutoOpened: true,
       projectId,
       runId,
       englishDesktop: true,

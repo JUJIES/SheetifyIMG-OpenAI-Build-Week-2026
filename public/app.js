@@ -10931,10 +10931,13 @@ async function createNewWorksheetFromLibrary() {
     setNewWorksheetFormVisible(false);
     await loadTree({
       keepSelection: true,
-      selectAfterLoad: true,
+      selectAfterLoad: !projectId,
       revealSelected: Boolean(projectId),
-      openSelectedMobileSheet: Boolean(projectId)
+      openSelectedMobileSheet: false
     });
+    if (projectId) {
+      await openWorkspace(projectId);
+    }
   } catch (error) {
     elements.createNewWorksheetButton.disabled = false;
     elements.createNewWorksheetButton.textContent = "Anlegen";
