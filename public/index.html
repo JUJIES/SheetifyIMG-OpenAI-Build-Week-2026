@@ -253,22 +253,24 @@
                       </button>
                     </span>
                     <textarea id="chatInput" rows="1" placeholder="Nachricht an Sheetify AI …" data-i18n-placeholder="app.chat.placeholder"></textarea>
-                    <button class="chat-transcript-review-button hidden" type="button" id="voiceTranscriptReviewButton" aria-label="Transkript ansehen" title="Transkript ansehen" aria-controls="voiceTranscriptLayer" aria-expanded="false">
-                      <svg class="icon icon-small" aria-hidden="true">
-                        <use href="/icons/lucide-sprite.svg?v=16#eye"></use>
-                      </svg>
-                    </button>
-                    <button class="chat-voice-button" type="button" id="chatVoiceButton" aria-label="Spracheingabe starten" title="Spracheingabe starten" aria-pressed="false">
-                      <svg class="icon icon-small" aria-hidden="true">
-                        <use href="/icons/lucide-sprite.svg?v=12#mic"></use>
-                      </svg>
-                    </button>
-                    <button class="primary-button chat-send-button" type="submit" aria-label="Senden" title="Senden" data-i18n-title="app.chat.send" data-i18n-aria-label="app.chat.send">
-                      <svg class="icon icon-small" viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="m3 3 3 9-3 9 19-9Z"></path>
-                        <path d="M6 12h16"></path>
-                      </svg>
-                    </button>
+                    <div class="chat-input-actions">
+                      <button class="chat-transcript-review-button hidden" type="button" id="voiceTranscriptReviewButton" aria-label="Transkript ansehen" title="Transkript ansehen" aria-controls="voiceTranscriptLayer" aria-expanded="false">
+                        <svg class="icon icon-small" aria-hidden="true">
+                          <use href="/icons/lucide-sprite.svg?v=16#eye"></use>
+                        </svg>
+                      </button>
+                      <button class="chat-voice-button" type="button" id="chatVoiceButton" aria-label="Spracheingabe starten" title="Spracheingabe starten" aria-pressed="false">
+                        <svg class="icon icon-small" aria-hidden="true">
+                          <use href="/icons/lucide-sprite.svg?v=12#mic"></use>
+                        </svg>
+                      </button>
+                      <button class="primary-button chat-send-button" type="submit" aria-label="Senden" title="Senden" data-i18n-title="app.chat.send" data-i18n-aria-label="app.chat.send">
+                        <svg class="icon icon-small" viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="m3 3 3 9-3 9 19-9Z"></path>
+                          <path d="M6 12h16"></path>
+                        </svg>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </form>

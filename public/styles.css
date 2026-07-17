@@ -5671,6 +5671,10 @@ button {
   min-width: 0;
 }
 
+.chat-input-actions {
+  display: contents;
+}
+
 .chat-input-shell.has-revision-target .chat-input-row {
   grid-template-columns: auto minmax(0, 1fr) 44px 44px;
 }
@@ -6738,12 +6742,17 @@ button {
   }
 
   .chat-composer {
-    grid-template-columns: 40px minmax(0, 1fr);
-    gap: 8px;
+    position: relative;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
     padding: 10px 10px max(12px, env(safe-area-inset-bottom));
   }
 
   .chat-attachment-button {
+    position: absolute;
+    z-index: 2;
+    left: 18px;
+    bottom: calc(max(12px, env(safe-area-inset-bottom)) + 8px);
     width: 40px;
     height: 40px;
   }
@@ -6767,29 +6776,50 @@ button {
   }
 
   .chat-input-row {
-    grid-template-columns: minmax(0, 1fr) 44px 44px;
-    align-items: center;
-    gap: 10px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "input"
+      "actions";
+    align-items: stretch;
+    gap: 4px;
   }
 
   .chat-input-shell.has-voice-transcript-review .chat-input-row {
-    grid-template-columns: minmax(0, 1fr) 36px 44px 44px;
-    grid-template-areas: "input review voice send";
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "input"
+      "actions";
   }
 
   .chat-input-shell.has-revision-target .chat-input-row {
-    grid-template-columns: minmax(0, 1fr) 44px 44px;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
-      "target target target"
-      "input voice send";
+      "target"
+      "input"
+      "actions";
     row-gap: 5px;
   }
 
   .chat-input-shell.has-revision-target.has-voice-transcript-review .chat-input-row {
-    grid-template-columns: minmax(0, 1fr) 36px 44px 44px;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
-      "target target target target"
-      "input review voice send";
+      "target"
+      "input"
+      "actions";
+  }
+
+  .chat-input-actions {
+    display: flex;
+    grid-area: actions;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+    padding-top: 6px;
+    padding-left: 48px;
+  }
+
+  .chat-input-actions .chat-voice-button {
+    margin-left: auto;
   }
 
   .revision-target-pill {
@@ -6813,30 +6843,11 @@ button {
     grid-area: input;
   }
 
-  .chat-input-shell.has-voice-transcript-review .chat-voice-button {
-    grid-area: voice;
-  }
-
-  .chat-input-shell.has-voice-transcript-review .chat-send-button {
-    grid-area: send;
-  }
-
-  .chat-input-shell.has-revision-target .chat-voice-button {
-    grid-area: voice;
-  }
-
-  .chat-input-shell.has-revision-target .chat-send-button {
-    grid-area: send;
-  }
-
-  .chat-input-shell.has-voice-transcript-review .chat-transcript-review-button {
-    grid-area: review;
-  }
-
   .chat-composer textarea {
+    grid-area: input;
     min-height: 24px;
-    max-height: 78px;
-    padding: 3px 0;
+    max-height: 110px;
+    padding: 3px 0 5px;
     line-height: 1.35;
     resize: none;
   }

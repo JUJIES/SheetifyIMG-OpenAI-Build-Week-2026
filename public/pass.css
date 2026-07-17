@@ -61,7 +61,7 @@ button, input, select, textarea { font: inherit; }
 .pass-language button[aria-pressed="true"] { opacity: 1; transform: scale(1.12); box-shadow: 0 0 0 2px rgba(31,99,214,.18); }
 .pass-language button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 
-.pass-panel-head { margin-bottom: 30px; padding-right: 74px; }
+.pass-panel-head { margin-bottom: 30px; padding-inline: 74px; text-align: center; }
 .pass-panel-head h2 { margin: 0; font-size: 25px; letter-spacing: -.025em; }
 
 .pass-form { display: grid; gap: 10px; }
