@@ -20,7 +20,7 @@ const APP_SHELL_URLS = [
   "/candidateCards.js?v=3",
   "/actionBindings.js?v=2",
   "/worksheetBlueprint.js?v=3",
-  "/mobilePreviewRenderer.js?v=8",
+  "/mobilePreviewRenderer.js?v=9",
   "/canvasRenderer.js?v=2",
   "/manifest.webmanifest",
   "/icons/favicon.ico",

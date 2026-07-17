@@ -118,6 +118,8 @@ function defaultTasksForConcept(project, brief = {}, payload = {}, events = []) 
   }
   return templates.slice(0, taskCount).map((task, index) => ({
     id: `task_${index + 1}`,
+    page: 1,
+    groupLabel: "",
     prompt: task.prompt,
     expectedAnswer: task.expectedAnswer,
     materialRefs: ["material_1"],
@@ -125,28 +127,69 @@ function defaultTasksForConcept(project, brief = {}, payload = {}, events = []) 
   }));
 }
 
+function defaultDidacticThread(tasks = [], readingTexts = [], imageMaterials = []) {
+  const supportingRefs = [
+    ...readingTexts.map((entry) => entry.id),
+    ...imageMaterials.map((entry) => entry.id)
+  ].filter(Boolean);
+  const actions = [
+    "Material erschließen",
+    "Zusammenhänge erklären",
+    "Erkenntnisse anwenden",
+    "Ergebnis reflektieren"
+  ];
+  const purposes = [
+    "Die Lernenden gewinnen eine gemeinsame fachliche Ausgangsbasis.",
+    "Die Ausgangsinformationen werden zu einer nachvollziehbaren Erklärung verbunden.",
+    "Die erarbeiteten Zusammenhänge werden auf die nächste Anforderung übertragen.",
+    "Das Ergebnis wird fachlich begründet und gesichert."
+  ];
+  return {
+    path: tasks.length > 1
+      ? "Vom Erschließen des Materials zur begründeten fachlichen Anwendung"
+      : "Material erschließen und fachlich gesichert bearbeiten",
+    steps: tasks.map((task, index) => ({
+      id: `step_${index + 1}`,
+      action: actions[Math.min(index, actions.length - 1)],
+      purpose: purposes[Math.min(index, purposes.length - 1)],
+      after: index > 0 ? `step_${index}` : null,
+      refs: [...(index === 0 ? supportingRefs : []), task.id].filter(Boolean)
+    }))
+  };
+}
+
 function defaultContentDraft(project, payload = {}, brief = {}, events = []) {
   const topic = brief.topic || project.topic || project.title;
   const constraints = requestedConstraints({ events, brief });
   const tasks = defaultTasksForConcept(project, brief, payload, events);
   const readingWorksheet = isReadingWorksheet(project, brief, events);
+  const readingTexts = payload.readingTexts || [{
+    id: "text_1",
+    page: 1,
+    role: readingWorksheet ? "reading_text" : "source_text",
+    title: topic,
+    body: brief.goal || (readingWorksheet ? defaultReadingText(topic, brief) : `Kurzer Materialimpuls zu ${topic}.`)
+  }];
+  const imageMaterials = payload.imageMaterials || [{
+    id: "material_1",
+    page: 1,
+    prompt: readingWorksheet
+      ? `Freundliche, motivierende Bilder zu ${topic}, passend zu einem kindgerechten Leseblatt.`
+      : `Sachliche, ruhige A4-Arbeitsblatt-Abbildung zu ${topic}, passend zum bestaetigten Arbeitsblatt-Konzept.`,
+    purpose: readingWorksheet ? "Bilder motivieren zum Lesen und unterstützen das Textverständnis." : "Material fuer die Aufgaben",
+    placement: readingWorksheet ? "bei Lesetext und Aufgaben dezent unterstuetzend" : "zentral auf der Arbeitsblattseite"
+  }];
   return {
     title: payload.title || project.title,
-    readingTexts: payload.readingTexts || [{
-      id: "text_1",
-      role: readingWorksheet ? "reading_text" : "source_text",
-      title: topic,
-      body: brief.goal || (readingWorksheet ? defaultReadingText(topic, brief) : `Kurzer Materialimpuls zu ${topic}.`)
-    }],
+    outputPreference: payload.outputPreference || brief.outputPreference || {
+      pages: 1,
+      layout: "auto",
+      hierarchy: "auto"
+    },
+    readingTexts,
     tasks: payload.tasks || tasks,
-    imageMaterials: payload.imageMaterials || [{
-      id: "material_1",
-      prompt: readingWorksheet
-        ? `Freundliche, motivierende Bilder zu ${topic}, passend zu einem kindgerechten Leseblatt.`
-        : `Sachliche, ruhige A4-Arbeitsblatt-Abbildung zu ${topic}, passend zum bestaetigten Arbeitsblatt-Konzept.`,
-      purpose: readingWorksheet ? "Bilder motivieren zum Lesen und unterstützen das Textverständnis." : "Material fuer die Aufgaben",
-      placement: readingWorksheet ? "bei Lesetext und Aufgaben dezent unterstuetzend" : "zentral auf der Arbeitsblattseite"
-    }],
+    imageMaterials,
+    didacticThread: payload.didacticThread || defaultDidacticThread(payload.tasks || tasks, readingTexts, imageMaterials),
     solutionNotes: payload.solutionNotes || (constraints.requiresSolution || constraints.mentionsAfb
       ? tasks.map((task) => `${task.id}: ${task.expectedAnswer}`)
       : [])

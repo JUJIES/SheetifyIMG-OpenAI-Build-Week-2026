@@ -217,7 +217,8 @@
         concept.content?.tasks,
         concept.content?.imageMaterials
       ].some((items) => Array.isArray(items) && items.length);
-      if (hasBlueprintContent) {
+      const isContentConceptMode = mode === "content" || mode === "content_proposal" || mode === "concept";
+      if (isContentConceptMode || hasBlueprintContent) {
         return `
           ${renderMobileConceptVersionSwitcher(workspace, ui, mode)}
           <div class="mobile-ready-strip ${mobileConceptIsComplete(workspace) ? "done" : ""}">
