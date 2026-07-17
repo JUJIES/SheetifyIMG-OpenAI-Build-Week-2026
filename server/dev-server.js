@@ -1194,10 +1194,11 @@ async function handleAdminApi(request, response) {
   const topupCardMatch = pathname.match(/^\/api\/admin\/topup-cards\/(card_[A-Za-z0-9-]+)$/);
   if (request.method === "PATCH" && topupCardMatch) {
     const body = await readJsonBody(request);
-    if (body.status !== "revoked") {
-      throw Object.assign(new Error("Unbekannter Guthabenkarten-Status."), { statusCode: 400 });
-    }
-    sendJson(response, 200, { card: await betaAccessManager.revokeTopupCard(topupCardMatch[1]) });
+    sendJson(response, 200, { card: await betaAccessManager.updateTopupCard(topupCardMatch[1], body) });
+    return true;
+  }
+  if (request.method === "DELETE" && topupCardMatch) {
+    sendJson(response, 200, { deletedCard: await betaAccessManager.deleteTopupCard(topupCardMatch[1]) });
     return true;
   }
   const requestMatch = pathname.match(/^\/api\/admin\/requests\/(request_[A-Za-z0-9-]+)$/);

@@ -234,7 +234,7 @@ function adminTopupCard(state, card, now = new Date().toISOString()) {
     ? state.passes.find((entry) => entry.id === card.redeemedByPassId) || null
     : null;
   const status = card.revokedAt
-    ? "revoked"
+    ? "paused"
     : card.redeemedAt
       ? "redeemed"
       : card.expiresAt && card.expiresAt <= now
@@ -1174,20 +1174,49 @@ function createBetaAccessManager(config = {}) {
     }, options);
   }
 
-  async function revokeTopupCard(cardId, options = {}) {
+  async function updateTopupCard(cardId, input = {}, options = {}) {
     return transact((state, now) => {
       const card = state.topupCards.find((entry) => entry.id === cardId) || null;
       if (!card) {
         throw Object.assign(new Error("Guthabenkarte wurde nicht gefunden."), { statusCode: 404 });
       }
       if (card.redeemedAt) {
-        throw Object.assign(new Error("Eine bereits eingelöste Guthabenkarte kann nicht widerrufen werden."), { statusCode: 409 });
+        throw Object.assign(new Error("Der Status einer bereits eingelösten Guthabenkarte kann nicht geändert werden."), { statusCode: 409 });
       }
-      if (!card.revokedAt) {
-        card.revokedAt = now;
-        addAudit(state, "topup_card_revoked", now, { cardId: card.id, credits: card.credits });
+      const status = input.status === "revoked" ? "paused" : String(input.status || "");
+      if (!["active", "paused"].includes(status)) {
+        throw Object.assign(new Error("Unbekannter Guthabenkarten-Status."), { statusCode: 400 });
       }
+      if (status === "active" && card.expiresAt && card.expiresAt <= now) {
+        throw Object.assign(new Error("Eine abgelaufene Guthabenkarte kann nicht aktiviert werden."), { statusCode: 409 });
+      }
+      card.revokedAt = status === "paused" ? card.revokedAt || now : null;
+      addAudit(state, "topup_card_status_updated", now, { cardId: card.id, status });
       return adminTopupCard(state, card, now);
+    }, options);
+  }
+
+  async function revokeTopupCard(cardId, options = {}) {
+    return updateTopupCard(cardId, { status: "paused" }, options);
+  }
+
+  async function deleteTopupCard(cardId, options = {}) {
+    return transact((state, now) => {
+      const card = state.topupCards.find((entry) => entry.id === cardId) || null;
+      if (!card) {
+        throw Object.assign(new Error("Guthabenkarte wurde nicht gefunden."), { statusCode: 404 });
+      }
+      const publicCard = adminTopupCard(state, card, now);
+      state.topupCards = state.topupCards.filter((entry) => entry.id !== card.id);
+      addAudit(state, "topup_card_deleted", now, {
+        cardId: card.id,
+        credits: card.credits,
+        redeemed: Boolean(card.redeemedAt)
+      });
+      return {
+        card: publicCard,
+        creditedBalancePreserved: Boolean(card.redeemedAt)
+      };
     }, options);
   }
 
@@ -1317,6 +1346,7 @@ function createBetaAccessManager(config = {}) {
     createRecoveryChallenge,
     createRequest,
     createTopupCard,
+    deleteTopupCard,
     deletePass,
     devices,
     ensureStorage,
@@ -1341,6 +1371,7 @@ function createBetaAccessManager(config = {}) {
     updatePass,
     updateFeedback,
     updateRequest,
+    updateTopupCard,
     updateSessionLocale
   });
 }

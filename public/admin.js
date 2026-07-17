@@ -122,11 +122,11 @@ function setActiveTab(value, options = {}) {
 }
 
 function passStatusLabel(status) {
-  return ({ active: "Aktiv", paused: "Pausiert", revoked: "Gesperrt" })[status] || status;
+  return ({ active: "Aktiv", paused: "Deaktiviert", revoked: "Gesperrt" })[status] || status;
 }
 
 function topupStatusLabel(status) {
-  return ({ active: "Aktiv", redeemed: "Eingelöst", revoked: "Widerrufen", expired: "Abgelaufen" })[status] || status;
+  return ({ active: "Aktiv", paused: "Deaktiviert", redeemed: "Eingelöst", expired: "Abgelaufen" })[status] || status;
 }
 
 function optionalIsoTimestamp(value) {
@@ -226,7 +226,7 @@ function renderPasses() {
           <button class="secondary" data-grant="3">+3</button>
           <button class="secondary" data-grant="5">+5</button>
           <button class="secondary" data-grant="10">+10</button>
-          <button class="ghost" data-toggle-status="${pass.status === "active" ? "paused" : "active"}">${pass.status === "active" ? "Pausieren" : "Aktivieren"}</button>
+          <button class="ghost" data-toggle-status="${pass.status === "active" ? "paused" : "active"}">${pass.status === "active" ? "Deaktivieren" : "Aktivieren"}</button>
           <button class="ghost" data-rotate>Code erneuern</button>
           <button class="danger" data-delete-pass>Löschen</button>
         </div>
@@ -248,6 +248,11 @@ function renderTopupCards() {
     const redemption = card.redeemedByPass
       ? `<span>Eingelöst für ${escapeHtml(card.redeemedByPass.label)}</span>`
       : "";
+    const toggleAction = card.status === "active"
+      ? '<button class="ghost" type="button" data-topup-status="paused">Deaktivieren</button>'
+      : card.status === "paused"
+        ? '<button class="secondary" type="button" data-topup-status="active">Aktivieren</button>'
+        : "";
     return `
       <article class="pass-row topup-row" data-topup-card-id="${escapeHtml(card.id)}">
         <div>
@@ -261,7 +266,7 @@ function renderTopupCards() {
           </div>
         </div>
         <div class="pass-balance"><strong>${card.credits}</strong><span>Entwurfsseiten</span></div>
-        ${card.status === "active" ? '<div class="pass-actions"><button class="danger" type="button" data-revoke-topup>Widerrufen</button></div>' : ""}
+        <div class="pass-actions">${toggleAction}<button class="danger" type="button" data-delete-topup>Löschen</button></div>
         ${generated}
       </article>`;
   }).join("");
@@ -429,17 +434,31 @@ elements.createTopupForm.addEventListener("submit", async (event) => {
 
 elements.topupList.addEventListener("click", async (event) => {
   const row = event.target.closest("[data-topup-card-id]");
-  const button = event.target.closest("button[data-revoke-topup]");
+  const button = event.target.closest("button");
   if (!row || !button) return;
   const card = state.overview?.topupCards?.find((entry) => entry.id === row.dataset.topupCardId);
-  if (!confirm(`„${card?.label || "Diese Guthabenkarte"}“ widerrufen? Der Code kann danach nicht mehr eingelöst werden.`)) return;
   try {
-    await api(`/api/admin/topup-cards/${encodeURIComponent(row.dataset.topupCardId)}`, {
-      method: "PATCH",
-      body: JSON.stringify({ status: "revoked" })
-    });
+    if (button.dataset.topupStatus) {
+      await api(`/api/admin/topup-cards/${encodeURIComponent(row.dataset.topupCardId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: button.dataset.topupStatus })
+      });
+      toast(button.dataset.topupStatus === "active" ? "Guthabenkarte wurde aktiviert." : "Guthabenkarte wurde deaktiviert.");
+    } else if (button.hasAttribute("data-delete-topup")) {
+      const consequence = card?.status === "redeemed"
+        ? " Das bereits gebuchte Guthaben im Arbeitsbereich bleibt bestehen."
+        : " Der Kartencode ist danach endgültig ungültig.";
+      if (!confirm(`„${card?.label || "Diese Guthabenkarte"}“ endgültig löschen?${consequence}`)) return;
+      await api(`/api/admin/topup-cards/${encodeURIComponent(row.dataset.topupCardId)}`, { method: "DELETE" });
+      if (state.generatedCard?.cardId === row.dataset.topupCardId) {
+        state.generatedCard = null;
+        elements.generated.classList.add("hidden");
+      }
+      toast("Guthabenkarte wurde gelöscht.");
+    } else {
+      return;
+    }
     await loadOverview();
-    toast("Guthabenkarte wurde widerrufen.");
   } catch (error) { toast(error.message); }
 });
 
@@ -463,6 +482,7 @@ elements.passList.addEventListener("click", async (event) => {
       toast(`${button.dataset.grant} Entwurfsseiten gutgeschrieben.${emailDeliveryNotice(result.emailDelivery)}`);
     } else if (button.dataset.toggleStatus) {
       await api(`/api/admin/passes/${encodeURIComponent(passId)}`, { method: "PATCH", body: JSON.stringify({ status: button.dataset.toggleStatus }) });
+      toast(button.dataset.toggleStatus === "active" ? "Pass wurde aktiviert." : "Pass wurde deaktiviert. Der Arbeitsbereich bleibt erhalten.");
     } else if (button.hasAttribute("data-rotate")) {
       if (!confirm("Passcode erneuern und alle verbundenen Geräte abmelden?")) return;
       cardResult = await api(`/api/admin/passes/${encodeURIComponent(passId)}/rotate`, { method: "POST", body: JSON.stringify({ revokeSessions: true }) });
