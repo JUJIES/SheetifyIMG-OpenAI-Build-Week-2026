@@ -3633,6 +3633,10 @@ async function handleTreeItemClick(itemId, event) {
   }
 
   setTreeSelection([itemId], { primaryId: itemId, anchorId: itemId });
+  if (isMobileViewport() && isTreeProjectItemId(itemId)) {
+    await openWorkspace(projectIdFromItemId(itemId));
+    return;
+  }
   await selectItem(itemId, {
     openMobileSheet: isMobileViewport(),
     preserveTreeScroll: true,

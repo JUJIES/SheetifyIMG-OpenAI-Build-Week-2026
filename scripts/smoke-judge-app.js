@@ -411,10 +411,6 @@ async function main() {
       await demoPause(500);
     }
     await mobilePage.getByRole("button", { name: demoProjectTitle }).click();
-    await demoPause(900);
-    await mobilePage.getByRole("button", {
-      name: mobileTutorialLocale === "de" ? "Projekt öffnen" : "Open project"
-    }).click();
     await mobilePage.getByRole("heading", { name: "Sheetify IMG AI" }).waitFor();
     await demoPause(1300);
     if (mobileDemoVideoDir) {
