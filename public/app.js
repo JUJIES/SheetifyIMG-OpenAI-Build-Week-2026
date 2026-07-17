@@ -12,6 +12,7 @@ const VOICE_MICROPHONE_START_TIMEOUT_MS = 15000;
 const VOICE_TRANSCRIPTION_REQUEST_TIMEOUT_MS = 75000;
 const imageProviderSettingIds = new Set(["codex_cli", "openai"]);
 const imageQualitySettingIds = new Set(["sparsam", "standard", "druckqualitaet"]);
+const ASSISTANT_WORDMARK_HTML = '<span class="sheetify-wordmark sheetify-wordmark--inline"><span>Sheetify</span><span class="sheetify-wordmark__suffix">AI</span></span>';
 
 function normalizeImageProviderSetting(value) {
   return imageProviderSettingIds.has(value) ? value : null;
@@ -8779,7 +8780,7 @@ function renderChatIntro(workspace) {
     <div class="chat-message assistant">
       <div class="assistant-avatar">AI</div>
       <div class="message-bubble">
-        <strong>Sheetify IMG AI</strong>
+        <strong>${ASSISTANT_WORDMARK_HTML}</strong>
         <div class="message-copy">${markdownToHtml(text)}</div>
       </div>
     </div>
@@ -9486,11 +9487,12 @@ function renderChatMessage(message, visibleCommandIds = new Set(), extraCommands
   const copyHtml = hasCopy ? `<div class="message-copy">${renderMessageCopy(message, workspace)}</div>` : "";
   const copyAfterCard = isConceptNarrationMessage(message) && hasCopy;
   const conceptFeedbackHtml = copyAfterCard ? renderConceptNarrationCopy(message) : "";
+  const metaLabel = role === "user" ? escapeHtml(t("app.chat.me")) : ASSISTANT_WORDMARK_HTML;
   return `
     <div class="chat-message ${role}${stateClass}${commandClass}">
       ${role === "assistant" ? '<div class="assistant-avatar">AI</div>' : ""}
       <div class="message-bubble">
-        <div class="message-meta">${role === "user" ? t("app.chat.me") : "Sheetify IMG AI"}${metaSuffix}</div>
+        <div class="message-meta">${metaLabel}${metaSuffix}</div>
         ${renderChatRevisionTarget(message.revisionTarget)}
         ${copyAfterCard ? "" : copyHtml}
         ${renderChatAttachments(message.attachments || [])}
@@ -9508,7 +9510,7 @@ function renderThinkingMessage() {
     <div class="chat-message assistant thinking">
       <div class="assistant-avatar">AI</div>
       <div class="message-bubble">
-        <div class="message-meta">Sheetify IMG AI</div>
+        <div class="message-meta">${ASSISTANT_WORDMARK_HTML}</div>
         <p class="thinking-line"><span></span><span></span><span></span><em>${escapeHtml(t("app.chat.thinking"))}</em></p>
       </div>
     </div>

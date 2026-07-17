@@ -266,7 +266,7 @@ async function main() {
     }).click();
     await demoPause(650);
     await englishPage.getByRole("button", { name: "Open project" }).click();
-    await englishPage.getByRole("heading", { name: "Sheetify IMG AI" }).waitFor();
+    await englishPage.getByRole("heading", { name: "Sheetify AI" }).waitFor();
     await demoPause(1400);
     const runtimeLabel = (await englishPage.locator(".chat-runtime").textContent()).trim();
     assert.match(runtimeLabel, /^(AI ready|OpenAI key missing|OpenAI not ready)$/);
@@ -310,8 +310,8 @@ async function main() {
     await germanPage.locator("#passModal [data-pass-close]").last().click();
     await germanPage.getByRole("button", { name: demoProjectTitle }).click();
     await germanPage.getByRole("button", { name: "Projekt öffnen" }).click();
-    await germanPage.getByRole("heading", { name: "Sheetify IMG AI" }).waitFor();
-    assert.equal(await germanPage.locator("#chatInput").getAttribute("placeholder"), "Nachricht an Sheetify IMG AI …");
+    await germanPage.getByRole("heading", { name: "Sheetify AI" }).waitFor();
+    assert.equal(await germanPage.locator("#chatInput").getAttribute("placeholder"), "Nachricht an Sheetify AI …");
 
     const englishSession = await pageApi(englishPage, "/api/auth/session");
     const germanSession = await pageApi(germanPage, "/api/auth/session");

@@ -30,14 +30,14 @@ const CARD_MESSAGES = Object.freeze({
     accessCode: "ZUGANGSCODE",
     digitalAccess: "Digitaler Beta-Zugang",
     pass: Object.freeze({
-      title: "Sheetify IMG Beta Pass",
+      title: "Beta Pass",
       fallbackLabel: "Gemeinsamer Arbeitsbereich",
       description: "Scannen oder Code eingeben und den Arbeitsbereich öffnen.",
       note: "Wer diese Karte besitzt, kann auf den Arbeitsbereich zugreifen.",
       qrLabel: "Arbeitsbereich öffnen"
     }),
     topup: Object.freeze({
-      title: "Sheetify IMG Guthabenkarte",
+      title: "Guthabenkarte",
       singularCredits: "Entwurfsseite",
       pluralCredits: "Entwurfsseiten",
       description: "Einmal einlösen und direkt weitergestalten.",
@@ -49,14 +49,14 @@ const CARD_MESSAGES = Object.freeze({
     accessCode: "ACCESS CODE",
     digitalAccess: "Digital beta access",
     pass: Object.freeze({
-      title: "Sheetify IMG Beta Pass",
+      title: "Beta Pass",
       fallbackLabel: "Shared workspace",
       description: "Scan or enter the code to open the workspace.",
       note: "Anyone with this card can access the shared workspace.",
       qrLabel: "Open workspace"
     }),
     topup: Object.freeze({
-      title: "Sheetify IMG Credit Voucher",
+      title: "Credit Voucher",
       singularCredits: "draft page",
       pluralCredits: "draft pages",
       description: "Redeem once and continue designing right away.",
@@ -73,6 +73,7 @@ function cardCopy(input) {
     const credits = Number(input.credits || 0);
     return {
       ...messages.topup,
+      fullTitle: `Sheetify IMG ${messages.topup.title}`,
       accessCode: messages.accessCode,
       digitalAccess: messages.digitalAccess,
       eyebrow: `${credits} ${credits === 1 ? messages.topup.singularCredits : messages.topup.pluralCredits}`,
@@ -82,6 +83,7 @@ function cardCopy(input) {
   }
   return {
     ...messages.pass,
+    fullTitle: `Sheetify IMG ${messages.pass.title}`,
     accessCode: messages.accessCode,
     digitalAccess: messages.digitalAccess,
     eyebrow: shortLabel(input.label, messages.pass.fallbackLabel),
@@ -109,7 +111,7 @@ async function createBetaCard(input = {}) {
     dark: "#25221f",
     light: "#fffdf8"
   });
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${CARD_WIDTH}" height="${CARD_HEIGHT}" viewBox="0 0 ${CARD_WIDTH} ${CARD_HEIGHT}" role="img" aria-label="${escapeXml(copy.title)}">
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${CARD_WIDTH}" height="${CARD_HEIGHT}" viewBox="0 0 ${CARD_WIDTH} ${CARD_HEIGHT}" role="img" aria-label="${escapeXml(copy.fullTitle)}">
   <defs>
     <linearGradient id="card-bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#fffdf8"/>
@@ -132,8 +134,10 @@ async function createBetaCard(input = {}) {
 
   <g font-family="Inter,Segoe UI,Arial,sans-serif">
     <text x="72" y="86" font-size="24" font-weight="800" letter-spacing="-1" fill="#25221f">Sheetify</text>
-    <text x="164" y="86" font-size="18" font-weight="850" letter-spacing="2" fill="#1f63d6">IMG</text>
-    <text x="72" y="172" font-size="55" font-weight="760" letter-spacing="-1.5" fill="#25221f">${escapeXml(copy.title)}</text>
+    <text x="164" y="80" font-size="22" font-weight="800" letter-spacing=".35" fill="#1f63d6">IMG</text>
+    <text x="72" y="172" font-size="55" font-weight="760" letter-spacing="-1.5" fill="#25221f">Sheetify</text>
+    <text x="286" y="162" font-size="50" font-weight="760" letter-spacing="-.5" fill="#1f63d6">IMG</text>
+    <text x="424" y="172" font-size="55" font-weight="760" letter-spacing="-1.5" fill="#25221f">${escapeXml(copy.title)}</text>
     <text x="72" y="220" font-size="24" font-weight="700" fill="#4c4742">${escapeXml(copy.eyebrow)}</text>
     <text x="72" y="270" font-size="21" fill="#6f6962">${escapeXml(copy.description)}</text>
 
