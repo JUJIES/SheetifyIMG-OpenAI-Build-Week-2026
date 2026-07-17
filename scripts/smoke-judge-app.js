@@ -177,6 +177,7 @@ async function main() {
     await englishPage.waitForURL(`${baseUrl}/app`, { timeout: 30000 });
     await demoPause(900);
     await englishPage.getByRole("button", { name: "Agree and start the beta" }).click();
+    await englishPage.locator("#betaConsentLayer").waitFor({ state: "hidden" });
     await englishPage.getByRole("heading", { name: "Projects" }).waitFor();
     await demoPause(1000);
 
@@ -293,6 +294,31 @@ async function main() {
 
     await englishPage.getByRole("button", { name: "My SheetifyIMG Pass" }).click();
     await englishPage.getByRole("heading", { name: "My SheetifyIMG Pass" }).waitFor();
+    const grantResponse = await fetch(`${baseUrl}/api/admin/passes/${createdPass.pass.id}/grant`, {
+      method: "POST",
+      headers: {
+        authorization: ownerAuthorization,
+        origin: baseUrl,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ amount: 3 })
+    });
+    const granted = await grantResponse.json();
+    assert.equal(grantResponse.ok, true, granted.message || grantResponse.status);
+    assert.equal(granted.pass.balance, 53);
+    await englishPage.evaluate(() => window.dispatchEvent(new Event("focus")));
+    const creditLayer = englishPage.locator("#betaCreditLayer");
+    await creditLayer.getByRole("heading", { name: "3 draft pages have been added." }).waitFor();
+    assert.equal((await creditLayer.getByText("Your new balance: 53 draft pages.").count()), 1);
+    if (captureDir) await englishPage.screenshot({ path: path.join(captureDir, "judge-credit-grant-notice-en.png"), fullPage: true });
+    await creditLayer.getByRole("button", { name: "Got it" }).click();
+    await creditLayer.waitFor({ state: "hidden" });
+    assert.equal(await englishPage.locator("#passModal .pass-balance-badge strong").textContent(), "53");
+    assert.equal((await pageApi(englishPage, "/api/pass/credit-notice")).body.notice, null);
+    const syncedAdminOverview = await fetch(`${baseUrl}/api/admin/overview`, {
+      headers: { authorization: ownerAuthorization }
+    }).then((response) => response.json());
+    assert.equal(syncedAdminOverview.passes.find((entry) => entry.id === createdPass.pass.id).balance, 53);
     const pairing = await pageApi(englishPage, "/api/pass/pairings", { method: "POST", body: "{}" });
     assert.equal(pairing.ok, true);
 
@@ -302,11 +328,33 @@ async function main() {
     await germanPage.goto(pairing.body.pairing.url, { waitUntil: "domcontentloaded" });
     await germanPage.waitForURL(`${baseUrl}/app`, { timeout: 30000 });
     await germanPage.getByRole("button", { name: "Agree and start the beta" }).click();
+    await germanPage.locator("#betaConsentLayer").waitFor({ state: "hidden" });
     await germanPage.getByRole("button", { name: "My SheetifyIMG Pass" }).click();
     await germanPage.getByRole("button", { name: "German" }).click();
     await germanPage.getByRole("heading", { name: "Mein SheetifyIMG Pass" }).waitFor();
     assert.equal(await germanPage.locator("html").getAttribute("lang"), "de");
     assert.equal(await englishPage.locator("html").getAttribute("lang"), "en");
+    const germanGrantResponse = await fetch(`${baseUrl}/api/admin/passes/${createdPass.pass.id}/grant`, {
+      method: "POST",
+      headers: {
+        authorization: ownerAuthorization,
+        origin: baseUrl,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ amount: 2 })
+    });
+    assert.equal(germanGrantResponse.ok, true);
+    await germanPage.evaluate(() => window.dispatchEvent(new Event("focus")));
+    const germanCreditLayer = germanPage.locator("#betaCreditLayer");
+    await germanCreditLayer.getByRole("heading", { name: "Dir wurden 2 Entwurfsseiten freigeschaltet." }).waitFor();
+    assert.equal((await germanCreditLayer.getByText("Dein neues Guthaben: 55 Entwurfsseiten.").count()), 1);
+    if (captureDir) await germanPage.screenshot({ path: path.join(captureDir, "judge-credit-grant-notice-de.png"), fullPage: true });
+    await germanCreditLayer.getByRole("button", { name: "Verstanden" }).click();
+    assert.equal(await germanPage.locator("#passModal .pass-balance-badge strong").textContent(), "55");
+    await englishPage.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await creditLayer.getByRole("heading", { name: "2 draft pages have been added." }).waitFor();
+    await creditLayer.getByRole("button", { name: "Got it" }).click();
+    assert.equal(await englishPage.locator("#passModal .pass-balance-badge strong").textContent(), "55");
     await germanPage.locator("#passModal [data-pass-close]").last().click();
     await germanPage.getByRole("button", { name: demoProjectTitle }).click();
     await germanPage.getByRole("button", { name: "Projekt öffnen" }).click();
@@ -329,6 +377,7 @@ async function main() {
     await mobilePage.goto(mobilePairing.body.pairing.url, { waitUntil: "domcontentloaded" });
     await mobilePage.waitForURL(`${baseUrl}/app`, { timeout: 30000 });
     await mobilePage.getByRole("button", { name: "Agree and start the beta" }).click();
+    await mobilePage.locator("#betaConsentLayer").waitFor({ state: "hidden" });
     await mobilePage.getByRole("button", { name: demoProjectTitle }).click();
     await mobilePage.getByRole("button", { name: "Open project" }).click();
     await mobilePage.locator("#productionStepList [data-canvas-mode='candidates']").dispatchEvent("click");
@@ -358,6 +407,8 @@ async function main() {
       englishMobile: true,
       translatedAccessibilityLabels: true,
       samePassDeviceLocaleIsolation: true,
+      creditGrantSync: true,
+      bilingualCreditGrantSync: true,
       germanWorkflowRegression: true,
       worksheetContentUnchanged: true,
       contentCanary: CONTENT_CANARY,

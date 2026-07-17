@@ -1126,6 +1126,19 @@ async function handlePassApi(request, response, context) {
     sendJson(response, 200, await betaAccessManager.passSummary(context.passId, context.sessionId));
     return true;
   }
+  if (request.method === "GET" && pathname === "/api/pass/credit-notice") {
+    sendJson(response, 200, await betaAccessManager.creditNotice(context.passId, context.sessionId));
+    return true;
+  }
+  if (request.method === "POST" && pathname === "/api/pass/credit-notice") {
+    const body = await readJsonBody(request);
+    sendJson(response, 200, await betaAccessManager.acknowledgeCreditNotice(
+      context.passId,
+      context.sessionId,
+      body.grantIds
+    ));
+    return true;
+  }
   if (request.method === "POST" && pathname === "/api/pass/pairings") {
     const pairing = await betaAccessManager.createPairing(context.passId, context.sessionId);
     const pairUrl = localizedEntryUrl(request, context.session?.uiLocale, "pair", pairing.code);

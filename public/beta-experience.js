@@ -7,6 +7,8 @@
   let activeContext = {};
   let lastArtifactContext = {};
   let lastFocusedElement = null;
+  let pendingCreditNotice = null;
+  let creditPollRunning = false;
 
   const root = document.createElement("div");
   root.id = "betaExperienceRoot";
@@ -30,6 +32,17 @@
         <p class="beta-experience-error hidden" id="betaConsentError"></p>
         <div class="beta-experience-actions">
           <button class="beta-primary-button" id="betaConsentAccept" type="button" data-i18n="beta.consent.accept">Zustimmen und Beta starten</button>
+        </div>
+      </section>
+    </div>
+    <div class="beta-experience-layer beta-credit-layer hidden" id="betaCreditLayer" role="dialog" aria-modal="true" aria-labelledby="betaCreditTitle">
+      <section class="beta-experience-card beta-credit-card">
+        <p class="beta-experience-eyebrow" data-i18n="beta.credit.eyebrow">Neues Entwurfsguthaben</p>
+        <h2 id="betaCreditTitle">Neue Entwurfsseiten</h2>
+        <p id="betaCreditBody"></p>
+        <p class="beta-experience-error hidden" id="betaCreditError"></p>
+        <div class="beta-experience-actions">
+          <button class="beta-primary-button" id="betaCreditAccept" type="button" data-i18n="beta.credit.accept">Verstanden</button>
         </div>
       </section>
     </div>
@@ -89,6 +102,11 @@
     consentLayer: root.querySelector("#betaConsentLayer"),
     consentAccept: root.querySelector("#betaConsentAccept"),
     consentError: root.querySelector("#betaConsentError"),
+    creditLayer: root.querySelector("#betaCreditLayer"),
+    creditTitle: root.querySelector("#betaCreditTitle"),
+    creditBody: root.querySelector("#betaCreditBody"),
+    creditError: root.querySelector("#betaCreditError"),
+    creditAccept: root.querySelector("#betaCreditAccept"),
     feedbackTrigger: root.querySelector("#betaFeedbackTrigger"),
     feedbackReminder: root.querySelector("#betaFeedbackReminder"),
     reminderClose: root.querySelector(".beta-feedback-reminder-close"),
@@ -198,6 +216,43 @@
     showFeedbackToast.timer = setTimeout(() => elements.feedbackToast.classList.add("hidden"), 3200);
   }
 
+  function renderCreditNotice() {
+    if (!pendingCreditNotice) return;
+    elements.creditTitle.textContent = t(pendingCreditNotice.amount === 1
+      ? "beta.credit.titleOne"
+      : "beta.credit.title", { count: pendingCreditNotice.amount });
+    elements.creditBody.textContent = t(pendingCreditNotice.balance === 1
+      ? "beta.credit.bodyOne"
+      : "beta.credit.body", { count: pendingCreditNotice.balance });
+  }
+
+  function maybeShowCreditNotice() {
+    if (!pendingCreditNotice || !experience?.consent?.accepted) return;
+    if (!elements.consentLayer.classList.contains("hidden") || !elements.feedbackLayer.classList.contains("hidden")) return;
+    renderCreditNotice();
+    setError(elements.creditError);
+    elements.creditLayer.classList.remove("hidden");
+    document.body.classList.add("beta-credit-open");
+    elements.creditAccept.focus();
+  }
+
+  async function pollCreditNotice() {
+    if (creditPollRunning) return;
+    creditPollRunning = true;
+    try {
+      const payload = await api("/api/pass/credit-notice");
+      window.dispatchEvent(new CustomEvent("sheetify:balancechange", { detail: { balance: payload.balance } }));
+      if (payload.notice) {
+        pendingCreditNotice = payload.notice;
+        maybeShowCreditNotice();
+      }
+    } catch {
+      // The next scheduled or focus refresh retries silently.
+    } finally {
+      creditPollRunning = false;
+    }
+  }
+
   function hideReminder() {
     elements.feedbackReminder.classList.add("hidden");
   }
@@ -220,6 +275,7 @@
     document.body.classList.remove("beta-feedback-open");
     lastFocusedElement?.focus?.();
     lastFocusedElement = null;
+    maybeShowCreditNotice();
   }
 
   function resetFeedbackForm() {
@@ -265,6 +321,7 @@
         elements.consentLayer.classList.add("hidden");
         elements.feedbackTrigger.classList.remove("hidden");
         maybeShowReminder();
+        maybeShowCreditNotice();
       } else {
         elements.consentLayer.classList.remove("hidden");
         elements.consentAccept.focus();
@@ -293,6 +350,7 @@
       elements.consentLayer.classList.add("hidden");
       elements.feedbackTrigger.classList.remove("hidden");
       maybeShowReminder();
+      maybeShowCreditNotice();
     } catch (error) {
       setError(elements.consentError, error.message);
     } finally {
@@ -308,6 +366,27 @@
         entry.classList.toggle("selected", entry === button);
       });
     });
+  });
+
+  elements.creditAccept.addEventListener("click", async () => {
+    if (!pendingCreditNotice) return;
+    elements.creditAccept.disabled = true;
+    setError(elements.creditError);
+    try {
+      const payload = await api("/api/pass/credit-notice", {
+        method: "POST",
+        body: JSON.stringify({ grantIds: pendingCreditNotice.grantIds })
+      });
+      pendingCreditNotice = payload.notice || null;
+      elements.creditLayer.classList.add("hidden");
+      document.body.classList.remove("beta-credit-open");
+      window.dispatchEvent(new CustomEvent("sheetify:balancechange", { detail: { balance: payload.balance } }));
+      if (pendingCreditNotice) setTimeout(maybeShowCreditNotice, 0);
+    } catch (error) {
+      setError(elements.creditError, error.message);
+    } finally {
+      elements.creditAccept.disabled = false;
+    }
   });
 
   elements.feedbackForm.addEventListener("submit", async (event) => {
@@ -367,6 +446,12 @@
   window.addEventListener("sheetify:localechange", () => {
     applyLocale();
     elements.feedbackContext.textContent = contextLabel(activeContext);
+    renderCreditNotice();
+  });
+
+  window.addEventListener("focus", pollCreditNotice);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") pollCreditNotice();
   });
 
   new MutationObserver(maybeShowReminder).observe(document.querySelector(".app-shell") || document.body, {
@@ -376,5 +461,8 @@
 
   locale.set(locale.resolve({ stored: storedLocale(), browser: navigator.languages }), { persistLocal: false });
   applyLocale();
-  loadExperience();
+  loadExperience().then(pollCreditNotice);
+  setInterval(() => {
+    if (document.visibilityState === "visible") pollCreditNotice();
+  }, 12000);
 })();

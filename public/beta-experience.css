@@ -10,6 +10,7 @@
 }
 
 .beta-consent-layer { z-index: 1400; }
+.beta-credit-layer { z-index: 1350; }
 .beta-experience-layer.hidden,
 .beta-feedback-trigger.hidden,
 .beta-feedback-reminder.hidden,
@@ -33,6 +34,8 @@
 .beta-experience-eyebrow { margin: 0 0 9px !important; color: #1f63d6 !important; font-size: 11px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
 .beta-consent-note { margin: 18px 0 0; padding: 14px 16px; border-radius: 14px; font-size: 13px; background: #f4f7fb; }
 .beta-consent-note a { color: #1f63d6; font-weight: 700; }
+.beta-credit-card { width: min(100%, 480px); border-color: #bfd1f4; }
+.beta-credit-card #betaCreditBody { margin: 0; font-size: 16px; }
 .beta-experience-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
 .beta-primary-button, .beta-secondary-button { min-height: 44px; padding: 0 18px; border: 0; border-radius: 12px; font: inherit; font-weight: 750; cursor: pointer; }
 .beta-primary-button { color: #fff; background: #1f63d6; }
@@ -100,7 +103,7 @@
 .beta-tag-options span { display: inline-flex; align-items: center; min-height: 34px; padding: 0 11px; border: 1px solid #d6deea; border-radius: 999px; color: #526078; background: #f8fafc; font-size: 11px; font-weight: 680; }
 .beta-tag-options input:checked + span { border-color: #9bb8ea; color: #174fae; background: #eaf1ff; }
 .beta-feedback-toast { position: fixed; right: 22px; bottom: 78px; z-index: 1500; max-width: calc(100vw - 44px); padding: 13px 16px; border-radius: 13px; color: #fff; background: #101827; box-shadow: 0 16px 38px rgba(15, 23, 42, .25); font-size: 13px; }
-body.beta-feedback-open { overflow: hidden; }
+body.beta-feedback-open, body.beta-credit-open { overflow: hidden; }
 
 @media (max-width: 700px) {
   .beta-experience-layer { align-items: end; padding: 0; }

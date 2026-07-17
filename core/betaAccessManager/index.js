@@ -141,7 +141,11 @@ function normalizeState(raw, now) {
   state.sessions = state.sessions.map((session) => ({
     ...session,
     uiLocale: normalizeLocale(session.uiLocale),
-    consentLocale: optionalStoredLocale(session.consentLocale)
+    consentLocale: optionalStoredLocale(session.consentLocale),
+    creditNoticeStartedAt: session.creditNoticeStartedAt || session.creditNoticeSeenAt || session.lastSeenAt || session.createdAt || now,
+    creditNoticeAcknowledgedGrantIds: Array.isArray(session.creditNoticeAcknowledgedGrantIds)
+      ? session.creditNoticeAcknowledgedGrantIds.slice(-200)
+      : []
   }));
   state.requests = state.requests.map((request) => ({
     ...request,
@@ -160,6 +164,27 @@ function passBalance(state, passId) {
   return state.ledger
     .filter((entry) => entry.passId === passId)
     .reduce((total, entry) => total + Number(entry.amount || 0), 0);
+}
+
+function pendingCreditNotice(state, passId, session) {
+  const startedAt = session.creditNoticeStartedAt || session.createdAt;
+  const acknowledged = new Set(session.creditNoticeAcknowledgedGrantIds || []);
+  const grants = state.ledger
+    .filter((entry) => (
+      entry.passId === passId
+      && entry.type === "admin_grant"
+      && Number(entry.amount || 0) > 0
+      && entry.createdAt >= startedAt
+      && !acknowledged.has(entry.id)
+    ))
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  if (!grants.length) return null;
+  return {
+    amount: grants.reduce((total, entry) => total + Number(entry.amount || 0), 0),
+    balance: passBalance(state, passId),
+    count: grants.length,
+    grantIds: grants.map((entry) => entry.id)
+  };
 }
 
 function passRecord(state, passId) {
@@ -830,6 +855,8 @@ function createBetaAccessManager(config = {}) {
         deviceName: cleanLabel(deviceName, "Verbundenes Gerät"),
         createdAt: now,
         lastSeenAt: now,
+        creditNoticeStartedAt: now,
+        creditNoticeAcknowledgedGrantIds: [],
         expiresAt: sessionExpiry(now),
         revokedAt: null
       }
@@ -933,6 +960,60 @@ function createBetaAccessManager(config = {}) {
       .filter((entry) => entry.passId === passId && !entry.revokedAt && entry.expiresAt > now)
       .map((entry) => publicSession(entry, currentSessionId))
       .sort((left, right) => String(right.lastSeenAt).localeCompare(String(left.lastSeenAt)));
+  }
+
+  async function creditNotice(passId, sessionId) {
+    const state = await readState();
+    passRecord(state, passId);
+    const session = state.sessions.find((entry) => entry.id === sessionId && entry.passId === passId) || null;
+    if (!session || session.revokedAt) {
+      throw Object.assign(new Error("Die aktuelle Gerätesitzung ist nicht mehr gültig."), { statusCode: 401 });
+    }
+    return {
+      notice: pendingCreditNotice(state, passId, session),
+      balance: passBalance(state, passId)
+    };
+  }
+
+  async function acknowledgeCreditNotice(passId, sessionId, grantIds, options = {}) {
+    const requestedIds = new Set((Array.isArray(grantIds) ? grantIds : [])
+      .slice(0, 100)
+      .map((entry) => cleanText(entry, 80))
+      .filter((entry) => /^ledger_[A-Za-z0-9-]+$/.test(entry)));
+    if (!requestedIds.size) {
+      throw Object.assign(new Error("Der Guthabenhinweis ist ungültig."), { statusCode: 400 });
+    }
+    return transact((state, now) => {
+      passRecord(state, passId);
+      const session = state.sessions.find((entry) => entry.id === sessionId && entry.passId === passId) || null;
+      if (!session || session.revokedAt || session.expiresAt <= now) {
+        throw Object.assign(new Error("Die aktuelle Gerätesitzung ist nicht mehr gültig."), { statusCode: 401 });
+      }
+      const acknowledged = state.ledger
+        .filter((entry) => (
+          entry.passId === passId
+          && entry.type === "admin_grant"
+          && Number(entry.amount || 0) > 0
+          && requestedIds.has(entry.id)
+        ));
+      if (acknowledged.length) {
+        session.creditNoticeAcknowledgedGrantIds = [
+          ...new Set([
+            ...(session.creditNoticeAcknowledgedGrantIds || []),
+            ...acknowledged.map((entry) => entry.id)
+          ])
+        ].slice(-200);
+        addAudit(state, "credit_notice_acknowledged", now, {
+          passId,
+          sessionId,
+          entries: acknowledged.length
+        });
+      }
+      return {
+        notice: pendingCreditNotice(state, passId, session),
+        balance: passBalance(state, passId)
+      };
+    }, options);
   }
 
   async function revokeDevice(passId, sessionId, options = {}) {
@@ -1168,8 +1249,10 @@ function createBetaAccessManager(config = {}) {
 
   return Object.freeze({
     acceptConsent,
+    acknowledgeCreditNotice,
     authenticateToken,
     betaExperience,
+    creditNotice,
     createPairing,
     createFeedback,
     createPass,

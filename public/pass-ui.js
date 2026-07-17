@@ -85,6 +85,14 @@
     render(message);
   }
 
+  async function refreshBalance() {
+    if (modal.classList.contains("hidden")) return;
+    const next = await api("/api/pass");
+    summary = next;
+    const value = content.querySelector(".pass-balance-badge strong");
+    if (value) value.textContent = String(next.pass.balance);
+  }
+
   async function open() {
     modal.classList.remove("hidden");
     modal.setAttribute("aria-hidden", "false");
@@ -158,6 +166,18 @@
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !modal.classList.contains("hidden")) close();
   });
+
+  window.addEventListener("sheetify:balancechange", (event) => {
+    const balance = Number(event.detail?.balance);
+    if (summary?.pass && Number.isFinite(balance)) summary.pass.balance = balance;
+    const value = content.querySelector(".pass-balance-badge strong");
+    if (value && Number.isFinite(balance)) value.textContent = String(balance);
+  });
+  window.addEventListener("focus", () => refreshBalance().catch(() => {}));
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") refreshBalance().catch(() => {});
+  });
+  setInterval(() => refreshBalance().catch(() => {}), 12000);
 
   api("/api/auth/session")
     .then((session) => {

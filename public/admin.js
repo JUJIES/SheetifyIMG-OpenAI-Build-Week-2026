@@ -483,3 +483,14 @@ elements.refreshRequests.addEventListener("click", () => loadOverview().catch((e
 elements.refreshFeedback.addEventListener("click", () => loadOverview().catch((error) => toast(error.message)));
 setActiveTab(location.hash.replace(/^#/, ""), { updateUrl: false });
 loadOverview().catch((error) => toast(error.message));
+
+let backgroundOverviewRefresh = null;
+function refreshOverviewInBackground() {
+  if (backgroundOverviewRefresh || document.visibilityState !== "visible") return;
+  backgroundOverviewRefresh = loadOverview()
+    .catch(() => {})
+    .finally(() => { backgroundOverviewRefresh = null; });
+}
+window.addEventListener("focus", refreshOverviewInBackground);
+document.addEventListener("visibilitychange", refreshOverviewInBackground);
+setInterval(refreshOverviewInBackground, 12000);
