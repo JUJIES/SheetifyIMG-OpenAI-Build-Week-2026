@@ -67,6 +67,20 @@
       return `${normalized.slice(0, Math.max(1, maxLength - 1)).trimEnd()}…`;
     }
 
+    function visibleLabelKey(value) {
+      return text(value)
+        .toLocaleLowerCase()
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+    }
+
+    function repeatsVisibleLabel(left, right) {
+      const leftKey = visibleLabelKey(left);
+      return Boolean(leftKey) && leftKey === visibleLabelKey(right);
+    }
+
     function pageOf(entry = {}) {
       const page = Number(entry.page || entry.pageNumber || 0);
       return Number.isInteger(page) && page > 0 ? page : 1;
@@ -166,6 +180,10 @@
 
     function renderNode(element, step, selected) {
       const role = step?.purpose || "";
+      const repeatedHeading = repeatsVisibleLabel(element.kicker, element.label);
+      const accessibleLabel = repeatedHeading
+        ? element.kicker
+        : `${element.kicker}: ${element.label}`;
       return `
         <button
           class="worksheet-blueprint-node type-${escapeHtml(element.type)}${selected ? " selected" : ""}"
@@ -175,13 +193,13 @@
           data-blueprint-label="${escapeHtml(element.label)}"
           data-blueprint-page="${escapeHtml(element.page)}"
           aria-pressed="${selected ? "true" : "false"}"
-          aria-label="${escapeHtml(`${element.kicker}: ${element.label}`)}"
+          aria-label="${escapeHtml(accessibleLabel)}"
         >
           <span class="worksheet-blueprint-node-heading">
             <span>${escapeHtml(element.kicker)}</span>
             ${step ? `<em title="${escapeHtml(role)}">${escapeHtml(String(step.index + 1))}</em>` : ""}
           </span>
-          <strong>${escapeHtml(short(element.label, 90))}</strong>
+          ${repeatedHeading ? "" : `<strong>${escapeHtml(short(element.label, 90))}</strong>`}
           ${blockPreview(element)}
         </button>
       `;
