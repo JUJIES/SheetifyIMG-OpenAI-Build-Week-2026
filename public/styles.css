@@ -7960,17 +7960,6 @@ button {
   to { opacity: 1; transform: translateX(0); }
 }
 
-.worksheet-blueprint-heading {
-  display: grid;
-  gap: 10px;
-  width: min(100%, 620px);
-  margin-right: auto;
-  margin-bottom: 14px;
-  margin-left: auto;
-}
-
-.worksheet-blueprint-heading > div > span,
-.worksheet-blueprint-heading p > span,
 .worksheet-blueprint-inspector-panel header > span,
 .worksheet-blueprint-inspector-panel section > span,
 .worksheet-blueprint-path-note > span {
@@ -7981,23 +7970,6 @@ button {
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-}
-
-.worksheet-blueprint-heading h3 {
-  margin: 0;
-  font-size: clamp(1.05rem, 2vw, 1.35rem);
-  line-height: 1.15;
-}
-
-.worksheet-blueprint-heading p {
-  margin: 0;
-  padding: 9px 11px;
-  border: 1px solid #d9e4ff;
-  border-radius: 12px;
-  background: #f4f7ff;
-  color: #334367;
-  font-size: 0.78rem;
-  line-height: 1.35;
 }
 
 .worksheet-blueprint-page-nav {
@@ -8408,7 +8380,6 @@ button {
     padding: 17px 14px 18px;
   }
 
-  .worksheet-blueprint-heading { padding-inline: 2px; }
 }
 
 * {

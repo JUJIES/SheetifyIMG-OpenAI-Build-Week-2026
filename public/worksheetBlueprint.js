@@ -290,13 +290,6 @@
           </div>
           <div class="worksheet-blueprint-stage">
             <div class="worksheet-blueprint-overview" data-blueprint-view="concept">
-              <div class="worksheet-blueprint-heading">
-                <div>
-                  <span>${escapeHtml(label("app.blueprint.title", "Arbeitsblatt-Bauplan"))}</span>
-                  <h3>${escapeHtml(text(content.title) || label("app.concept.title", "Arbeitsblatt-Konzept"))}</h3>
-                </div>
-                ${thread.path ? `<p><span>${escapeHtml(label("app.blueprint.thread", "Roter Faden"))}</span>${escapeHtml(thread.path)}</p>` : ""}
-              </div>
               <nav class="worksheet-blueprint-page-nav" aria-label="${escapeHtml(label("app.blueprint.page", "Seite"))}">
                 <button class="previous" type="button" data-blueprint-page-previous aria-label="${escapeHtml(uiLabel("previousPage"))}">${lucide("chevron-right")}</button>
                 <span>${escapeHtml(label("app.blueprint.page", "Seite"))} <strong data-blueprint-page-position>1</strong> ${escapeHtml(label("app.blueprint.of", "von"))} ${pages.length}</span>
