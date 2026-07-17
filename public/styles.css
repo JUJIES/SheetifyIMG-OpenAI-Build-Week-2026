@@ -7958,19 +7958,13 @@ button {
 
 .worksheet-blueprint-page-nav {
   display: grid;
-  width: min(100%, 560px);
-  grid-template-columns: 36px minmax(0, 1fr) 36px;
+  width: max-content;
+  grid-template-columns: 26px auto 26px;
   align-items: center;
-  gap: 8px;
-  margin: 0 auto 12px;
-  padding: 6px;
-  border: 1px solid #dde3ec;
-  border-radius: 12px;
-  background: #ffffff;
-  box-shadow: 0 3px 12px rgb(35 48 72 / 5%);
+  gap: 2px;
+  margin: 0 auto 4px;
 }
 
-.worksheet-blueprint-page-nav button,
 .worksheet-blueprint-inspector-nav button {
   display: inline-grid;
   width: 34px;
@@ -7983,8 +7977,6 @@ button {
   cursor: pointer;
 }
 
-.worksheet-blueprint-page-nav button:hover,
-.worksheet-blueprint-page-nav button:focus-visible,
 .worksheet-blueprint-inspector-nav button:hover,
 .worksheet-blueprint-inspector-nav button:focus-visible {
   border-color: #89a9df;
@@ -7992,10 +7984,30 @@ button {
   outline: none;
 }
 
+.worksheet-blueprint-page-nav button {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: #748097;
+  cursor: pointer;
+}
+
+.worksheet-blueprint-page-nav button:hover {
+  color: #315da8;
+}
+
+.worksheet-blueprint-page-nav button:focus-visible {
+  border-radius: 5px;
+  outline: 2px solid #8aace5;
+  outline-offset: -2px;
+}
+
 .worksheet-blueprint-page-nav button:disabled {
-  border-color: #e6e9ee;
-  background: #fafbfc;
-  color: #b4bbc6;
+  color: #c3c9d2;
   cursor: default;
 }
 
@@ -8004,7 +8016,11 @@ button {
   transform: rotate(180deg);
 }
 
-.worksheet-blueprint-page-nav .icon,
+.worksheet-blueprint-page-nav .icon {
+  width: 15px;
+  height: 15px;
+}
+
 .worksheet-blueprint-inspector-nav .icon {
   width: 16px;
   height: 16px;
@@ -8337,10 +8353,6 @@ button {
   }
 
   .worksheet-blueprint-mode-switch {
-    width: 100%;
-  }
-
-  .worksheet-blueprint-page-nav {
     width: 100%;
   }
 
