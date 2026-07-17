@@ -2639,6 +2639,7 @@ const actionBindings = window.SheetifyIMGActionBindings.createActionBindings({
 
 const worksheetBlueprint = window.SheetifyIMGWorksheetBlueprint.createWorksheetBlueprint({
   escapeHtml,
+  t,
   onSelectionChange(selection) {
     state.blueprintSelection = selection;
   },
@@ -6301,39 +6302,20 @@ function renderConceptPreview(item) {
   const selectedConcept = selectedLibraryConceptArtifact(item);
   const briefData = brief.data || {};
   const contentData = selectedConcept?.data || content.data || {};
-  const sections = conceptSectionsFromContent(contentData, {
-    brief: briefData,
-    project: item.project || {},
-    teachingContext: item.teachingContext || {}
-  });
-  const versionLabel = selectedConcept?.version ? `Konzept v${selectedConcept.version}` : statusWord(brief.status);
-  const statusLabel = statusWord(selectedConcept?.status || content.status);
   elements.previewGrid.dataset.previewType = "concept";
   elements.previewEyebrow.textContent = t("app.preview.eyebrow");
   elements.previewTitle.textContent = t("app.concept.title");
   setCustomScrollContent(elements.previewGrid, `
-    <article class="detail-panel">
-      <section class="detail-section">
-        ${renderConceptDocumentHeader({
-          project: item.project || {},
-          brief: briefData,
-          content: contentData,
-          teachingContext: item.teachingContext || {},
-          label: "Kurzüberblick",
-          titleTag: "h4",
-          versionLabel,
-          statusLabel
-        })}
-        <div class="detail-grid">
-          <div><span>Fach</span><strong>${escapeHtml(briefData.subject || "offen")}</strong></div>
-          <div><span>Ziel</span><strong>${escapeHtml(briefData.goal || "offen")}</strong></div>
-          <div><span>Konzept</span><strong>${escapeHtml(selectedConcept?.version ? `v${selectedConcept.version}` : statusWord(brief.status))}</strong></div>
-          <div><span>Status</span><strong>${escapeHtml(statusLabel)}</strong></div>
-        </div>
-      </section>
+    <div class="worksheet-blueprint-library">
       ${renderConceptVersionOverview(item, selectedConcept)}
-      ${renderConceptSections(sections, { compact: false })}
-    </article>
+      ${worksheetBlueprint.render({
+        content: contentData,
+        brief: briefData,
+        project: item.project || {},
+        teachingContext: item.teachingContext || {},
+        concept: selectedConcept || null
+      })}
+    </div>
   `);
   applyPreviewLayout(null);
   elements.previewGrid.querySelectorAll("[data-library-concept-id]").forEach((button) => {
@@ -6342,6 +6324,7 @@ function renderConceptPreview(item) {
       renderConceptPreview(item);
     });
   });
+  worksheetBlueprint.bind(elements.previewGrid);
   bindConceptCopyActions(elements.previewGrid);
   bindPreviewOpenActions(null);
 }

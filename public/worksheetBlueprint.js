@@ -17,6 +17,19 @@
     const onRevise = typeof dependencies.onRevise === "function"
       ? dependencies.onRevise
       : null;
+    const translate = typeof dependencies.t === "function" ? dependencies.t : null;
+
+    function label(key, fallback, variables = {}) {
+      if (translate) {
+        const translated = translate(key, variables);
+        if (translated && translated !== key) {
+          return translated;
+        }
+      }
+      return String(fallback).replace(/\{\{([A-Za-z0-9_]+)\}\}/g, (_match, name) => (
+        Object.prototype.hasOwnProperty.call(variables, name) ? String(variables[name]) : ""
+      ));
+    }
 
     function text(value) {
       return String(value || "").trim();
@@ -45,30 +58,36 @@
           type: "text",
           page: pageOf(entry),
           order: 100 + index,
-          label: text(entry.title) || (entry.role === "work_instruction" ? "Arbeitsauftrag" : "Lesetext"),
+          label: text(entry.title) || (entry.role === "work_instruction"
+            ? label("app.blueprint.workInstruction", "Arbeitsauftrag")
+            : label("app.blueprint.text", "Text")),
           body: text(entry.body || entry.text),
-          kicker: entry.role === "info_box" ? "Infobox" : entry.role === "source_text" ? "Quelle" : "Text"
+          kicker: entry.role === "info_box"
+            ? label("app.blueprint.infoBox", "Infobox")
+            : entry.role === "source_text"
+              ? label("app.blueprint.source", "Quelle")
+              : label("app.blueprint.text", "Text")
         })),
         ...imageMaterials.map((entry, index) => ({
           id: text(entry.id) || `image_${index + 1}`,
           type: "image",
           page: pageOf(entry),
           order: 200 + index,
-          label: text(entry.purpose) || `Bildmaterial ${index + 1}`,
+          label: text(entry.purpose) || `${label("app.blueprint.imageMaterial", "Bildmaterial")} ${index + 1}`,
           body: text(entry.prompt || entry.description),
           placement: text(entry.placement),
-          kicker: "Bildmaterial"
+          kicker: label("app.blueprint.imageMaterial", "Bildmaterial")
         })),
         ...tasks.map((entry, index) => ({
           id: text(entry.id) || `task_${index + 1}`,
           type: "task",
           page: pageOf(entry),
           order: 300 + index,
-          label: text(entry.groupLabel) || `Aufgabe ${index + 1}`,
+          label: text(entry.groupLabel) || `${label("app.blueprint.task", "Aufgabe")} ${index + 1}`,
           body: text(entry.prompt),
           expected: text(entry.expectedAnswer),
           difficulty: text(entry.difficulty),
-          kicker: `Aufgabe ${index + 1}`
+          kicker: `${label("app.blueprint.task", "Aufgabe")} ${index + 1}`
         }))
       ];
     }
@@ -147,11 +166,13 @@
     function renderPage(content, elements, thread, page, selectedId) {
       const pageElements = elements.filter((entry) => entry.page === page).sort((a, b) => a.order - b.order);
       return `
-        <section class="worksheet-blueprint-page" aria-label="Blatt ${page}">
+        <section class="worksheet-blueprint-page" aria-label="${escapeHtml(label("app.blueprint.sheet", "Blatt"))} ${page}">
           <div class="worksheet-blueprint-paper">
             <header>
-              <span>${pageCount(content, elements) > 1 ? `Blatt ${page}` : "Arbeitsblatt"}</span>
-              <strong>${escapeHtml(text(content.title) || "Arbeitsblatt-Konzept")}</strong>
+              <span>${pageCount(content, elements) > 1
+                ? `${label("app.blueprint.sheet", "Blatt")} ${page}`
+                : label("app.blueprint.worksheet", "Arbeitsblatt")}</span>
+              <strong>${escapeHtml(text(content.title) || label("app.concept.title", "Arbeitsblatt-Konzept"))}</strong>
             </header>
             <div class="worksheet-blueprint-page-content">
               ${pageElements.length
@@ -160,9 +181,9 @@
                   thread.byElementId.get(element.id),
                   element.id === selectedId
                 )).join("")
-                : '<p class="worksheet-blueprint-empty-page">Für dieses Blatt sind noch keine Elemente vorgesehen.</p>'}
+                : `<p class="worksheet-blueprint-empty-page">${escapeHtml(label("app.blueprint.emptyPage", "Für dieses Blatt sind noch keine Elemente vorgesehen."))}</p>`}
             </div>
-            <footer><span>Strukturvorschau</span><span>${page}/${pageCount(content, elements)}</span></footer>
+            <footer><span>${escapeHtml(label("app.blueprint.structurePreview", "Strukturvorschau"))}</span><span>${page}/${pageCount(content, elements)}</span></footer>
           </div>
         </section>
       `;
@@ -172,12 +193,12 @@
       if (element.type === "task") {
         return `
           <section>
-            <span>Aufgabentext</span>
+            <span>${escapeHtml(label("app.blueprint.taskText", "Aufgabentext"))}</span>
             <p>${escapeHtml(element.body)}</p>
           </section>
           ${element.expected ? `
             <details>
-              <summary>Prüfanker ansehen</summary>
+              <summary>${escapeHtml(label("app.blueprint.answerAnchor", "Prüfanker ansehen"))}</summary>
               <p>${escapeHtml(element.expected)}</p>
             </details>
           ` : ""}
@@ -186,15 +207,15 @@
       if (element.type === "image") {
         return `
           <section>
-            <span>Bildbeschreibung</span>
+            <span>${escapeHtml(label("app.blueprint.imageDescription", "Bildbeschreibung"))}</span>
             <p>${escapeHtml(element.body)}</p>
           </section>
-          ${element.placement ? `<section><span>Vorgesehener Bereich</span><p>${escapeHtml(element.placement)}</p></section>` : ""}
+          ${element.placement ? `<section><span>${escapeHtml(label("app.blueprint.plannedArea", "Vorgesehener Bereich"))}</span><p>${escapeHtml(element.placement)}</p></section>` : ""}
         `;
       }
       return `
         <section>
-          <span>Vorgesehener Text</span>
+          <span>${escapeHtml(label("app.blueprint.plannedText", "Vorgesehener Text"))}</span>
           <div class="worksheet-blueprint-long-text">${escapeHtml(element.body)}</div>
         </section>
       `;
@@ -205,19 +226,19 @@
       return `
         <article class="worksheet-blueprint-inspector-panel${selected ? " selected" : ""}" data-blueprint-panel="${escapeHtml(element.id)}" ${selected ? "" : "hidden"}>
           <header>
-            <span>${escapeHtml(element.kicker)} · Blatt ${escapeHtml(element.page)}</span>
+            <span>${escapeHtml(element.kicker)} · ${escapeHtml(label("app.blueprint.sheet", "Blatt"))} ${escapeHtml(element.page)}</span>
             <h3>${escapeHtml(element.label)}</h3>
           </header>
           ${detailRows(element)}
           <section class="worksheet-blueprint-rationale${step ? "" : " missing"}">
-            <span>Didaktische Rolle</span>
+            <span>${escapeHtml(label("app.blueprint.didacticRole", "Didaktische Rolle"))}</span>
             ${step
-              ? `<strong>${escapeHtml(step.action || `Schritt ${step.index + 1}`)}</strong><p>${escapeHtml(step.purpose)}</p>`
-              : "<strong>Noch nicht strukturiert</strong><p>Diese ältere Konzeptfassung enthält noch keine explizite didaktische Begründung.</p>"}
-            ${previous ? `<small>Baut auf „${escapeHtml(previous.action || `Schritt ${previous.index + 1}`)}“ auf.</small>` : ""}
+              ? `<strong>${escapeHtml(step.action || `${label("app.blueprint.step", "Schritt")} ${step.index + 1}`)}</strong><p>${escapeHtml(step.purpose)}</p>`
+              : `<strong>${escapeHtml(label("app.blueprint.notStructured", "Noch nicht strukturiert"))}</strong><p>${escapeHtml(label("app.blueprint.legacyRationale", "Diese ältere Konzeptfassung enthält noch keine explizite didaktische Begründung."))}</p>`}
+            ${previous ? `<small>${escapeHtml(label("app.blueprint.buildsOn", "Baut auf „{{action}}“ auf.", { action: previous.action || `${label("app.blueprint.step", "Schritt")} ${previous.index + 1}` }))}</small>` : ""}
           </section>
-          ${thread.path ? `<p class="worksheet-blueprint-path-note"><span>Roter Faden</span>${escapeHtml(thread.path)}</p>` : ""}
-          <button class="worksheet-blueprint-revise" type="button" data-blueprint-revise="${escapeHtml(element.id)}">Dieses Element überarbeiten</button>
+          ${thread.path ? `<p class="worksheet-blueprint-path-note"><span>${escapeHtml(label("app.blueprint.thread", "Roter Faden"))}</span>${escapeHtml(thread.path)}</p>` : ""}
+          <button class="worksheet-blueprint-revise" type="button" data-blueprint-revise="${escapeHtml(element.id)}">${escapeHtml(label("app.blueprint.reviseElement", "Dieses Element überarbeiten"))}</button>
         </article>
       `;
     }
@@ -225,7 +246,7 @@
     function render({ content = {} } = {}) {
       const elements = blueprintElements(content);
       if (!elements.length) {
-        return '<div class="worksheet-blueprint-empty">Noch keine Texte, Aufgaben oder Bildmaterialien für den Bauplan vorhanden.</div>';
+        return `<div class="worksheet-blueprint-empty">${escapeHtml(label("app.blueprint.empty", "Noch keine Texte, Aufgaben oder Bildmaterialien für den Bauplan vorhanden."))}</div>`;
       }
       const thread = threadModel(content, elements);
       const selectedId = elements[0].id;
@@ -235,10 +256,10 @@
           <div class="worksheet-blueprint-overview">
             <div class="worksheet-blueprint-heading">
               <div>
-                <span>Arbeitsblatt-Bauplan</span>
-                <h3>${escapeHtml(text(content.title) || "Arbeitsblatt-Konzept")}</h3>
+                <span>${escapeHtml(label("app.blueprint.title", "Arbeitsblatt-Bauplan"))}</span>
+                <h3>${escapeHtml(text(content.title) || label("app.concept.title", "Arbeitsblatt-Konzept"))}</h3>
               </div>
-              ${thread.path ? `<p><span>Roter Faden</span>${escapeHtml(thread.path)}</p>` : ""}
+              ${thread.path ? `<p><span>${escapeHtml(label("app.blueprint.thread", "Roter Faden"))}</span>${escapeHtml(thread.path)}</p>` : ""}
             </div>
             <div class="worksheet-blueprint-pages">
               ${pages.map((page) => renderPage(content, elements, thread, page, selectedId)).join("")}
@@ -246,9 +267,9 @@
           </div>
           <aside class="worksheet-blueprint-inspector" aria-live="polite">
             <div class="worksheet-blueprint-inspector-nav">
-              <button type="button" data-blueprint-previous aria-label="Vorheriges Element">←</button>
-              <span><strong data-blueprint-position>1</strong> von ${elements.length}</span>
-              <button type="button" data-blueprint-next aria-label="Nächstes Element">→</button>
+              <button type="button" data-blueprint-previous aria-label="${escapeHtml(label("app.blueprint.previousElement", "Vorheriges Element"))}">←</button>
+              <span><strong data-blueprint-position>1</strong> ${escapeHtml(label("app.blueprint.of", "von"))} ${elements.length}</span>
+              <button type="button" data-blueprint-next aria-label="${escapeHtml(label("app.blueprint.nextElement", "Nächstes Element"))}">→</button>
             </div>
             ${elements.map((element) => renderInspectorPanel(
               element,
