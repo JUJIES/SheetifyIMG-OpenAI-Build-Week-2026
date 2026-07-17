@@ -17,48 +17,48 @@ const EMAIL_MESSAGES = Object.freeze({
     greeting: (name) => name ? `Hallo ${name},` : "Hallo,",
     signoff: "Viele Grüße",
     invitation: Object.freeze({
-      workspaceFallback: "dein Sheetify-IMG-Arbeitsbereich",
-      subject: "Dein Zugang zur Sheetify IMG Beta",
-      preheader: "Dein Sheetify IMG Pass ist bereit.",
-      title: "Willkommen in der Sheetify IMG Beta",
+      workspaceFallback: "dein SheetifyIMG-Arbeitsbereich",
+      subject: "Dein Zugang zur SheetifyIMG Beta",
+      preheader: "Dein SheetifyIMG Pass ist bereit.",
+      title: "Willkommen in der SheetifyIMG Beta",
       ready: (workspace) => `dein Zugang für ${workspace} ist bereit.`,
-      passLabel: "Sheetify IMG Pass",
-      open: "Sheetify IMG öffnen",
+      passLabel: "SheetifyIMG Pass",
+      open: "SheetifyIMG öffnen",
       keepSafe: "Bewahre den Pass gut auf. Er verbindet Geräte mit demselben Arbeitsbereich.",
-      cardAlt: "Dein Sheetify IMG Beta Pass"
+      cardAlt: "Dein SheetifyIMG Beta Pass"
     }),
     topup: Object.freeze({
-      subject: (amount) => `Deine Sheetify IMG Guthabenkarte: ${amount} Entwurfsseiten`,
-      preheader: (amount) => `${amount} Entwurfsseiten für Sheetify IMG.`,
-      title: "Deine Sheetify IMG Guthabenkarte",
+      subject: (amount) => `Deine SheetifyIMG Guthabenkarte: ${amount} Entwurfsseiten`,
+      preheader: (amount) => `${amount} Entwurfsseiten für SheetifyIMG.`,
+      title: "Deine SheetifyIMG Guthabenkarte",
       intro: (amount) => `hier ist deine Guthabenkarte über ${amount} Entwurfsseiten.`,
-      htmlIntro: (amount) => `Hier sind <strong>${amount} Entwurfsseiten</strong> zum Einlösen in Sheetify IMG.`,
+      htmlIntro: (amount) => `Hier sind <strong>${amount} Entwurfsseiten</strong> zum Einlösen in SheetifyIMG.`,
       codeLabel: "Guthabencode",
       open: "Guthaben einlösen",
-      openText: "In Sheetify IMG einlösen",
+      openText: "In SheetifyIMG einlösen",
       singleUse: "Der Code ist einmal einlösbar.",
-      cardAlt: "Deine Sheetify IMG Guthabenkarte"
+      cardAlt: "Deine SheetifyIMG Guthabenkarte"
     }),
     activated: Object.freeze({
-      workspaceFallback: "Dein Sheetify-IMG-Arbeitsbereich",
-      subject: "Dein Sheetify IMG Pass ist aktiviert",
-      preheader: "Dein Sheetify-IMG-Arbeitsbereich ist verbunden.",
-      title: "Sheetify IMG ist bereit",
+      workspaceFallback: "Dein SheetifyIMG-Arbeitsbereich",
+      subject: "Dein SheetifyIMG Pass ist aktiviert",
+      preheader: "Dein SheetifyIMG-Arbeitsbereich ist verbunden.",
+      title: "SheetifyIMG ist bereit",
       ready: (workspace) => `${workspace} ist jetzt verbunden und einsatzbereit.`,
       open: "Arbeitsbereich öffnen",
-      openText: "Sheetify IMG öffnen"
+      openText: "SheetifyIMG öffnen"
     }),
     support: Object.freeze({
-      subject: "Deine Nachricht an Sheetify IMG ist angekommen",
+      subject: "Deine Nachricht an SheetifyIMG ist angekommen",
       preheader: "Wir haben deine Nachricht erhalten.",
       title: "Nachricht erhalten",
       received: "vielen Dank für deine Nachricht. Sie ist bei uns angekommen und wir melden uns, wenn eine Antwort nötig ist.",
       reference: "Referenz"
     }),
     recovery: Object.freeze({
-      workspaceFallback: "dein Sheetify-IMG-Arbeitsbereich",
-      subject: "Dein Sheetify IMG Wiederherstellungslink",
-      preheader: "Verbinde deinen Sheetify-IMG-Arbeitsbereich wieder.",
+      workspaceFallback: "dein SheetifyIMG-Arbeitsbereich",
+      subject: "Dein SheetifyIMG Wiederherstellungslink",
+      preheader: "Verbinde deinen SheetifyIMG-Arbeitsbereich wieder.",
       title: "Arbeitsbereich wiederherstellen",
       intro: (workspace) => `mit diesem einmaligen Link verbindest du ein neues Gerät wieder mit ${workspace}:`,
       htmlIntro: (workspace) => `Mit diesem einmaligen Link verbindest du ein neues Gerät wieder mit <strong>${workspace}</strong>.`,
@@ -69,7 +69,7 @@ const EMAIL_MESSAGES = Object.freeze({
       ignore: "Falls du die Wiederherstellung nicht angefordert hast, kannst du diese Nachricht ignorieren."
     }),
     credit: Object.freeze({
-      subject: "Dein Sheetify-IMG-Guthaben wurde erweitert",
+      subject: "Dein SheetifyIMG-Guthaben wurde erweitert",
       preheader: (amount) => `${amount} neue Entwurfsseiten für deinen Arbeitsbereich.`,
       title: "Neues Entwurfsguthaben",
       granted: (amount, balance) => `dir wurden ${amount} Entwurfsseiten gutgeschrieben.${Number.isSafeInteger(balance) ? ` Dein neues Guthaben: ${balance}.` : ""}`,
@@ -80,48 +80,48 @@ const EMAIL_MESSAGES = Object.freeze({
     greeting: (name) => name ? `Hello ${name},` : "Hello,",
     signoff: "Best wishes",
     invitation: Object.freeze({
-      workspaceFallback: "your Sheetify IMG workspace",
-      subject: "Your access to the Sheetify IMG Beta",
-      preheader: "Your Sheetify IMG Pass is ready.",
-      title: "Welcome to the Sheetify IMG Beta",
+      workspaceFallback: "your SheetifyIMG workspace",
+      subject: "Your access to the SheetifyIMG Beta",
+      preheader: "Your SheetifyIMG Pass is ready.",
+      title: "Welcome to the SheetifyIMG Beta",
       ready: (workspace) => `your access to ${workspace} is ready.`,
-      passLabel: "Sheetify IMG Pass",
-      open: "Open Sheetify IMG",
+      passLabel: "SheetifyIMG Pass",
+      open: "Open SheetifyIMG",
       keepSafe: "Keep this pass safe. It connects devices to the same shared workspace.",
-      cardAlt: "Your Sheetify IMG Beta Pass"
+      cardAlt: "Your SheetifyIMG Beta Pass"
     }),
     topup: Object.freeze({
-      subject: (amount) => `Your Sheetify IMG credit voucher: ${amount} draft pages`,
-      preheader: (amount) => `${amount} draft pages for Sheetify IMG.`,
-      title: "Your Sheetify IMG credit voucher",
+      subject: (amount) => `Your SheetifyIMG credit voucher: ${amount} draft pages`,
+      preheader: (amount) => `${amount} draft pages for SheetifyIMG.`,
+      title: "Your SheetifyIMG credit voucher",
       intro: (amount) => `here is your credit voucher for ${amount} draft pages.`,
-      htmlIntro: (amount) => `Here are <strong>${amount} draft pages</strong> to redeem in Sheetify IMG.`,
+      htmlIntro: (amount) => `Here are <strong>${amount} draft pages</strong> to redeem in SheetifyIMG.`,
       codeLabel: "Credit code",
       open: "Redeem credit",
-      openText: "Redeem in Sheetify IMG",
+      openText: "Redeem in SheetifyIMG",
       singleUse: "The code can only be redeemed once.",
-      cardAlt: "Your Sheetify IMG credit voucher"
+      cardAlt: "Your SheetifyIMG credit voucher"
     }),
     activated: Object.freeze({
-      workspaceFallback: "Your Sheetify IMG workspace",
-      subject: "Your Sheetify IMG Pass is active",
-      preheader: "Your Sheetify IMG workspace is connected.",
-      title: "Sheetify IMG is ready",
+      workspaceFallback: "Your SheetifyIMG workspace",
+      subject: "Your SheetifyIMG Pass is active",
+      preheader: "Your SheetifyIMG workspace is connected.",
+      title: "SheetifyIMG is ready",
       ready: (workspace) => `${workspace} is now connected and ready to use.`,
       open: "Open workspace",
-      openText: "Open Sheetify IMG"
+      openText: "Open SheetifyIMG"
     }),
     support: Object.freeze({
-      subject: "We received your message to Sheetify IMG",
+      subject: "We received your message to SheetifyIMG",
       preheader: "We received your message.",
       title: "Message received",
       received: "thank you for your message. We have received it and will get back to you if a reply is needed.",
       reference: "Reference"
     }),
     recovery: Object.freeze({
-      workspaceFallback: "your Sheetify IMG workspace",
-      subject: "Your Sheetify IMG recovery link",
-      preheader: "Reconnect your Sheetify IMG workspace.",
+      workspaceFallback: "your SheetifyIMG workspace",
+      subject: "Your SheetifyIMG recovery link",
+      preheader: "Reconnect your SheetifyIMG workspace.",
       title: "Recover your workspace",
       intro: (workspace) => `use this one-time link to reconnect a new device to ${workspace}:`,
       htmlIntro: (workspace) => `Use this one-time link to reconnect a new device to <strong>${workspace}</strong>.`,
@@ -132,7 +132,7 @@ const EMAIL_MESSAGES = Object.freeze({
       ignore: "If you did not request this recovery link, you can ignore this message."
     }),
     credit: Object.freeze({
-      subject: "Your Sheetify IMG credit has been increased",
+      subject: "Your SheetifyIMG credit has been increased",
       preheader: (amount) => `${amount} new draft pages for your workspace.`,
       title: "New draft credit",
       granted: (amount, balance) => `${amount} draft pages have been added to your workspace.${Number.isSafeInteger(balance) ? ` Your new balance is ${balance}.` : ""}`,
@@ -199,7 +199,7 @@ function layout({ locale, messages, preheader, title, bodyHtml }) {
         <div style="margin-bottom:24px">${brandWordmark()}</div>
         <h1 style="margin:0 0 20px;font-size:28px;line-height:1.2">${escapeHtml(title)}</h1>
         <div style="font-size:16px;line-height:1.65">${bodyHtml}</div>
-        <p style="margin:30px 0 0;color:${BRAND.muted};font-size:14px">${escapeHtml(messages.signoff)}<br>Sheetify IMG</p>
+        <p style="margin:30px 0 0;color:${BRAND.muted};font-size:14px">${escapeHtml(messages.signoff)}<br>SheetifyIMG</p>
       </main>
     </div>
   </body>
@@ -216,7 +216,7 @@ function betaInvitationTemplate(input = {}) {
   if (!passCode) throw new Error("passCode is required for a beta invitation.");
   return {
     subject: copy.subject,
-    text: `${greeting(name, messages)}\n\n${copy.ready(workspaceName)}\n\n${copy.passLabel}: ${passCode}${appUrl ? `\n\n${copy.open}: ${appUrl}` : ""}\n\n${copy.keepSafe}\n\n${messages.signoff}\nSheetify IMG`,
+    text: `${greeting(name, messages)}\n\n${copy.ready(workspaceName)}\n\n${copy.passLabel}: ${passCode}${appUrl ? `\n\n${copy.open}: ${appUrl}` : ""}\n\n${copy.keepSafe}\n\n${messages.signoff}\nSheetifyIMG`,
     html: layout({
       locale,
       messages,
@@ -238,7 +238,7 @@ function topupCardTemplate(input = {}) {
   if (!topupCode) throw new Error("topupCode is required for a top-up card.");
   return {
     subject: copy.subject(amount),
-    text: `${greeting(name, messages)}\n\n${copy.intro(amount)}\n\n${copy.codeLabel}: ${topupCode}${appUrl ? `\n\n${copy.openText}: ${appUrl}` : ""}\n\n${copy.singleUse}\n\n${messages.signoff}\nSheetify IMG`,
+    text: `${greeting(name, messages)}\n\n${copy.intro(amount)}\n\n${copy.codeLabel}: ${topupCode}${appUrl ? `\n\n${copy.openText}: ${appUrl}` : ""}\n\n${copy.singleUse}\n\n${messages.signoff}\nSheetifyIMG`,
     html: layout({
       locale,
       messages,
@@ -257,7 +257,7 @@ function betaPassActivatedTemplate(input = {}) {
   const appUrl = cleanText(input.appUrl);
   return {
     subject: copy.subject,
-    text: `${greeting(name, messages)}\n\n${copy.ready(workspaceName)}${appUrl ? `\n\n${copy.openText}: ${appUrl}` : ""}\n\n${messages.signoff}\nSheetify IMG`,
+    text: `${greeting(name, messages)}\n\n${copy.ready(workspaceName)}${appUrl ? `\n\n${copy.openText}: ${appUrl}` : ""}\n\n${messages.signoff}\nSheetifyIMG`,
     html: layout({
       locale,
       messages,
@@ -275,7 +275,7 @@ function supportConfirmationTemplate(input = {}) {
   const requestId = cleanText(input.requestId);
   return {
     subject: copy.subject,
-    text: `${greeting(name, messages)}\n\n${copy.received}${requestId ? `\n\n${copy.reference}: ${requestId}` : ""}\n\n${messages.signoff}\nSheetify IMG`,
+    text: `${greeting(name, messages)}\n\n${copy.received}${requestId ? `\n\n${copy.reference}: ${requestId}` : ""}\n\n${messages.signoff}\nSheetifyIMG`,
     html: layout({
       locale,
       messages,
@@ -297,7 +297,7 @@ function recoveryLinkTemplate(input = {}) {
   const expiryText = copy.expiry(expiresAt);
   return {
     subject: copy.subject,
-    text: `${greeting(name, messages)}\n\n${copy.intro(workspaceName)}\n\n${recoveryUrl}\n\n${expiryText}\n\n${copy.ignore}\n\n${messages.signoff}\nSheetify IMG`,
+    text: `${greeting(name, messages)}\n\n${copy.intro(workspaceName)}\n\n${recoveryUrl}\n\n${expiryText}\n\n${copy.ignore}\n\n${messages.signoff}\nSheetifyIMG`,
     html: layout({
       locale,
       messages,
@@ -317,7 +317,7 @@ function creditGrantedTemplate(input = {}) {
   if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error("amount must be a positive integer.");
   return {
     subject: copy.subject,
-    text: `${greeting(name, messages)}\n\n${copy.granted(amount, balance)}\n\n${messages.signoff}\nSheetify IMG`,
+    text: `${greeting(name, messages)}\n\n${copy.granted(amount, balance)}\n\n${messages.signoff}\nSheetifyIMG`,
     html: layout({
       locale,
       messages,
