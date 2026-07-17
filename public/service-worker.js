@@ -1,9 +1,9 @@
 "use strict";
 
-const CACHE_NAME = "sheetifyimg-static-v66";
+const CACHE_NAME = "sheetifyimg-static-v67";
 const APP_SHELL_URLS = [
   "/vendor/simplebar/simplebar.min.css?v=1",
-  "/brand.css?v=2",
+  "/brand.css?v=3",
   "/styles.css?v=115",
   "/pass-ui.css?v=3",
   "/beta-experience.css?v=1",
@@ -85,6 +85,6 @@ async function networkFirst(request) {
     if (cached) {
       return cached;
     }
-    throw new Error("Sheetify IMG app shell is unavailable.");
+    throw new Error("SheetifyIMG app shell is unavailable.");
   }
 }

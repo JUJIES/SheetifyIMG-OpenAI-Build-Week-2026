@@ -24,7 +24,7 @@
     <div class="beta-experience-layer beta-consent-layer hidden" id="betaConsentLayer" role="dialog" aria-modal="true" aria-labelledby="betaConsentTitle">
       <section class="beta-experience-card beta-consent-card">
         <p class="beta-experience-eyebrow" data-i18n="beta.consent.eyebrow">Kleine Beta</p>
-        <h2 id="betaConsentTitle" data-i18n="beta.consent.title">Gemeinsam Sheetify IMG verbessern</h2>
+        <h2 id="betaConsentTitle" data-i18n="beta.consent.title">Gemeinsam SheetifyIMG verbessern</h2>
         <p data-i18n="beta.consent.body">Während dieser Beta dürfen deine Eingaben, Nutzungsschritte, erzeugten Entwürfe und dein freiwilliges Feedback gemeinsam ausgewertet und KI-gestützt zusammengefasst werden.</p>
         <p class="beta-consent-note"><span data-i18n="beta.consent.noteBefore">Bitte verwende keine sensiblen persönlichen Daten. Bei Fragen erreichst du uns unter</span> <a href="mailto:sheetify@jujies.app">sheetify@jujies.app</a>.</p>
         <p class="beta-experience-error hidden" id="betaConsentError"></p>
@@ -39,7 +39,7 @@
           <div>
             <p class="beta-experience-eyebrow" data-i18n="beta.feedback.eyebrow">Beta-Feedback</p>
             <h2 id="betaFeedbackTitle" data-i18n="beta.feedback.title">Wie war deine Erfahrung?</h2>
-            <p id="betaFeedbackContext" data-i18n="beta.feedback.contextGeneral">Allgemeines Feedback zu Sheetify IMG</p>
+            <p id="betaFeedbackContext" data-i18n="beta.feedback.contextGeneral">Allgemeines Feedback zu SheetifyIMG</p>
           </div>
           <button class="beta-feedback-close" id="betaFeedbackClose" type="button" aria-label="Feedback schließen" data-i18n-aria-label="beta.feedback.close">×</button>
         </header>

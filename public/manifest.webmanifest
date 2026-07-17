@@ -1,6 +1,6 @@
 {
-  "name": "Sheetify IMG",
-  "short_name": "Sheetify IMG",
+  "name": "SheetifyIMG",
+  "short_name": "SheetifyIMG",
   "description": "Image-first app for content-controlled teaching worksheets.",
   "lang": "de",
   "start_url": "/",

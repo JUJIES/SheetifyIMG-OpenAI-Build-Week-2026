@@ -291,8 +291,8 @@ async function main() {
     assert.equal(beforeSwitch.ok, true);
     const beforeDocuments = JSON.stringify(beforeSwitch.body.workspace.documents);
 
-    await englishPage.getByRole("button", { name: "My Sheetify IMG Pass" }).click();
-    await englishPage.getByRole("heading", { name: "My Sheetify IMG Pass" }).waitFor();
+    await englishPage.getByRole("button", { name: "My SheetifyIMG Pass" }).click();
+    await englishPage.getByRole("heading", { name: "My SheetifyIMG Pass" }).waitFor();
     const pairing = await pageApi(englishPage, "/api/pass/pairings", { method: "POST", body: "{}" });
     assert.equal(pairing.ok, true);
 
@@ -302,9 +302,9 @@ async function main() {
     await germanPage.goto(pairing.body.pairing.url, { waitUntil: "domcontentloaded" });
     await germanPage.waitForURL(`${baseUrl}/app`, { timeout: 30000 });
     await germanPage.getByRole("button", { name: "Agree and start the beta" }).click();
-    await germanPage.getByRole("button", { name: "My Sheetify IMG Pass" }).click();
+    await germanPage.getByRole("button", { name: "My SheetifyIMG Pass" }).click();
     await germanPage.getByRole("button", { name: "German" }).click();
-    await germanPage.getByRole("heading", { name: "Mein Sheetify IMG Pass" }).waitFor();
+    await germanPage.getByRole("heading", { name: "Mein SheetifyIMG Pass" }).waitFor();
     assert.equal(await germanPage.locator("html").getAttribute("lang"), "de");
     assert.equal(await englishPage.locator("html").getAttribute("lang"), "en");
     await germanPage.locator("#passModal [data-pass-close]").last().click();
