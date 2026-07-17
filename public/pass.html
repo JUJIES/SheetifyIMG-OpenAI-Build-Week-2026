@@ -53,7 +53,7 @@
 
         <form id="connectForm" class="pass-form">
           <label for="passCode" data-i18n="pass.form.code">Pass- oder Kopplungscode</label>
-          <input id="passCode" name="code" type="text" inputmode="text" autocomplete="one-time-code" spellcheck="false" placeholder="SHEET-••••-••••-••••" data-i18n-placeholder="pass.form.codePlaceholder" required>
+          <input id="passCode" name="code" type="text" inputmode="text" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="SHEET-••••-••••-••••" data-i18n-placeholder="pass.form.codePlaceholder" required>
           <button type="submit" class="pass-primary" id="connectButton" data-i18n="pass.form.connect">Verbinden</button>
         </form>
 
@@ -71,6 +71,7 @@
 
         <button class="pass-link" type="button" id="supportToggle" data-i18n="pass.support.toggle">Pass weg, Problem oder noch kein Zugang?</button>
         <form id="supportForm" class="pass-form pass-support hidden">
+          <p class="pass-support-note" data-i18n="pass.support.passSharing">Wer denselben Pass verwendet, öffnet denselben Arbeitsbereich und teilt das Entwurfsguthaben.</p>
           <label for="requestKind" data-i18n="pass.support.kind">Wobei können wir helfen?</label>
           <select id="requestKind">
             <option value="recovery" data-i18n="pass.support.recovery">Sheetify IMG Pass wiederherstellen</option>
@@ -85,7 +86,7 @@
           <p class="pass-contact"><span data-i18n="pass.support.direct">Oder direkt an</span> <a href="mailto:sheetify@jujies.app">sheetify@jujies.app</a></p>
         </form>
 
-        <p class="pass-privacy" data-i18n="pass.privacy">Ein verbundener Browser bleibt angemeldet. Wer denselben Pass verwendet, teilt denselben Arbeitsbereich und das Entwurfsguthaben.</p>
+        <p class="pass-privacy" data-i18n="pass.privacy">Dieses Gerät bleibt verbunden.</p>
       </section>
     </main>
     <script src="/pass.js?v=4"></script>

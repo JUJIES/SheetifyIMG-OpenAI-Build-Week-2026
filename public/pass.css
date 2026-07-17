@@ -41,7 +41,7 @@ button, input, select, textarea { font: inherit; }
 .pass-brand { margin-bottom: 64px; }
 .pass-mobile-intro { display: none; }
 .pass-eyebrow { margin: 0 0 10px; color: var(--blue); font-size: 12px; font-weight: 780; letter-spacing: .13em; text-transform: uppercase; }
-.pass-copy h1 { margin: 0; max-width: 650px; font-size: clamp(42px, 5.5vw, 72px); line-height: 1.02; letter-spacing: -.045em; }
+.pass-copy h1 { margin: 0; max-width: 650px; font-size: clamp(40px, 4.7vw, 64px); line-height: 1.04; letter-spacing: -.04em; }
 .pass-copy > p:last-child { max-width: 600px; margin: 28px 0 0; color: var(--muted); font-size: 19px; line-height: 1.65; }
 
 .pass-panel {
@@ -86,6 +86,7 @@ button, input, select, textarea { font: inherit; }
 
 .pass-link { display: block; margin: 22px auto 0; border: 0; color: var(--blue); background: transparent; cursor: pointer; font-size: 13px; font-weight: 680; }
 .pass-support { margin-top: 18px; padding-top: 18px; border-top: 1px solid #edf0f4; }
+.pass-support-note { margin: 0 0 4px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .pass-contact { margin: 3px 0 0; color: var(--muted); font-size: 11px; text-align: center; }
 .pass-contact a { color: var(--blue); font-weight: 700; text-decoration: none; }
 .pass-privacy { margin: 24px 0 0; color: #8b95a5; font-size: 11px; line-height: 1.5; text-align: center; }
