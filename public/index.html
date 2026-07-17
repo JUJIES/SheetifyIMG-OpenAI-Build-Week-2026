@@ -17,7 +17,7 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/app-icon-180.png">
     <link rel="stylesheet" href="/vendor/simplebar/simplebar.min.css?v=1">
     <link rel="stylesheet" href="/brand.css?v=1">
-    <link rel="stylesheet" href="/styles.css?v=114">
+    <link rel="stylesheet" href="/styles.css?v=115">
     <link rel="stylesheet" href="/pass-ui.css?v=3">
     <link rel="stylesheet" href="/beta-experience.css?v=1">
   </head>
@@ -355,6 +355,12 @@
             <p data-i18n="app.settings.description">Lege fest, wie Sheetify IMG die nächsten Arbeitsblatt-Entwürfe erzeugt.</p>
             <div class="image-generation-settings" id="imageProviderSettings"></div>
           </section>
+          <section class="settings-section settings-access-section">
+            <p class="eyebrow" data-i18n="app.settings.access">Zugang</p>
+            <h3 data-i18n="app.settings.connectedDevice">Dieses Gerät</h3>
+            <p data-i18n="app.settings.accessDescription">Dieser Browser bleibt mit dem aktuellen Arbeitsbereich verbunden, bis du ihn trennst.</p>
+            <button class="secondary-button settings-disconnect-button" type="button" id="settingsDisconnectButton" data-i18n="app.settings.disconnect">Dieses Gerät trennen</button>
+          </section>
         </div>
       </section>
     </div>
@@ -504,7 +510,7 @@
     <script src="/mobilePreviewRenderer.js?v=9"></script>
     <script src="/canvasRenderer.js?v=2"></script>
     <script src="/vendor/simplebar/simplebar.min.js?v=1"></script>
-    <script src="/locale.js?v=4"></script>
+    <script src="/locale.js?v=5"></script>
     <script>
       window.sheetifyLocale.set(window.sheetifyLocale.resolve({
         query: new URLSearchParams(window.location.search),
@@ -513,7 +519,7 @@
       }), { persistLocal: false });
       window.sheetifyLocale.apply(document);
     </script>
-    <script src="/app.js?v=187"></script>
+    <script src="/app.js?v=188"></script>
     <script src="/pass-ui.js?v=3"></script>
     <script src="/beta-experience.js?v=3"></script>
   </body>
