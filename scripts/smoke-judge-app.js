@@ -294,6 +294,12 @@ async function main() {
 
     await englishPage.getByRole("button", { name: "My SheetifyIMG Pass" }).click();
     await englishPage.getByRole("heading", { name: "My SheetifyIMG Pass" }).waitFor();
+    const passLanguageOptions = englishPage.locator(".pass-ui-language-option");
+    assert.equal(await passLanguageOptions.count(), 2);
+    assert.deepEqual(
+      await passLanguageOptions.locator("img").evaluateAll((images) => images.map((image) => image.getAttribute("src"))),
+      ["/icons/flags/de.svg", "/icons/flags/gb.svg"]
+    );
     const grantResponse = await fetch(`${baseUrl}/api/admin/passes/${createdPass.pass.id}/grant`, {
       method: "POST",
       headers: {

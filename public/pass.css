@@ -54,9 +54,11 @@ button, input, select, textarea { font: inherit; }
   backdrop-filter: blur(16px);
 }
 
-.pass-language { position: absolute; top: 18px; right: 20px; display: flex; gap: 3px; padding: 3px; border-radius: 10px; background: #f1f4f8; }
-.pass-language button { min-width: 34px; height: 28px; padding: 0 7px; border: 0; border-radius: 7px; color: var(--muted); background: transparent; cursor: pointer; font-size: 11px; font-weight: 800; }
-.pass-language button[aria-pressed="true"] { color: #fff; background: var(--blue); box-shadow: 0 4px 10px rgba(31,99,214,.2); }
+.pass-language { position: absolute; top: 18px; right: 20px; display: flex; align-items: center; gap: 7px; }
+.pass-language button { display: grid; place-items: center; width: 25px; height: 25px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; opacity: .48; transition: transform .16s ease, opacity .16s ease, box-shadow .16s ease; }
+.pass-language button img { width: 19px; height: 19px; filter: saturate(.8); }
+.pass-language button[aria-pressed="true"] { opacity: 1; transform: scale(1.12); box-shadow: 0 0 0 2px rgba(31,99,214,.18); }
+.pass-language button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 
 .pass-panel-head { margin-bottom: 30px; padding-right: 74px; }
 .pass-panel-head h2 { margin: 0; font-size: 25px; letter-spacing: -.025em; }
