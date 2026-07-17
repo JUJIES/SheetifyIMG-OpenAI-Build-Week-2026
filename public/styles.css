@@ -8114,7 +8114,9 @@ button {
 .worksheet-blueprint-page-content {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 8px;
   min-height: 0;
   padding: 8px 0;
 }
@@ -8127,24 +8129,32 @@ button {
 }
 
 .worksheet-blueprint-node {
+  --blueprint-node-accent: #65769d;
+  --blueprint-node-border: #dfe4ee;
+  --blueprint-node-surface: #fafbfd;
+  --blueprint-node-chip: #edf0f6;
   display: grid;
-  gap: 4px;
+  gap: 6px;
+  width: 100%;
   min-height: 0;
-  padding: 8px 9px;
+  padding: 9px 10px 10px;
   overflow: hidden;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
+  border: 1px solid var(--blueprint-node-border);
+  border-left: 3px solid var(--blueprint-node-accent);
+  border-radius: 7px;
+  background: var(--blueprint-node-surface);
+  box-shadow: 0 1px 2px rgb(48 58 78 / 4%);
   color: inherit;
   text-align: left;
   cursor: pointer;
-  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease, transform 140ms ease;
 }
 
 .worksheet-blueprint-node:hover,
 .worksheet-blueprint-node:focus-visible {
-  border-color: #6d8ce8;
-  box-shadow: 0 0 0 2px rgb(83 116 220 / 13%);
+  border-color: var(--blueprint-node-accent);
+  box-shadow: 0 0 0 2px rgb(83 116 220 / 10%), 0 4px 10px rgb(48 58 78 / 7%);
+  transform: translateY(-1px);
   outline: none;
 }
 
@@ -8156,20 +8166,29 @@ button {
 }
 
 .worksheet-blueprint-node.type-text {
-  flex: 1.35 1 0;
-  padding-inline: 2px;
+  --blueprint-node-accent: #7b6f96;
+  --blueprint-node-border: #e4deeb;
+  --blueprint-node-surface: #faf8fc;
+  --blueprint-node-chip: #eee9f3;
 }
 
 .worksheet-blueprint-node.type-image {
-  min-width: 0;
+  --blueprint-node-accent: #66806f;
+  --blueprint-node-border: #d9e7dd;
+  --blueprint-node-surface: #f5faf7;
+  --blueprint-node-chip: #e5f0e9;
+  flex: 0 1 30%;
+  width: 30%;
+  min-width: 78px;
+  max-width: 132px;
   padding: 6px;
-  border-color: #dce9df;
-  background: #f5fbf7;
+  border-left-width: 1px;
 }
 
 .worksheet-blueprint-image-strip {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(68px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 6px;
   min-width: 0;
 }
@@ -8179,39 +8198,51 @@ button {
 }
 
 .worksheet-blueprint-node.type-task {
-  flex: 0.75 1 0;
-  border-color: #e2e7ef;
-  border-left: 3px solid #d6e0f1;
-  background: #fbfcfe;
+  --blueprint-node-accent: #5f78a3;
+  --blueprint-node-border: #dbe3ef;
+  --blueprint-node-surface: #f7f9fc;
+  --blueprint-node-chip: #e7edf6;
 }
 
 .worksheet-blueprint-node-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  color: #778098;
+  gap: 6px;
+  color: var(--blueprint-node-accent);
   font-size: 0.54rem;
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
+.worksheet-blueprint-node-heading > span:first-child {
+  overflow: hidden;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: var(--blueprint-node-chip);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .worksheet-blueprint-node-heading em {
   display: grid;
+  flex: 0 0 auto;
   width: 16px;
   height: 16px;
   place-items: center;
   border-radius: 999px;
-  background: #dfe8ff;
-  color: #315fda;
+  background: var(--blueprint-node-chip);
+  color: var(--blueprint-node-accent);
   font-size: 0.55rem;
   font-style: normal;
 }
 
 .worksheet-blueprint-node strong {
   overflow: hidden;
-  font-size: 0.72rem;
-  line-height: 1.15;
+  color: #20283a;
+  font-size: 0.73rem;
+  line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -8219,22 +8250,22 @@ button {
 .worksheet-blueprint-node small {
   display: -webkit-box;
   overflow: hidden;
-  color: #5c6579;
+  color: #566177;
   font-size: 0.62rem;
-  line-height: 1.35;
+  line-height: 1.4;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 3;
 }
 
 .worksheet-blueprint-image-placeholder {
   display: grid;
-  height: 34px;
+  height: 40px;
   place-items: center;
   padding: 3px;
   overflow: hidden;
-  border: 1px solid #dce8e0;
+  border: 1px solid #d6e3da;
   border-radius: 6px;
-  background: #f9fcfa;
+  background: rgb(255 255 255 / 72%);
 }
 
 .worksheet-blueprint-image-placeholder svg {
