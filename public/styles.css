@@ -4554,6 +4554,35 @@ button {
   gap: 8px;
 }
 
+.candidate-chat-pages {
+  display: grid;
+  width: 136px;
+  min-width: 0;
+  grid-template-columns: minmax(0, 136px);
+  justify-content: center;
+  gap: 8px;
+}
+
+.candidate-chat-card.multi-page {
+  grid-template-columns: minmax(0, 1fr) minmax(110px, 160px);
+}
+
+.candidate-chat-card.multi-page .candidate-chat-preview,
+.candidate-chat-card.multi-page .candidate-chat-pages {
+  width: 100%;
+}
+
+.candidate-chat-card.multi-page .candidate-chat-pages {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+}
+
+.candidate-chat-card.multi-page img {
+  width: 100%;
+  min-width: 0;
+}
+
 .candidate-chat-card img {
   display: block;
   width: 136px;
@@ -6702,9 +6731,20 @@ button {
     max-width: 100%;
   }
 
+  .candidate-chat-pages {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .candidate-chat-card.multi-page .candidate-chat-preview {
+    width: 100%;
+  }
+
+  .candidate-chat-card.multi-page .candidate-chat-pages {
+    gap: 6px;
+  }
+
   .candidate-chat-card img {
-    grid-column: 1;
-    grid-row: 1;
     width: 100%;
     height: auto;
     max-height: 236px;

@@ -9145,6 +9145,7 @@ function renderCandidateChatCard(card = {}, workspace) {
   const displayCandidate = candidateForDisplay(candidate, workspace);
   const displayCandidateId = draftDisplayLabel(displayCandidate);
   const basisLabel = draftChatBasisLabel(displayCandidate);
+  const isMultiPage = pages.length > 1;
   const imageDownloads = candidateImageDownloads(pages, draftFilePrefix(displayCandidate));
   const candidatePreviewActions = `
     <span class="candidate-chat-preview-actions">
@@ -9162,7 +9163,7 @@ function renderCandidateChatCard(card = {}, workspace) {
   `;
   return `
     <figure
-      class="chat-result-card candidate-chat-card"
+      class="chat-result-card candidate-chat-card${isMultiPage ? " multi-page" : ""}"
       data-capture-kind="candidate"
       data-run-id="${escapeHtml(candidate.runId || "")}"
       data-candidate-id="${escapeHtml(candidate.id)}"
@@ -9173,7 +9174,16 @@ function renderCandidateChatCard(card = {}, workspace) {
       data-source-url="${escapeHtml(page.url)}"
     >
       <div class="candidate-chat-preview">
-        <img data-capture-image src="${escapeHtml(page.url)}" alt="${escapeHtml(displayCandidateId)}">
+        <div class="candidate-chat-pages" aria-label="${escapeHtml(t(pages.length === 1 ? "app.draft.pageCount" : "app.draft.pageCountPlural", { count: pages.length }))}">
+          ${pages.map((entry, index) => `
+            <img
+              ${index === 0 ? "data-capture-image" : ""}
+              data-page="${escapeHtml(entry.page || index + 1)}"
+              src="${escapeHtml(entry.url)}"
+              alt="${escapeHtml(`${displayCandidateId} · ${t("common.page", { number: entry.page || index + 1 })}`)}"
+            >
+          `).join("")}
+        </div>
         ${candidatePreviewActions}
       </div>
       <figcaption>
@@ -9428,32 +9438,8 @@ function renderProductionCard(message = {}, workspace = {}) {
   return "";
 }
 
-function candidateMessageDisplayContent(message = {}, workspace = {}) {
-  const card = message.productionCard || null;
-  if (card?.kind !== "candidate") {
-    return null;
-  }
-  const candidate = findCandidateForCard(card, workspace);
-  const displayCandidate = candidate
-    ? candidateForDisplay(candidate, workspace)
-    : {
-      id: card.candidateId,
-      displayLabel: card.displayLabel
-    };
-  const displayLabel = draftDisplayLabel(displayCandidate);
-  const pageCount = candidate
-    ? (candidate.pages || []).filter((page) => page.url).length
-      || Number(candidate.generation?.generatedPageCount || candidate.generation?.pageCount || 0)
-      || 0
-    : Number(card.pageCount || 0) || 0;
-  const pageLabel = pageCount
-    ? `${t(pageCount === 1 ? "app.draft.pageCount" : "app.draft.pageCountPlural", { count: pageCount })}.`
-    : "";
-  return `${t("app.chat.draftFinished", { draft: displayLabel })}.${pageLabel ? ` ${pageLabel}` : ""}`;
-}
-
-function messageDisplayContent(message = {}, workspace = {}) {
-  return candidateMessageDisplayContent(message, workspace) || message.content || "";
+function messageDisplayContent(message = {}) {
+  return message.content || "";
 }
 
 const hiddenLegacyCommandIds = new Set(["select_candidate", "prepare_export"]);
@@ -9553,7 +9539,8 @@ function renderChatMessage(message, visibleCommandIds = new Set(), extraCommands
         ? ` · ${t("app.chat.notSent")}`
         : message.createdAt ? ` · ${escapeHtml(timeOnly(message.createdAt))}` : "";
   const hideConceptCopy = isConceptViewerOnlyMessage(message) && !message.streaming && !message.failed;
-  const hasCopy = !hideConceptCopy && (messageDisplayContent(message, workspace) || message.streaming || message.failed);
+  const hideCandidateCopy = message.productionCard?.kind === "candidate";
+  const hasCopy = !hideConceptCopy && !hideCandidateCopy && (messageDisplayContent(message) || message.streaming || message.failed);
   const copyInsideConceptCard = isConceptPitchMessage(message) && hasCopy;
   const copyHtml = hasCopy && !copyInsideConceptCard ? `<div class="message-copy">${renderMessageCopy(message, workspace)}</div>` : "";
   const copyAfterCard = isConceptNarrationMessage(message) && hasCopy && !copyInsideConceptCard;
