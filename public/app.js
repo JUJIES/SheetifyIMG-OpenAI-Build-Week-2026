@@ -10652,18 +10652,6 @@ function renderCanvasProposal(workspace, mode) {
   renderImageSpecProposal(proposal);
 }
 
-function proposalMeta(proposal) {
-  return `
-    <details class="internal-spec-details compact">
-      <summary>Entwicklungsdetails</summary>
-      <div class="detail-grid">
-        <div><span>Vorschlag</span><strong>${escapeHtml(proposal.proposalId)}</strong></div>
-        <div><span>Modell</span><strong>${escapeHtml(proposal.model || "lokal")}</strong></div>
-      </div>
-    </details>
-  `;
-}
-
 function renderLessonBriefProposal(proposal, workspace = {}) {
   const brief = proposal.data || {};
   const adopted = proposal.status === "adopted";
@@ -10684,7 +10672,6 @@ function renderLessonBriefProposal(proposal, workspace = {}) {
         statusLabel: statusWord(proposal.status),
         eyebrow: "Arbeitsblatt-Konzept"
       })}
-      ${proposalMeta(proposal)}
       ${renderConceptSections(sections, { compact: false })}
     </article>
   `);
@@ -10696,7 +10683,6 @@ function renderContentProposal(proposal, workspace = {}) {
   const brief = workspace.documents?.brief?.data || workspace.proposals?.latestLessonBrief?.data || {};
   setCustomScrollContent(elements.canvasBody, `
     <div class="worksheet-blueprint-proposal">
-      ${proposalMeta(proposal)}
       ${worksheetBlueprint.render({
         content,
         brief,
@@ -10716,7 +10702,6 @@ function renderWarningsProposal(proposal) {
     <article class="canvas-document">
       <p class="detail-label">Konzept-Feedback</p>
       <h3>${escapeHtml(warningState.summary || proposal.title || "Konzept-Feedback")}</h3>
-      ${proposalMeta(proposal)}
       <section class="detail-section">
         <p class="detail-label">Hinweise</p>
         ${warnings.length ? `<ul>${warnings.map((warning) => `
@@ -10737,7 +10722,6 @@ function renderImageSpecProposal(proposal) {
     <article class="canvas-document">
       <p class="detail-label">Referenz/Vorlage</p>
       <h3>${escapeHtml(spec.purpose || proposal.title || "Referenzbedarf")}</h3>
-      ${proposalMeta(proposal)}
       ${pagePlan.length ? `
         <section class="detail-section">
           <p class="detail-label">Geplante Seiten</p>
