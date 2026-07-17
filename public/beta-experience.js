@@ -58,12 +58,14 @@
           <button class="beta-feedback-close" id="betaFeedbackClose" type="button" aria-label="Feedback schließen" data-i18n-aria-label="beta.feedback.close">×</button>
         </header>
         <form id="betaFeedbackForm">
-          <div class="beta-feedback-prompts" role="group" aria-label="Satzanfänge" data-i18n-aria-label="beta.feedback.prompts">
-            <button type="button" data-feedback-prompt="stuck" data-i18n="beta.feedback.prompt.stuck">Ich komme gerade nicht weiter:</button>
-            <button type="button" data-feedback-prompt="cumbersome" data-i18n="beta.feedback.prompt.cumbersome">Das war umständlich:</button>
-            <button type="button" data-feedback-prompt="unexpected" data-i18n="beta.feedback.prompt.unexpected">Die App hat gerade etwas anders gemacht als erwartet:</button>
-            <button type="button" data-feedback-prompt="improve" data-i18n="beta.feedback.prompt.improve">Das könnte besser funktionieren:</button>
-          </div>
+          <aside class="beta-feedback-guidance">
+            <ul>
+              <li data-i18n="beta.feedback.prompt.stuck">Ich komme gerade nicht weiter:</li>
+              <li data-i18n="beta.feedback.prompt.cumbersome">Das war umständlich:</li>
+              <li data-i18n="beta.feedback.prompt.unexpected">Die App hat gerade etwas anders gemacht als erwartet:</li>
+              <li data-i18n="beta.feedback.prompt.improve">Das könnte besser funktionieren:</li>
+            </ul>
+          </aside>
           <label class="beta-feedback-label"><span data-i18n="beta.feedback.message">Dein Hinweis</span>
             <textarea name="message" rows="4" maxlength="4000" placeholder="Oder beschreibe einfach, was dir gerade aufgefallen ist." data-i18n-placeholder="beta.feedback.messagePlaceholder" required></textarea>
           </label>
@@ -365,15 +367,6 @@
       elements.consentAccept.disabled = false;
       elements.consentAccept.textContent = t("beta.consent.accept");
     }
-  });
-
-  elements.feedbackForm.querySelectorAll("[data-feedback-prompt]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const starter = t(`beta.feedback.prompt.${button.dataset.feedbackPrompt}`);
-      const current = elements.feedbackMessage.value.trim();
-      elements.feedbackMessage.value = current ? `${current}\n${starter} ` : `${starter} `;
-      elements.feedbackMessage.focus();
-    });
   });
 
   elements.creditAccept.addEventListener("click", async () => {

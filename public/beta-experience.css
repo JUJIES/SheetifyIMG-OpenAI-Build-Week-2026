@@ -100,9 +100,9 @@
 .beta-feedback-label textarea { width: 100%; padding: 11px 12px; border: 1px solid #d6deea; border-radius: 12px; color: #182237; background: #fff; font: inherit; outline: 0; }
 .beta-feedback-label textarea { resize: vertical; line-height: 1.5; }
 .beta-feedback-label textarea:focus { border-color: #1f63d6; box-shadow: 0 0 0 3px rgba(31, 99, 214, .1); }
-.beta-feedback-prompts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.beta-feedback-prompts button { min-height: 44px; padding: 8px 10px; border: 1px solid #d6deea; border-radius: 11px; color: #344054; background: #f8fafc; font: inherit; font-size: 12px; font-weight: 690; line-height: 1.35; text-align: left; cursor: pointer; }
-.beta-feedback-prompts button:hover, .beta-feedback-prompts button:focus-visible { border-color: #9bb8ea; color: #174fae; background: #edf4ff; outline: 0; }
+.beta-feedback-guidance { padding: 13px 16px; border-left: 2px solid #cbd8ef; border-radius: 0 12px 12px 0; background: #f8fafc; }
+.beta-feedback-guidance ul { display: grid; gap: 7px; margin: 0; padding-left: 18px; color: #475467; font-size: 12px; line-height: 1.45; }
+.beta-feedback-guidance li::marker { color: #1f63d6; }
 .beta-feedback-note { margin: -4px 0 0; color: #667085 !important; font-size: 12px; }
 .beta-feedback-toast { position: fixed; right: 22px; bottom: 78px; z-index: 1500; max-width: calc(100vw - 44px); padding: 13px 16px; border-radius: 13px; color: #fff; background: #101827; box-shadow: 0 16px 38px rgba(15, 23, 42, .25); font-size: 13px; }
 body.beta-feedback-open, body.beta-credit-open { overflow: hidden; }
@@ -115,7 +115,6 @@ body.beta-feedback-open, body.beta-credit-open { overflow: hidden; }
   .beta-feedback-trigger { right: 14px; bottom: calc(78px + env(safe-area-inset-bottom)); padding: 0 14px; font-size: 13px; }
   .beta-feedback-reminder { right: 14px; bottom: calc(132px + env(safe-area-inset-bottom)); }
   .beta-feedback-toast { right: 14px; bottom: calc(132px + env(safe-area-inset-bottom)); }
-  .beta-feedback-prompts { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {
