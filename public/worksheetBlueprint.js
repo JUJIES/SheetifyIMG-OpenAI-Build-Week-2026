@@ -111,8 +111,9 @@
           type: "image",
           page: pageOf(entry),
           order: 200 + index,
-          label: text(entry.purpose) || `${label("app.blueprint.imageMaterial", "Bildmaterial")} ${index + 1}`,
+          label: `${label("app.blueprint.image", "Bild")} ${index + 1}`,
           body: text(entry.prompt || entry.description),
+          purpose: text(entry.purpose),
           placement: text(entry.placement),
           kicker: label("app.blueprint.imageMaterial", "Bildmaterial")
         })),
@@ -170,9 +171,12 @@
       if (element.type === "image") {
         return `
           <span class="worksheet-blueprint-image-placeholder" aria-hidden="true">
-            <span></span><span></span><span></span>
+            <svg viewBox="0 0 64 36" focusable="false">
+              <rect x="1" y="1" width="62" height="34" rx="6"></rect>
+              <circle cx="46" cy="11" r="3.5"></circle>
+              <path d="M8 29 22 16l9 8 7-6 18 11"></path>
+            </svg>
           </span>
-          <small>${escapeHtml(short(element.body || element.label, 82))}</small>
         `;
       }
       return `<small>${escapeHtml(short(element.body, element.type === "text" ? 170 : 120))}</small>`;
@@ -180,8 +184,11 @@
 
     function renderNode(element, step, selected) {
       const role = step?.purpose || "";
+      const imageNode = element.type === "image";
       const repeatedHeading = repeatsVisibleLabel(element.kicker, element.label);
-      const accessibleLabel = repeatedHeading
+      const accessibleLabel = imageNode
+        ? element.label
+        : repeatedHeading
         ? element.kicker
         : `${element.kicker}: ${element.label}`;
       return `
@@ -196,13 +203,41 @@
           aria-label="${escapeHtml(accessibleLabel)}"
         >
           <span class="worksheet-blueprint-node-heading">
-            <span>${escapeHtml(element.kicker)}</span>
+            <span>${escapeHtml(imageNode ? element.label : element.kicker)}</span>
             ${step ? `<em title="${escapeHtml(role)}">${escapeHtml(String(step.index + 1))}</em>` : ""}
           </span>
-          ${repeatedHeading ? "" : `<strong>${escapeHtml(short(element.label, 90))}</strong>`}
+          ${imageNode || repeatedHeading ? "" : `<strong>${escapeHtml(short(element.label, 90))}</strong>`}
           ${blockPreview(element)}
         </button>
       `;
+    }
+
+    function renderPageElements(elements, thread) {
+      const rendered = [];
+      let index = 0;
+      while (index < elements.length) {
+        const element = elements[index];
+        if (element.type !== "image") {
+          rendered.push(renderNode(element, thread.byElementId.get(element.id), false));
+          index += 1;
+          continue;
+        }
+        const imageElements = [];
+        while (elements[index]?.type === "image") {
+          imageElements.push(elements[index]);
+          index += 1;
+        }
+        rendered.push(`
+          <div class="worksheet-blueprint-image-strip" aria-label="${escapeHtml(label("app.blueprint.imageMaterial", "Bildmaterial"))}">
+            ${imageElements.map((image) => renderNode(
+              image,
+              thread.byElementId.get(image.id),
+              false
+            )).join("")}
+          </div>
+        `);
+      }
+      return rendered.join("");
     }
 
     function renderPage(content, elements, thread, page) {
@@ -218,11 +253,7 @@
             </header>
             <div class="worksheet-blueprint-page-content">
               ${pageElements.length
-                ? pageElements.map((element) => renderNode(
-                  element,
-                  thread.byElementId.get(element.id),
-                  false
-                )).join("")
+                ? renderPageElements(pageElements, thread)
                 : `<p class="worksheet-blueprint-empty-page">${escapeHtml(label("app.blueprint.emptyPage", "Für dieses Blatt sind noch keine Elemente vorgesehen."))}</p>`}
             </div>
             <footer><span>${escapeHtml(label("app.blueprint.structurePreview", "Strukturvorschau"))}</span><span>${page}/${pageCount(content, elements)}</span></footer>
@@ -252,6 +283,7 @@
             <span>${escapeHtml(label("app.blueprint.imageDescription", "Bildbeschreibung"))}</span>
             <p>${escapeHtml(element.body)}</p>
           </section>
+          ${element.purpose ? `<section><span>${escapeHtml(label("app.blueprint.imagePurpose", "Funktion"))}</span><p>${escapeHtml(element.purpose)}</p></section>` : ""}
           ${element.placement ? `<section><span>${escapeHtml(label("app.blueprint.plannedArea", "Vorgesehener Bereich"))}</span><p>${escapeHtml(element.placement)}</p></section>` : ""}
         `;
       }

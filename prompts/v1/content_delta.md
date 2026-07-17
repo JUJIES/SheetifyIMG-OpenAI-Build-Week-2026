@@ -18,6 +18,11 @@ Regeln:
 - Bei `remove` bleibt `fields` leer.
 - Bei `add` liefere ein vollstaendiges neues Element mit einer neuen stabilen
   ID. Nutze `add` nur, wenn die Lehrkraft wirklich ein Element hinzufuegen will.
+- Behandle separat sichtbare oder einzeln referenzierte Grafiken als eigene
+  `imageMaterials`-Elemente. Wenn eine ausdruecklich verlangte Revision ein
+  zusammengesetztes Material in einzelne Bilder aufteilt, entferne den alten
+  Eintrag, fuege die atomaren Eintraege hinzu und aktualisiere die betroffenen
+  `tasks.materialRefs` sowie den didaktischen Faden konsistent.
 - Setze eine `orders.*.change`-Marke nur bei einer ausdruecklichen Umordnung und
   nenne dann jede ID der Sammlung genau einmal.
 - `title.change`, `solutionNotes.change` und `outputPreference.fields` bleiben

@@ -126,6 +126,12 @@ Regeln:
   Visualisierung der Default, sofern die Lehrkraft Bilder nicht ausschliesst.
 - Jedes Bildmaterial braucht eine konkrete Beschreibung, Funktion und
   Platzierung auf dem DIN-A4-Arbeitsblatt.
+- Lege fuer jede separat sichtbare oder einzeln referenzierte Grafik ein eigenes
+  `imageMaterials`-Objekt mit stabiler ID an. Wenn eine Aufgabe beispielsweise
+  Bilder A, B und C einzeln benennt, beschreibe A, B und C separat und verweise
+  in `tasks.materialRefs` auf alle drei IDs. Eine echte grafische Einheit wie
+  eine Karte mit Legende oder ein zusammenhaengendes beschriftetes Schaubild
+  bleibt dagegen ein Bildmaterial.
 - Fuer ein einseitiges DIN-A4-Arbeitsblatt soll ein Material-/Lesetext in der
   Regel kurz bleiben: Klasse 5-7 ca. 60-100 Woerter, Klasse 8-10 ca. 80-130
   Woerter, Sek II nur bei weniger Aufgaben laenger.
