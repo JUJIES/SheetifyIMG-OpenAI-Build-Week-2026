@@ -15,6 +15,7 @@
   let feedbackDrag = null;
   let suppressFeedbackClick = false;
   let feedbackResizeFrame = 0;
+  let feedbackOpenedAt = 0;
 
   const root = document.createElement("div");
   root.id = "betaExperienceRoot";
@@ -403,6 +404,7 @@
       startTop: rect.top,
       left: rect.left,
       top: rect.top,
+      pointerType: event.pointerType,
       dragging: false,
       reminderVisible: !elements.feedbackReminder.classList.contains("hidden")
     };
@@ -413,7 +415,8 @@
     if (!feedbackDrag || feedbackDrag.pointerId !== event.pointerId) return;
     const deltaX = event.clientX - feedbackDrag.startX;
     const deltaY = event.clientY - feedbackDrag.startY;
-    if (!feedbackDrag.dragging && Math.hypot(deltaX, deltaY) < FEEDBACK_DRAG_THRESHOLD) return;
+    const dragThreshold = feedbackDrag.pointerType === "mouse" ? FEEDBACK_DRAG_THRESHOLD : 10;
+    if (!feedbackDrag.dragging && Math.hypot(deltaX, deltaY) < dragThreshold) return;
     if (!feedbackDrag.dragging) {
       feedbackDrag.dragging = true;
       elements.feedbackTrigger.classList.remove("is-nudged");
@@ -442,9 +445,9 @@
     if (!completed.dragging) {
       if (event.type === "pointerup" && event.pointerType !== "mouse") {
         suppressFeedbackClick = true;
-        openFeedback();
         setTimeout(() => {
           suppressFeedbackClick = false;
+          openFeedback();
         }, 0);
       }
       return;
@@ -477,9 +480,14 @@
     setError(elements.feedbackError);
     lastFocusedElement = document.activeElement;
     elements.feedbackLayer.classList.remove("hidden");
+    feedbackOpenedAt = Date.now();
     document.body.classList.add("beta-feedback-open");
     hideReminder();
-    elements.feedbackMessage.focus();
+    if (deviceClass() === "mobile") {
+      requestAnimationFrame(() => elements.feedbackClose.focus({ preventScroll: true }));
+    } else {
+      elements.feedbackMessage.focus();
+    }
   }
 
   function closeFeedback() {
@@ -657,7 +665,7 @@
   elements.feedbackClose.addEventListener("click", closeFeedback);
   elements.feedbackCancel.addEventListener("click", closeFeedback);
   elements.feedbackLayer.addEventListener("click", (event) => {
-    if (event.target === elements.feedbackLayer) closeFeedback();
+    if (event.target === elements.feedbackLayer && Date.now() - feedbackOpenedAt > 450) closeFeedback();
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !elements.feedbackLayer.classList.contains("hidden")) {
