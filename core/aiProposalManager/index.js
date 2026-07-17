@@ -42,6 +42,7 @@ const { explicitPageCountFromText, pagePlanForImageSpec } = require("../pagePlan
 const { normalizeReadingTexts } = require("../readingTextManager");
 const { normalizeExpectedAnswer, normalizeSolutionNotes } = require("../solutionAnchorManager");
 const { normalizeTaskLabelFields } = require("../taskLabelManager");
+const { didacticThreadSchema, normalizeDidacticThread } = require("../didacticThread");
 const { createUsageAttribution } = require("../usageAttributionManager");
 const {
   applyContentDelta,
@@ -376,7 +377,7 @@ function validateLessonBrief(data = {}, project) {
   const outputPreference = data.outputPreference || {};
   const brief = {
     subject: stringOrNull(data.subject) || project.subject || null,
-    topic: stringOrNull(data.topic) || project.topic || project.title,
+    topic: stringOrNull(data.topic) || project.topic,
     targetGroup: stringOrNull(data.targetGroup) || project.manifest?.targetGroup || null,
     goal: stringOrNull(data.goal) || "Unterrichtsmaterial strukturiert vorbereiten.",
     requirements: arrayOfStrings(data.requirements),
@@ -510,7 +511,7 @@ function validateContentMirror(data = {}, project) {
     placement: removeExcludedUnsafeMentions(material.placement) || "auto"
   })).filter((material) => material.prompt);
   const content = {
-    title: stringOrNull(data.title) || project.title,
+    title: stringOrNull(data.title),
     outputPreference: normalizeOutputPreference(data.outputPreference || {}),
     readingTexts,
     tasks: tasks.length ? tasks : [{
@@ -522,10 +523,12 @@ function validateContentMirror(data = {}, project) {
       difficulty: "mittel"
     }],
     imageMaterials,
+    didacticThread: null,
     solutionNotes: normalizeSolutionNotes(data.solutionNotes, {
       cleanText: removeExcludedUnsafeMentions
     })
   };
+  content.didacticThread = normalizeDidacticThread(data.didacticThread, content);
   if (!content.title || content.tasks.length === 0) {
     throw new Error("Content mirror proposal is missing title or tasks.");
   }
@@ -584,7 +587,7 @@ function validateImageSpec(data = {}, project, context = {}, ruleSelection = {})
   const aspectRatio = "portrait_a4_page";
   const textPolicy = "approved_text_only";
   const style = stringOrNull(data.style) || "clean_scientific";
-  const topic = stringOrNull(data.topic) || project.topic || project.title;
+  const topic = stringOrNull(data.topic) || project.topic;
   const purpose = compactImageSpecText(
     visibleImageSpecText(data.purpose, "Arbeitsblattseite aus Arbeitsblatt-Konzept"),
     IMAGE_SPEC_TEXT_LIMITS.purpose
@@ -728,7 +731,7 @@ function contentMirrorSchema() {
   return {
     type: "object",
     additionalProperties: false,
-    required: ["title", "outputPreference", "readingTexts", "tasks", "imageMaterials", "solutionNotes"],
+    required: ["title", "outputPreference", "readingTexts", "tasks", "imageMaterials", "didacticThread", "solutionNotes"],
     properties: {
       title: { type: "string" },
       outputPreference: {
@@ -794,6 +797,7 @@ function contentMirrorSchema() {
           }
         }
       },
+      didacticThread: didacticThreadSchema(),
       solutionNotes: { type: "array", items: { type: "string" } }
     }
   };
@@ -1141,7 +1145,7 @@ function projectContext({ project, currentBrief, currentContent, currentWarnings
   return {
     project: {
       projectId: project.projectId,
-      title: project.title,
+      projectName: project.title,
       subject: project.subject,
       topic: project.topic,
       targetGroup: project.manifest?.targetGroup || null,
@@ -1432,7 +1436,7 @@ async function modelProposalData(kind, project, context, input, runtime, logCont
     project,
     context,
     input,
-    repoRoot: logContext.repoRoot
+    repoRoot: logContext.promptRoot || logContext.repoRoot
   });
   const modelContext = {
     ...baseModelContext,
@@ -1447,7 +1451,9 @@ async function modelProposalData(kind, project, context, input, runtime, logCont
   const responseBody = {
     model: route.model || requestConfig.textModel,
     instructions: [
-      await composePrompts(route.promptNames, { repoRoot: logContext.repoRoot }),
+      await composePrompts(route.promptNames, {
+        repoRoot: logContext.promptRoot || logContext.repoRoot
+      }),
       selectedRulesPrompt
     ].filter(Boolean).join("\n\n---\n\n"),
     input: [
@@ -1948,6 +1954,7 @@ async function appendAssistantProposalMessage(projectDir, proposal, now, context
 
 async function generateProposal(projectId, kind, input = {}, options = {}) {
   const repoRoot = options.repoRoot || DEFAULT_REPO_ROOT;
+  const promptRoot = options.promptRoot || repoRoot;
   const projectsDir = options.projectsDir || DEFAULT_PROJECTS_DIR;
   const projectDir = path.join(projectsDir, projectId);
   const now = input.now || options.now || new Date().toISOString();
@@ -1975,6 +1982,7 @@ async function generateProposal(projectId, kind, input = {}, options = {}) {
   try {
     proposalData = await modelProposalData(kind, project, context, input, runtime, {
       repoRoot,
+      promptRoot,
       projectDir,
       now,
       usageAttribution

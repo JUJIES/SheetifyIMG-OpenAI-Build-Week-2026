@@ -19,7 +19,8 @@ function createGenerationOptions(context) {
     projectsDir: context.projectsDir,
     projectDir: context.projectDir,
     now: context.now,
-    usageAttribution: context.usageAttribution
+    usageAttribution: context.usageAttribution,
+    generationQuota: context.generationQuota
   };
 }
 
@@ -46,9 +47,13 @@ async function assertGenerationContractForPayload(context, payload = {}) {
 
 async function startCandidateGeneration(context, payload) {
   await assertProposalMatchesCurrentState(context.projectDir, payload.imageSpecProposalId, PROPOSAL_KINDS.IMAGE_SPEC);
-  await assertGenerationContractForPayload(context, payload);
-  return startCandidateGenerationJob(context.projectId, {
+  const contract = await assertGenerationContractForPayload(context, payload);
+  const effectivePayload = {
     ...payload,
+    pageCount: Number(payload.pageCount) || Number(contract?.pageCount) || 1
+  };
+  return startCandidateGenerationJob(context.projectId, {
+    ...effectivePayload,
     now: context.now
   }, createGenerationOptions(context));
 }

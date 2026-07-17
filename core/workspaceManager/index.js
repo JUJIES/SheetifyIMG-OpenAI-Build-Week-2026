@@ -79,7 +79,8 @@ function rel(from, to) {
 }
 
 function assetUrl(repoRoot, filePath) {
-  return `/files/${encodeURI(toPosix(path.relative(repoRoot, filePath)))}`;
+  const reference = Buffer.from(toPosix(path.relative(repoRoot, filePath)), "utf8").toString("base64url");
+  return `/api/files/${reference}`;
 }
 
 function commandState(id, label, enabled, reason = null, meta = {}) {
@@ -666,22 +667,8 @@ function buildWorksheetCommands({
   const proposalContentReadinessReason = contentReadinessMessage(proposalContentReadiness);
   const inputReady = Boolean(inputState?.ready);
   const inputMissingReason = inputState?.reason || "Es fehlt noch ein verwertbarer Arbeitsblatt-Auftrag.";
-  const teachingContextReady = Boolean(teachingContext?.readiness?.conceptAllowed);
-  const teachingContextForcedWithAssumptions = Boolean(teachingContext?.readiness?.forcedWithAssumptions);
-  const teachingContextReason = teachingContext?.nextQuestion
-    ? `Unterrichtsrahmen noch offen: ${teachingContext.nextQuestion}`
-    : "Unterrichtsrahmen ist noch nicht klar genug für ein gutes Arbeitsblatt-Konzept.";
-  const conceptInputReady = inputReady && teachingContextReady;
-  const conceptInputReason = inputReady ? teachingContextReason : inputMissingReason;
-  const conceptAssumptionWarning = teachingContextForcedWithAssumptions
-    ? {
-      requiresConfirmation: true,
-      confirmationKind: "concept_with_assumptions",
-      confirmationTitle: "Konzept mit Annahmen erstellen?",
-      confirmationMessage: "Die KI weiß noch wenig über das Ziel der Stunde oder wichtige Rahmenbedingungen. Dadurch kann das Arbeitsblatt weniger passend werden. Du kannst trotzdem fortfahren; offene Punkte werden als Annahmen behandelt.",
-      confirmationAcceptLabel: "Trotzdem Konzept erstellen"
-    }
-    : {};
+  const conceptInputReady = inputReady;
+  const conceptInputReason = inputMissingReason;
   const preliminaryReferencePolicy = inferReferencePolicy({
     project,
     lessonBrief: currentBriefData || {},
@@ -741,8 +728,7 @@ function buildWorksheetCommands({
       conceptInputReady,
       conceptInputReason,
       {
-        defaultPayload: { completeConcept: true },
-        ...conceptAssumptionWarning
+        defaultPayload: { completeConcept: true }
       }
     ),
     commandState(

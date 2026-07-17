@@ -9,6 +9,7 @@ const { ROUTE_PURPOSES, routeForPurpose } = require("../modelRouter");
 const { composePrompts } = require("../promptRegistry");
 
 const FIELD_IDS = Object.freeze([
+  "subject",
   "topic",
   "targetGroup",
   "lessonGoal",
@@ -65,7 +66,7 @@ function interpreterPayload(input = {}) {
     task: "Interpret the latest teacher message into teaching-context fields.",
     latestUserMessage: textValue(input.message),
     project: {
-      title: input.project?.title || null,
+      projectName: input.project?.title || null,
       subject: input.project?.subject || null,
       topic: input.project?.topic || null,
       targetGroup: input.project?.targetGroup || input.project?.manifest?.targetGroup || null
@@ -148,7 +149,7 @@ async function interpretTeachingContext(projectDir, input = {}, options = {}) {
   const requestConfig = getOpenAiRequestConfig();
   const route = routeForPurpose(ROUTE_PURPOSES.SEMANTIC_INTERPRETATION, requestConfig);
   const instructions = await composePrompts(route.promptNames, {
-    repoRoot: options.repoRoot
+    repoRoot: options.promptRoot || options.repoRoot
   });
   const startedAt = Date.now();
   let modelCallLogged = false;

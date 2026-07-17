@@ -81,7 +81,11 @@ function sanitizeRevisionTarget(value = null, projectId = null) {
       ...target,
       proposalId: textValue(value.proposalId, 160),
       contentMirrorId: textValue(value.contentMirrorId || value.conceptId, 160),
-      conceptVersion: numberValue(value.conceptVersion)
+      conceptVersion: numberValue(value.conceptVersion),
+      elementId: textValue(value.elementId, 160),
+      elementType: textValue(value.elementType, 40),
+      elementLabel: textValue(value.elementLabel, 120),
+      elementPage: numberValue(value.elementPage)
     };
   }
   return {
@@ -389,6 +393,7 @@ async function prepareChatContext(projectId, projectDir, input = {}, options = {
         workspace: planningWorkspace
       }, {
         repoRoot,
+        promptRoot: options.promptRoot,
         now,
         env: options.env,
         planningTurnInterpreter: options.planningTurnInterpreter,
@@ -455,6 +460,7 @@ async function prepareChatContext(projectId, projectDir, input = {}, options = {
 
   await updateTeachingContextFromMessage(projectDir, message, {
     now,
+    promptRoot: options.promptRoot,
     usageAttribution: options.usageAttribution
   });
 
@@ -468,6 +474,7 @@ async function prepareChatContext(projectId, projectDir, input = {}, options = {
     revisionTarget
   }, {
     repoRoot,
+    promptRoot: options.promptRoot,
     now,
     uiEvent: input.uiEvent || "chat_message",
     chatIntentInterpreter: options.chatIntentInterpreter,
@@ -617,11 +624,13 @@ async function sendChatMessage(projectId, input = {}, options = {}) {
   if (resolvedCommand) {
     const result = await runResolvedChatCommand(projectId, projectDir, resolvedCommand, {
       repoRoot,
+      promptRoot: options.promptRoot,
       projectsDir,
       worksheetsDir: options.worksheetsDir,
       now,
       trustedPlanningFlowOverride: context.flowVariant,
-      usageAttribution
+      usageAttribution,
+      generationQuota: options.generationQuota
     });
     return withChatRoutingTrace(projectId, projectDir, context, {
       kind: "command",
@@ -734,6 +743,7 @@ async function sendChatMessage(projectId, input = {}, options = {}) {
     workspace: context.workspace
   }, {
     repoRoot,
+    promptRoot: options.promptRoot,
     projectsDir,
     now,
     usageAttribution
@@ -749,6 +759,7 @@ module.exports = {
   sendChatMessage,
   __testing: {
     contradictsRequiredConfirmation,
-    prepareInputUploadModelContext
+    prepareInputUploadModelContext,
+    sanitizeRevisionTarget
   }
 };

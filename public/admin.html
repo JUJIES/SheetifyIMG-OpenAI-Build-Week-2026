@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SheetifyIMG Beta Admin</title>
+    <link rel="icon" href="/icons/favicon.ico">
+    <link rel="stylesheet" href="/brand.css?v=3">
+    <link rel="stylesheet" href="/admin.css?v=8">
+  </head>
+  <body>
+    <header class="admin-topbar">
+      <span class="sheetify-wordmark sheetify-wordmark--small"><span>Sheetify</span><span class="sheetify-wordmark__suffix">IMG</span></span>
+      <div class="admin-context">
+        <span>Beta Admin</span>
+        <small>Privater Bereich</small>
+      </div>
+      <a class="admin-contact" href="mailto:sheetify@jujies.app">sheetify@jujies.app</a>
+    </header>
+
+    <main class="admin-page">
+      <section class="admin-hero">
+        <div>
+          <p class="eyebrow">Closed Beta</p>
+          <h1>Beta verwalten</h1>
+          <p>Zugänge, Guthaben und Rückmeldungen klar nach Aufgabe getrennt.</p>
+        </div>
+        <div class="admin-status" id="adminStatus">Status wird geladen …</div>
+      </section>
+
+      <nav class="admin-tabs" role="tablist" aria-label="Admin-Bereiche">
+        <button class="admin-tab active" id="tab-passes" type="button" role="tab" aria-selected="true" aria-controls="panel-passes" data-admin-tab="passes">
+          <span>Pässe &amp; Arbeitsbereiche</span><small id="passTabCount">–</small>
+        </button>
+        <button class="admin-tab" id="tab-credits" type="button" role="tab" aria-selected="false" aria-controls="panel-credits" data-admin-tab="credits">
+          <span>Guthaben</span>
+        </button>
+        <button class="admin-tab" id="tab-feedback" type="button" role="tab" aria-selected="false" aria-controls="panel-feedback" data-admin-tab="feedback">
+          <span>Feedback</span><small id="feedbackTabCount" hidden>0</small>
+        </button>
+        <button class="admin-tab" id="tab-inbox" type="button" role="tab" aria-selected="false" aria-controls="panel-inbox" data-admin-tab="inbox">
+          <span>Anfragen &amp; Posteingang</span><small id="inboxTabCount" hidden>0</small>
+        </button>
+      </nav>
+
+      <section class="admin-tab-panel active" id="panel-passes" role="tabpanel" aria-labelledby="tab-passes" data-admin-panel="passes">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Zugänge</p>
+            <h2>Pässe und Arbeitsbereiche</h2>
+            <p>Neue Zugänge erstellen und bestehende Arbeitsbereiche direkt verwalten.</p>
+          </div>
+          <button type="button" class="ghost compact" id="refreshPasses">Aktualisieren</button>
+        </div>
+
+        <div class="workspace-layout">
+          <article class="admin-card admin-card--form">
+            <div class="admin-card-head">
+              <div>
+                <p class="eyebrow">Neuer Zugang</p>
+                <h3>Pass erstellen</h3>
+              </div>
+            </div>
+            <form id="createPassForm" class="admin-form admin-form--stacked">
+              <label>Interne Bezeichnung<input name="label" required placeholder="z. B. Beta · Anna"><small>Nur zur schnellen Zuordnung in deiner Passliste.</small></label>
+              <label>E-Mail optional<input name="email" type="email" placeholder="anna@schule.de"></label>
+              <div class="form-row">
+                <label>Startguthaben<input name="credits" type="number" min="1" max="1000" value="20" required></label>
+                <label>Sprache
+                  <select name="invitationLocale">
+                    <option value="de">Deutsch</option>
+                    <option value="en">English</option>
+                  </select>
+                </label>
+              </div>
+              <label>Ablauf optional<input name="expiresAt" type="datetime-local"></label>
+              <button type="submit" class="primary">Pass erstellen</button>
+            </form>
+          </article>
+
+          <section class="pass-directory" aria-labelledby="passDirectoryTitle">
+            <div class="directory-heading">
+              <div>
+                <h3 id="passDirectoryTitle">Arbeitsbereiche</h3>
+                <p>Interne Zuordnung, Guthaben, Geräte und Passstatus auf einen Blick.</p>
+              </div>
+            </div>
+            <div class="pass-list" id="passList"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="admin-tab-panel" id="panel-credits" role="tabpanel" aria-labelledby="tab-credits" data-admin-panel="credits" hidden>
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Weitergeben</p>
+            <h2>Guthabenkarten</h2>
+            <p>Einmaliges Entwurfsguthaben für einen bestehenden SheetifyIMG Pass erstellen.</p>
+          </div>
+        </div>
+        <div class="credit-layout">
+          <article class="admin-card admin-card--form">
+            <form id="createTopupForm" class="admin-form admin-form--stacked">
+              <label>Entwurfsseiten<input name="amount" type="number" min="1" max="1000" value="10" required></label>
+              <label>Bezeichnung optional<input name="label" placeholder="10 Entwurfsseiten"></label>
+              <label>E-Mail optional<input name="email" type="email" placeholder="anna@schule.de"></label>
+              <label>Sprache der Karte
+                <select name="locale">
+                  <option value="de">Deutsch</option>
+                  <option value="en">English</option>
+                </select>
+              </label>
+              <button type="submit" class="primary">Guthabenkarte erstellen</button>
+            </form>
+          </article>
+          <aside class="credit-note">
+            <p class="eyebrow">Einlösung</p>
+            <h3>Die Karte ergänzt einen Pass.</h3>
+            <p>Ist das Gerät bereits verbunden, wird das Guthaben direkt gebucht. Andernfalls muss zuerst ein vorhandener Pass verbunden werden.</p>
+          </aside>
+        </div>
+
+        <section class="generated-card hidden" id="generatedCard" data-generated-result="topup" aria-live="polite">
+          <div>
+            <p class="eyebrow">Gerade erstellt</p>
+            <h3 id="generatedTitle">Guthabenkarte erstellt</h3>
+            <p id="generatedSummary">Die Karte kann jetzt versendet oder heruntergeladen werden.</p>
+          </div>
+          <div class="generated-downloads">
+            <button type="button" class="primary compact" id="downloadCardPng">PNG herunterladen</button>
+            <button type="button" class="secondary compact" id="downloadCardSvg">SVG herunterladen</button>
+          </div>
+          <p class="generated-secret">Der vollständige Code ist nur in der erzeugten Karte verfügbar.</p>
+        </section>
+      </section>
+
+      <section class="admin-tab-panel" id="panel-feedback" role="tabpanel" aria-labelledby="tab-feedback" data-admin-panel="feedback" hidden>
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Beta-Auswertung</p>
+            <h2>Feedback der Tester</h2>
+            <p>Rückmeldungen bleiben mit Gerät, Projekt, Run und Entwurf verknüpft.</p>
+          </div>
+          <button type="button" class="ghost compact" id="refreshFeedback">Aktualisieren</button>
+        </div>
+        <div class="feedback-list" id="feedbackList"></div>
+      </section>
+
+      <section class="admin-tab-panel" id="panel-inbox" role="tabpanel" aria-labelledby="tab-inbox" data-admin-panel="inbox" hidden>
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Support</p>
+            <h2>Anfragen und Posteingang</h2>
+            <p>App-Anfragen bearbeiten und bei Bedarf ins vollständige Postfach wechseln.</p>
+          </div>
+          <button type="button" class="ghost compact" id="refreshRequests">Aktualisieren</button>
+        </div>
+        <div class="inbox-note">
+          <div>
+            <strong>Proton bleibt das vollständige Postfach.</strong>
+            <p>Hier erscheinen App-Anfragen und – nach Aktivierung des Webhooks – sichere Textkopien eingehender Mails.</p>
+          </div>
+          <a class="button-link secondary" href="https://mail.proton.me/u/0/inbox" target="_blank" rel="noopener">Proton öffnen</a>
+        </div>
+        <div class="request-list" id="requestList"></div>
+      </section>
+    </main>
+    <div class="admin-toast hidden" id="adminToast" role="status"></div>
+    <script src="/admin.js?v=8"></script>
+  </body>
+</html>

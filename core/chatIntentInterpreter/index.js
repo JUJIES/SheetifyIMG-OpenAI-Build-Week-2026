@@ -138,7 +138,13 @@ function normalizeRevisionTarget(value = null) {
       ...base,
       proposalId: textValue(value.proposalId).slice(0, 160) || null,
       contentMirrorId: textValue(value.contentMirrorId || value.conceptId).slice(0, 160) || null,
-      conceptVersion: Number.isInteger(conceptVersion) && conceptVersion > 0 ? conceptVersion : null
+      conceptVersion: Number.isInteger(conceptVersion) && conceptVersion > 0 ? conceptVersion : null,
+      elementId: textValue(value.elementId).slice(0, 160) || null,
+      elementType: textValue(value.elementType).slice(0, 40) || null,
+      elementLabel: textValue(value.elementLabel).slice(0, 120) || null,
+      elementPage: Number.isInteger(Number(value.elementPage)) && Number(value.elementPage) > 0
+        ? Number(value.elementPage)
+        : null
     };
   }
   const page = Number(value.page || 0) || null;

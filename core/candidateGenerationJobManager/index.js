@@ -222,6 +222,16 @@ async function startCandidateGenerationJob(projectId, input = {}, options = {}) 
   }
 
   const activeJob = buildActiveJob(input, now);
+  const quotaReservation = options.generationQuota
+    ? await options.generationQuota.reserve({
+      projectId,
+      jobId: activeJob.jobId,
+      pageCount: activeJob.pageCount
+    })
+    : null;
+  if (quotaReservation?.id) {
+    activeJob.quotaReservationId = quotaReservation.id;
+  }
   const usageAttribution = extendUsageAttribution(
     createUsageAttribution(options.usageAttribution, {
       projectId,
@@ -234,16 +244,33 @@ async function startCandidateGenerationJob(projectId, input = {}, options = {}) 
     ...state,
     activeJob
   };
-  await writeRawState(projectDir, nextState, { now });
-  activeJobs.set(projectDir, {
-    jobId: activeJob.jobId,
-    promise: null
-  });
   const refreshSnapshot = options.refreshStatusSnapshot || require("../statusSnapshot").refreshStatusSnapshot;
-  await refreshSnapshot(projectDir, {
-    now,
-    source: "candidate_generation_started"
-  });
+  try {
+    await writeRawState(projectDir, nextState, { now });
+    activeJobs.set(projectDir, {
+      jobId: activeJob.jobId,
+      promise: null
+    });
+    await refreshSnapshot(projectDir, {
+      now,
+      source: "candidate_generation_started"
+    });
+  } catch (error) {
+    activeJobs.delete(projectDir);
+    if (quotaReservation?.id) {
+      await options.generationQuota.refund(quotaReservation.id, "generation_setup_failed").catch(() => {});
+    }
+    try {
+      const failedState = await readRawState(projectDir, { now });
+      if (failedState.activeJob?.jobId === activeJob.jobId) {
+        failedState.activeJob = null;
+        await writeRawState(projectDir, failedState, { now });
+      }
+    } catch {
+      // Preserve the original setup error; restart recovery also clears orphaned reservations.
+    }
+    throw error;
+  }
 
   const executeJob = options.executeJob || require("../imageGenerationManager").generateImageCandidate;
   const task = (async () => {
@@ -256,6 +283,18 @@ async function startCandidateGenerationJob(projectId, input = {}, options = {}) 
         now,
         usageAttribution
       });
+      let quotaSettlement = null;
+      let quotaSettlementPending = false;
+      if (quotaReservation?.id) {
+        try {
+          quotaSettlement = await options.generationQuota.settle(
+            quotaReservation.id,
+            Number(result?.assets?.length || result?.candidate?.pages?.length || 0)
+          );
+        } catch {
+          quotaSettlementPending = true;
+        }
+      }
       const completedAt = new Date().toISOString();
       const currentState = await readRawState(projectDir, { now: completedAt });
       currentState.activeJob = null;
@@ -269,6 +308,9 @@ async function startCandidateGenerationJob(projectId, input = {}, options = {}) 
         candidateId: result?.candidate?.id || null,
         pageCount: activeJob.pageCount,
         imageProvider: activeJob.imageProvider || null,
+        quotaReservationId: quotaReservation?.id || null,
+        quotaSettlementPending,
+        balance: quotaSettlement?.balance ?? null,
         seenAt: null
       };
       await writeRawState(projectDir, currentState, { now: completedAt });
@@ -277,6 +319,9 @@ async function startCandidateGenerationJob(projectId, input = {}, options = {}) 
         source: "candidate_generation_completed"
       });
     } catch (error) {
+      if (quotaReservation?.id) {
+        await options.generationQuota.refund(quotaReservation.id, "generation_failed").catch(() => {});
+      }
       const completedAt = new Date().toISOString();
       const currentState = await readRawState(projectDir, { now: completedAt });
       currentState.activeJob = null;
@@ -288,6 +333,7 @@ async function startCandidateGenerationJob(projectId, input = {}, options = {}) 
         updatedAt: completedAt,
         pageCount: activeJob.pageCount,
         imageProvider: activeJob.imageProvider || null,
+        quotaReservationId: quotaReservation?.id || null,
         message: String(error?.message || error || "Die Bildgenerierung konnte nicht abgeschlossen werden.")
           .trim()
           .slice(0, 500)
@@ -298,7 +344,9 @@ async function startCandidateGenerationJob(projectId, input = {}, options = {}) 
         source: "candidate_generation_failed"
       });
     } finally {
-      activeJobs.delete(projectDir);
+      if (activeJobs.get(projectDir)?.jobId === activeJob.jobId) {
+        activeJobs.delete(projectDir);
+      }
     }
   })();
 

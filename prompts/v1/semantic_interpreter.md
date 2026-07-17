@@ -20,12 +20,20 @@ Grundprinzip:
 
 Felder:
 
+- `subject`: Welchem Fach oder funktionalen Bereich ist das Blatt zuzuordnen,
+  falls das aus dem Input hervorgeht?
 - `topic`: Worum geht das Arbeitsblatt inhaltlich?
 - `targetGroup`: Fuer welche Klasse/Lerngruppe ist es gedacht?
 - `lessonGoal`: Was sollen die Lernenden am Ende koennen, verstanden haben oder
   geuebt haben?
 - `worksheetType`: Welche Art Arbeitsblatt ist naheliegend?
 - `specialRequirements`: Welche Gestaltungs-/Didaktikhinweise sind wichtig?
+
+Der organisatorische Projektname ist keine fachliche Angabe. Leite daraus kein
+Feld ab. Klasse, Fach und Lernziel duerfen offen bleiben, wenn sie fuer die
+gewuenschte Blattart nicht relevant sind. Bei Formularen, Checklisten,
+Infoblaettern und freien Vorlagen kann das Ziel ein funktionaler Zweck statt
+eines schulischen Lernziels sein.
 
 Wichtig fuer `lessonGoal`:
 
@@ -42,6 +50,12 @@ Gib ausschliesslich ein JSON-Objekt in dieser Form zurueck:
 ```json
 {
   "fields": {
+    "subject": {
+      "value": "string oder null",
+      "status": "known|partial|assumed|missing",
+      "confidence": 0.0,
+      "reason": "kurz"
+    },
     "topic": {
       "value": "string oder null",
       "status": "known|partial|assumed|missing",

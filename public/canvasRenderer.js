@@ -10,6 +10,8 @@
   }
 
   function createCanvasRenderer(dependencies = {}) {
+    const t = (key, variables = {}) => global.sheetifyLocale?.t(key, variables) || key;
+    const isEnglish = () => global.sheetifyLocale?.current() === "en";
     const escapeHtml = requiredFunction(dependencies, "escapeHtml");
     const sourceFilesFrom = requiredFunction(dependencies, "sourceFilesFrom");
     const renderSourceInputs = requiredFunction(dependencies, "renderSourceInputs");
@@ -17,6 +19,7 @@
     const conceptSectionsFromContent = requiredFunction(dependencies, "conceptSectionsFromContent");
     const renderConceptDocumentHeader = requiredFunction(dependencies, "renderConceptDocumentHeader");
     const renderConceptSections = requiredFunction(dependencies, "renderConceptSections");
+    const renderWorksheetBlueprint = requiredFunction(dependencies, "renderWorksheetBlueprint");
     const statusWord = requiredFunction(dependencies, "statusWord");
     const workspaceConceptArtifacts = requiredFunction(dependencies, "workspaceConceptArtifacts");
     const currentConceptArtifact = requiredFunction(dependencies, "currentConceptArtifact");
@@ -70,16 +73,16 @@
       if (!hasSourceInput && !userMessages.length) {
         return `
           <article class="canvas-document">
-            <p class="detail-label">Start</p>
-            <h3>${escapeHtml(workspace.project?.title || "Projekt")}</h3>
-            <p class="detail-muted">Noch kein Input vorhanden. Schreibe im Chat, was entstehen soll, oder lade Material dazu.</p>
+            <p class="detail-label">${escapeHtml(t("app.empty.eyebrow"))}</p>
+            <h3>${escapeHtml(workspace.project?.title || t("app.target.project"))}</h3>
+            <p class="detail-muted">${escapeHtml(isEnglish() ? "No input yet. Describe what you want to create in the chat, or attach material." : "Noch kein Input vorhanden. Schreibe im Chat, was entstehen soll, oder lade Material dazu.")}</p>
           </article>
         `;
       }
       return `
         <article class="canvas-document">
           <p class="detail-label">Input</p>
-          <h3>${escapeHtml(workspace.project?.title || "Projekt")}</h3>
+          <h3>${escapeHtml(workspace.project?.title || t("app.target.project"))}</h3>
           ${renderSourceInputs({ source, projectId: workspace.project?.projectId })}
           ${renderRawInputMessages(userMessages)}
         </article>
@@ -100,14 +103,14 @@
             brief,
             content: {},
             teachingContext: workspace.teachingContext || {},
-            label: "Arbeitsblatt-Konzept",
+            label: t("app.concept.title"),
             titleTag: "h3",
             statusLabel: statusWord(workspace.documents?.brief?.status)
           })}
           <div class="detail-grid">
-            <div><span>Fach</span><strong>${escapeHtml(brief.subject || "offen")}</strong></div>
-            <div><span>Zielgruppe</span><strong>${escapeHtml(brief.targetGroup || "offen")}</strong></div>
-            <div><span>Status</span><strong>${escapeHtml(statusWord(workspace.documents?.brief?.status))}</strong></div>
+            <div><span>${escapeHtml(t("app.concept.subject"))}</span><strong>${escapeHtml(brief.subject || t("app.context.openValue"))}</strong></div>
+            <div><span>${escapeHtml(t("app.concept.targetGroup"))}</span><strong>${escapeHtml(brief.targetGroup || t("app.context.openValue"))}</strong></div>
+            <div><span>${escapeHtml(t("app.concept.status"))}</span><strong>${escapeHtml(statusWord(workspace.documents?.brief?.status))}</strong></div>
             <div><span>Layout</span><strong>${escapeHtml(brief.outputPreference?.layout || "auto")}</strong></div>
           </div>
           ${renderConceptSections(sections, { compact: false })}
@@ -119,48 +122,22 @@
       const conceptArtifact = selectedConceptArtifact(workspace, ui);
       const content = conceptArtifact?.data || workspace.documents?.content?.data || {};
       const brief = workspace.documents?.brief?.data || {};
-      const sections = conceptSectionsFromContent(content, {
+      return renderWorksheetBlueprint({
+        content,
         brief,
         project: workspace.project || {},
-        teachingContext: workspace.teachingContext || {}
+        teachingContext: workspace.teachingContext || {},
+        concept: conceptArtifact || null
       });
-      const versionLabel = conceptArtifact?.version ? `Konzept v${conceptArtifact.version}` : "aktueller Stand";
-      const statusLabel = [
-        statusWord(conceptArtifact?.status || workspace.documents?.content?.status),
-        conceptArtifact?.current ? "aktueller Stand" : null
-      ].filter(Boolean).join(" · ");
-      return `
-        <article class="canvas-document">
-          ${renderConceptDocumentHeader({
-            project: workspace.project || {},
-            brief,
-            content,
-            teachingContext: workspace.teachingContext || {},
-            label: `Arbeitsblatt-Konzept · ${versionLabel}`,
-            titleTag: "h3",
-            versionLabel,
-            statusLabel
-          })}
-          <div class="detail-grid">
-            <div><span>Version</span><strong>${escapeHtml(versionLabel)}</strong></div>
-            <div><span>Status</span><strong>${escapeHtml(statusLabel || "offen")}</strong></div>
-            <div><span>Konzept</span><strong>${workspace.approval?.canGenerate ? "übernommen" : "offen"}</strong></div>
-            <div><span>Texte</span><strong>${escapeHtml(content.readingTexts?.length || 0)}</strong></div>
-            <div><span>Aufgaben</span><strong>${escapeHtml(content.tasks?.length || 0)}</strong></div>
-            <div><span>Bildmaterial</span><strong>${escapeHtml(content.imageMaterials?.length || 0)}</strong></div>
-          </div>
-          ${renderConceptSections(sections, { compact: false })}
-        </article>
-      `;
     }
 
     function renderCanvasWarnings(workspace = {}) {
       const warnings = workspace.documents?.warnings?.warnings || [];
       return `
         <article class="canvas-document">
-          <p class="detail-label">Arbeitsblatt-Konzept</p>
-          <h3>${warnings.length ? `${warnings.length} Hinweise` : "Keine aktiven Warnungen"}</h3>
-          ${warnings.length ? `<ul>${warnings.map((warning) => `<li>${escapeHtml(warning.message || warning.category || "Warnung")}</li>`).join("")}</ul>` : '<p class="detail-muted">Die technischen und inhaltlichen Hinweise sind leer.</p>'}
+          <p class="detail-label">${escapeHtml(t("app.concept.title"))}</p>
+          <h3>${warnings.length ? escapeHtml(isEnglish() ? `${warnings.length} notices` : `${warnings.length} Hinweise`) : escapeHtml(isEnglish() ? "No active notices" : "Keine aktiven Warnungen")}</h3>
+          ${warnings.length ? `<ul>${warnings.map((warning) => `<li>${escapeHtml(warning.message || warning.category || (isEnglish() ? "Notice" : "Warnung"))}</li>`).join("")}</ul>` : `<p class="detail-muted">${escapeHtml(isEnglish() ? "There are no technical or content notices." : "Die technischen und inhaltlichen Hinweise sind leer.")}</p>`}
         </article>
       `;
     }
@@ -170,10 +147,10 @@
       const cards = candidates.map((candidate) => renderCandidateCard(candidate, workspace, { showConceptTag: false }));
       return cards.length
         ? `<div class="canvas-candidate-grid">${cards.join("")}</div>`
-        : '<div class="no-preview">Noch keine Entwürfe vorhanden.</div>';
+        : `<div class="no-preview">${escapeHtml(t("app.preview.noDrafts"))}</div>`;
     }
 
-    function renderCanvasPages(pages = [], emptyText = "Keine Vorschau verfügbar.") {
+    function renderCanvasPages(pages = [], emptyText = isEnglish() ? "No preview available." : "Keine Vorschau verfügbar.") {
       return pages.length
         ? `<div class="canvas-page-stack">${pages.map(renderPageCard).join("")}</div>`
         : `<div class="no-preview">${escapeHtml(emptyText)}</div>`;

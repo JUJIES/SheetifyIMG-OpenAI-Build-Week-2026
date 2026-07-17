@@ -32,7 +32,6 @@ function textParts(values = []) {
 
 function collectedText({ project = {}, lessonBrief = {}, contentMirror = {}, imageSpec = {} } = {}) {
   return normalize(textParts([
-    project.title,
     project.subject,
     project.topic,
     project.manifest?.targetGroup,

@@ -55,7 +55,8 @@ function toPosix(value) {
 }
 
 function assetUrl(repoRoot, filePath) {
-  return `/files/${encodeURIComponent(toPosix(path.relative(repoRoot, filePath))).replace(/%2F/g, "/")}`;
+  const reference = Buffer.from(toPosix(path.relative(repoRoot, filePath)), "utf8").toString("base64url");
+  return `/api/files/${reference}`;
 }
 
 function safeFileName(value) {
@@ -851,6 +852,7 @@ async function createWorksheetSnapshot(input = {}, options = {}) {
   const manifest = {
     schemaVersion: WORKSHEET_LIBRARY_SCHEMA_VERSION,
     worksheetId,
+    ownerPassId: options.ownerPassId || project.manifest?.ownerPassId || null,
     kind,
     title,
     status: "stored",

@@ -1,0 +1,496 @@
+"use strict";
+
+const state = {
+  overview: null,
+  cardSvg: null,
+  cardPngDataUrl: null,
+  cardName: "sheetify-card",
+  generatedCard: null,
+  activeTab: "passes",
+  recoveryLinks: new Map()
+};
+
+const elements = {
+  status: document.querySelector("#adminStatus"),
+  createPassForm: document.querySelector("#createPassForm"),
+  createTopupForm: document.querySelector("#createTopupForm"),
+  generated: document.querySelector("#generatedCard"),
+  generatedTitle: document.querySelector("#generatedTitle"),
+  generatedSummary: document.querySelector("#generatedSummary"),
+  downloadPng: document.querySelector("#downloadCardPng"),
+  downloadSvg: document.querySelector("#downloadCardSvg"),
+  passList: document.querySelector("#passList"),
+  requestList: document.querySelector("#requestList"),
+  feedbackList: document.querySelector("#feedbackList"),
+  refreshPasses: document.querySelector("#refreshPasses"),
+  refreshRequests: document.querySelector("#refreshRequests"),
+  refreshFeedback: document.querySelector("#refreshFeedback"),
+  tabs: [...document.querySelectorAll("[data-admin-tab]")],
+  panels: [...document.querySelectorAll("[data-admin-panel]")],
+  passTabCount: document.querySelector("#passTabCount"),
+  feedbackTabCount: document.querySelector("#feedbackTabCount"),
+  inboxTabCount: document.querySelector("#inboxTabCount"),
+  contact: document.querySelector(".admin-contact"),
+  toast: document.querySelector("#adminToast")
+};
+
+async function api(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    headers: { ...(options.body ? { "content-type": "application/json" } : {}), ...(options.headers || {}) }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.message || "Admin-Anfrage fehlgeschlagen.");
+  return payload;
+}
+
+function toast(message) {
+  elements.toast.textContent = message;
+  elements.toast.classList.remove("hidden");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => elements.toast.classList.add("hidden"), 3200);
+}
+
+function emailDeliveryNotice(delivery) {
+  if (delivery?.status === "sent") return " Karte wurde per E-Mail versendet.";
+  if (delivery?.status === "failed") return " Die Karte wurde erstellt, aber die E-Mail konnte nicht versendet werden.";
+  if (delivery?.status === "disabled") return " Mailversand ist noch nicht aktiviert.";
+  return "";
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
+}
+
+function showCard(payload, title, fileName, options = {}) {
+  state.cardSvg = payload.svg;
+  state.cardPngDataUrl = payload.pngDataUrl;
+  state.cardName = fileName;
+  state.generatedCard = {
+    kind: options.kind || "topup",
+    passId: options.passId || null,
+    title,
+    svg: payload.svg,
+    pngDataUrl: payload.pngDataUrl,
+    fileName
+  };
+  renderPasses();
+  if (state.generatedCard.kind === "pass") {
+    elements.generated.classList.add("hidden");
+    return;
+  }
+  elements.generatedTitle.textContent = title;
+  elements.generatedSummary.textContent = options.summary || "Die Karte kann jetzt versendet oder heruntergeladen werden.";
+  elements.generated.classList.remove("hidden");
+  elements.generated.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function downloadGeneratedCard(format) {
+  const generated = state.generatedCard;
+  if (!generated) return;
+  const link = document.createElement("a");
+  if (format === "svg") {
+    link.href = URL.createObjectURL(new Blob([generated.svg], { type: "image/svg+xml" }));
+    link.download = `${generated.fileName}.svg`;
+  } else {
+    link.href = generated.pngDataUrl;
+    link.download = `${generated.fileName}.png`;
+  }
+  link.click();
+  if (format === "svg") setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+function setActiveTab(value, options = {}) {
+  const next = elements.tabs.some((tab) => tab.dataset.adminTab === value) ? value : "passes";
+  state.activeTab = next;
+  elements.tabs.forEach((tab) => {
+    const active = tab.dataset.adminTab === next;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", String(active));
+    tab.tabIndex = active ? 0 : -1;
+  });
+  elements.panels.forEach((panel) => {
+    const active = panel.dataset.adminPanel === next;
+    panel.classList.toggle("active", active);
+    panel.hidden = !active;
+  });
+  if (options.updateUrl !== false) history.replaceState(null, "", `${location.pathname}${location.search}#${next}`);
+}
+
+function passStatusLabel(status) {
+  return ({ active: "Aktiv", paused: "Pausiert", revoked: "Gesperrt" })[status] || status;
+}
+
+function optionalIsoTimestamp(value) {
+  const normalized = String(value || "").trim();
+  return normalized ? new Date(normalized).toISOString() : null;
+}
+
+function requestKindLabel(kind) {
+  return ({
+    recovery: "Pass wiederherstellen",
+    beta_access: "Beta-Zugang",
+    problem: "Problem oder Frage",
+    email: "Eingehende E-Mail"
+  })[kind] || kind;
+}
+
+function feedbackCategoryLabel(category) {
+  return ({
+    result: "Ergebnis / Entwurf",
+    usability: "Bedienung",
+    problem: "Technisches Problem",
+    idea: "Idee oder Wunsch",
+    general: "Allgemein"
+  })[category] || category;
+}
+
+function feedbackStatusLabel(status) {
+  return ({ new: "Neu", reviewed: "Geprüft", resolved: "Erledigt" })[status] || status;
+}
+
+function feedbackTagLabel(tag) {
+  return ({
+    helpful: "Hilfreich",
+    unclear: "Unklar",
+    incorrect: "Inhaltlich falsch",
+    design: "Design",
+    technical: "Technik"
+  })[tag] || tag;
+}
+
+function shortDate(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+}
+
+function mailtoHref(request, recoveryUrl = "") {
+  const subject = recoveryUrl
+    ? "Dein SheetifyIMG Pass – Wiederherstellung"
+    : `Re: ${request.subject || requestKindLabel(request.kind)}`;
+  const greeting = request.name ? `Hallo ${request.name},` : "Hallo,";
+  const body = recoveryUrl
+    ? `${greeting}\n\nhier ist dein einmaliger SheetifyIMG-Wiederherstellungslink. Er ist 30 Minuten gültig:\n\n${recoveryUrl}\n\nViele Grüße\nSheetifyIMG`
+    : `${greeting}\n\nvielen Dank für deine Nachricht.\n\n\nViele Grüße\nSheetifyIMG`;
+  return `mailto:${request.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
+async function copyText(value) {
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch {
+    const field = document.createElement("textarea");
+    field.value = value;
+    field.style.position = "fixed";
+    field.style.opacity = "0";
+    document.body.append(field);
+    field.select();
+    document.execCommand("copy");
+    field.remove();
+  }
+}
+
+function renderPasses() {
+  const passes = state.overview?.passes || [];
+  if (!passes.length) {
+    elements.passList.innerHTML = '<div class="empty">Noch keine SheetifyIMG Pässe.</div>';
+    return;
+  }
+  elements.passList.innerHTML = passes.map((pass) => {
+    const generated = state.generatedCard?.kind === "pass" && state.generatedCard.passId === pass.id
+      ? `<span class="pass-card-ready" data-generated-result="pass">Karte gerade erstellt · Download nur jetzt verfügbar</span>`
+      : "";
+    return `
+      <article class="pass-row" data-pass-id="${escapeHtml(pass.id)}">
+        <div>
+          <h3>${escapeHtml(pass.label)}</h3>
+          <div class="pass-meta">
+            <span class="pass-status ${escapeHtml(pass.status)}">${escapeHtml(passStatusLabel(pass.status))}</span>
+            <span class="pass-locale">${pass.invitationLocale === "en" ? "EN" : "DE"}</span>
+            <span>${pass.deviceCount} ${pass.deviceCount === 1 ? "Gerät" : "Geräte"}</span>
+            ${pass.expiresAt ? `<span>Ablauf ${escapeHtml(shortDate(pass.expiresAt))}</span>` : ""}
+            ${pass.recoveryEmail ? `<span>${escapeHtml(pass.recoveryEmail)}</span>` : ""}
+          </div>
+        </div>
+        <div class="pass-balance"><strong>${pass.balance}</strong><span>Entwurfsseiten</span></div>
+        <div class="pass-actions">
+          ${generated ? '<button class="primary" type="button" data-download-png>PNG</button><button class="secondary" type="button" data-download-svg>SVG</button>' : ""}
+          <button class="secondary" data-grant="3">+3</button>
+          <button class="secondary" data-grant="5">+5</button>
+          <button class="secondary" data-grant="10">+10</button>
+          <button class="ghost" data-toggle-status="${pass.status === "active" ? "paused" : "active"}">${pass.status === "active" ? "Pausieren" : "Aktivieren"}</button>
+          <button class="ghost" data-rotate>Code erneuern</button>
+          <button class="danger" data-delete-pass>Löschen</button>
+        </div>
+        ${generated}
+      </article>`;
+  }).join("");
+}
+
+function renderRequests() {
+  const requests = state.overview?.requests || [];
+  if (!requests.length) {
+    elements.requestList.innerHTML = '<div class="empty">Noch keine Anfragen.</div>';
+    return;
+  }
+  elements.requestList.innerHTML = requests.map((request) => {
+    const recovery = state.recoveryLinks.get(request.id);
+    const title = request.subject || requestKindLabel(request.kind);
+    const attachments = request.attachments?.length
+      ? `<p class="request-attachments">Anhänge nur im Proton-Postfach: ${escapeHtml(request.attachments.join(", "))}</p>`
+      : "";
+    const pass = request.pass
+      ? `<p class="request-pass">Pass: <strong>${escapeHtml(request.pass.label)}</strong> · Code ···· ${escapeHtml(request.pass.codeHint || "")}</p>`
+      : "";
+    const recoveryBox = recovery ? `
+      <div class="recovery-ready">
+        <input value="${escapeHtml(recovery.url)}" readonly aria-label="Wiederherstellungslink">
+        <button class="secondary" type="button" data-copy-link>Link kopieren</button>
+        <a class="button-link primary" href="${escapeHtml(mailtoHref(request, recovery.url))}">Antwort vorbereiten</a>
+        <small>Gültig bis ${escapeHtml(shortDate(recovery.expiresAt))}</small>
+      </div>` : "";
+    return `
+      <article class="request-row ${request.status === "resolved" ? "resolved" : ""}" data-request-id="${escapeHtml(request.id)}">
+        <div class="request-head">
+          <div class="request-tags">
+            <span class="request-source ${escapeHtml(request.source)}">${request.source === "email" ? "E-Mail" : "App"}</span>
+            <span>${escapeHtml(requestKindLabel(request.kind))}</span>
+            <span class="request-status">${request.status === "resolved" ? "Erledigt" : "Offen"}</span>
+          </div>
+          <time datetime="${escapeHtml(request.createdAt)}">${escapeHtml(shortDate(request.createdAt))}</time>
+        </div>
+        <h3>${escapeHtml(title)}</h3>
+        <a class="request-email" href="mailto:${escapeHtml(request.email)}">${escapeHtml(request.name ? `${request.name} · ${request.email}` : request.email)}</a>
+        ${request.message ? `<p class="request-message">${escapeHtml(request.message)}</p>` : ""}
+        ${attachments}
+        ${pass}
+        ${recoveryBox}
+        <div class="request-actions">
+          <a class="button-link secondary" href="${escapeHtml(mailtoHref(request))}">Antworten</a>
+          ${request.kind === "recovery" && request.pass && !recovery ? '<button class="primary" type="button" data-create-recovery>Wiederherstellungslink</button>' : ""}
+          <button class="ghost" type="button" data-request-status="${request.status === "resolved" ? "open" : "resolved"}">${request.status === "resolved" ? "Wieder öffnen" : "Erledigt"}</button>
+        </div>
+      </article>`;
+  }).join("");
+}
+
+function renderFeedback() {
+  const feedback = state.overview?.feedback || [];
+  if (!feedback.length) {
+    elements.feedbackList.innerHTML = '<div class="empty">Noch kein Beta-Feedback.</div>';
+    return;
+  }
+  elements.feedbackList.innerHTML = feedback.map((entry) => {
+    const context = [
+      entry.pass?.label || null,
+      entry.participant?.deviceName || null,
+      entry.projectId ? `Projekt ${entry.projectId}` : null,
+      entry.runId ? `Run ${entry.runId}` : null,
+      entry.candidateId ? `Entwurf ${entry.candidateId}` : null,
+      entry.page ? `Seite ${entry.page}` : null
+    ].filter(Boolean);
+    const tags = entry.tags?.length
+      ? `<div class="feedback-tags">${entry.tags.map((tag) => `<span>${escapeHtml(feedbackTagLabel(tag))}</span>`).join("")}</div>`
+      : "";
+    return `
+      <article class="feedback-row ${escapeHtml(entry.status)}" data-feedback-id="${escapeHtml(entry.id)}">
+        <div class="request-head">
+          <div class="request-tags">
+            <span class="feedback-status ${escapeHtml(entry.status)}">${escapeHtml(feedbackStatusLabel(entry.status))}</span>
+            <span>${escapeHtml(feedbackCategoryLabel(entry.category))}</span>
+            ${entry.deviceClass ? `<span>${escapeHtml(entry.deviceClass)}</span>` : ""}
+          </div>
+          <time datetime="${escapeHtml(entry.createdAt)}">${escapeHtml(shortDate(entry.createdAt))}</time>
+        </div>
+        <div class="feedback-summary">
+          <strong>${entry.rating ? `${entry.rating}/5` : "Ohne Bewertung"}</strong>
+          <span>${escapeHtml(context.slice(0, 2).join(" · ") || "Pseudonymer Beta-Tester")}</span>
+        </div>
+        ${entry.message ? `<p class="request-message">${escapeHtml(entry.message)}</p>` : ""}
+        ${tags}
+        ${context.length > 2 ? `<details class="feedback-context"><summary>Technischen Kontext anzeigen</summary><p>${escapeHtml(context.slice(2).join(" · "))}</p></details>` : ""}
+        <div class="request-actions">
+          ${entry.status !== "reviewed" ? '<button class="secondary" type="button" data-feedback-status="reviewed">Als geprüft markieren</button>' : ""}
+          ${entry.status !== "resolved" ? '<button class="ghost" type="button" data-feedback-status="resolved">Erledigt</button>' : '<button class="ghost" type="button" data-feedback-status="new">Wieder öffnen</button>'}
+        </div>
+      </article>`;
+  }).join("");
+}
+
+async function loadOverview() {
+  state.overview = await api("/api/admin/overview");
+  const beta = state.overview.beta;
+  const openRequests = state.overview.requests.filter((request) => request.status === "open").length;
+  const newFeedback = state.overview.feedback.filter((entry) => entry.status === "new").length;
+  elements.status.textContent = `${state.overview.passes.length}/10 Pässe · ${newFeedback} Feedback neu · ${openRequests} Anfragen offen · Entwürfe ${beta.paidGenerationEnabled ? "aktiv" : "pausiert"}`;
+  elements.passTabCount.textContent = String(state.overview.passes.length);
+  elements.feedbackTabCount.textContent = String(newFeedback);
+  elements.feedbackTabCount.hidden = newFeedback === 0;
+  elements.inboxTabCount.textContent = String(openRequests);
+  elements.inboxTabCount.hidden = openRequests === 0;
+  if (elements.contact && beta.contactEmail) {
+    elements.contact.textContent = beta.contactEmail;
+    elements.contact.href = `mailto:${beta.contactEmail}`;
+  }
+  renderPasses();
+  renderRequests();
+  renderFeedback();
+}
+
+elements.createPassForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = new FormData(elements.createPassForm);
+  try {
+    const result = await api("/api/admin/passes", {
+      method: "POST",
+      body: JSON.stringify({
+        label: data.get("label"),
+        email: data.get("email"),
+        credits: Number(data.get("credits")),
+        expiresAt: optionalIsoTimestamp(data.get("expiresAt")),
+        invitationLocale: data.get("invitationLocale")
+      })
+    });
+    const notice = emailDeliveryNotice(result.emailDelivery);
+    if (notice) toast(notice.trim());
+    elements.createPassForm.reset();
+    elements.createPassForm.elements.credits.value = 20;
+    await loadOverview();
+    showCard(result, "Passkarte erstellt", `sheetify-img-pass-${result.pass.id}`, { kind: "pass", passId: result.pass.id });
+  } catch (error) { toast(error.message); }
+});
+
+elements.createTopupForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = new FormData(elements.createTopupForm);
+  try {
+    const result = await api("/api/admin/topup-cards", {
+      method: "POST",
+      body: JSON.stringify({
+        amount: Number(data.get("amount")),
+        label: data.get("label"),
+        email: data.get("email"),
+        locale: data.get("locale")
+      })
+    });
+    showCard(result, "Guthabenkarte erstellt", `sheetify-guthaben-${result.card.credits}`, {
+      kind: "topup",
+      summary: `${result.card.credits} Entwurfsseiten · Karte jetzt herunterladen oder per E-Mail weitergeben.`
+    });
+    const notice = emailDeliveryNotice(result.emailDelivery);
+    if (notice) toast(notice.trim());
+  } catch (error) { toast(error.message); }
+});
+
+elements.passList.addEventListener("click", async (event) => {
+  const row = event.target.closest("[data-pass-id]");
+  const button = event.target.closest("button");
+  if (!row || !button) return;
+  const passId = row.dataset.passId;
+  if (button.hasAttribute("data-download-png")) {
+    downloadGeneratedCard("png");
+    return;
+  }
+  if (button.hasAttribute("data-download-svg")) {
+    downloadGeneratedCard("svg");
+    return;
+  }
+  let cardResult = null;
+  try {
+    if (button.dataset.grant) {
+      const result = await api(`/api/admin/passes/${encodeURIComponent(passId)}/grant`, { method: "POST", body: JSON.stringify({ amount: Number(button.dataset.grant) }) });
+      toast(`${button.dataset.grant} Entwurfsseiten gutgeschrieben.${emailDeliveryNotice(result.emailDelivery)}`);
+    } else if (button.dataset.toggleStatus) {
+      await api(`/api/admin/passes/${encodeURIComponent(passId)}`, { method: "PATCH", body: JSON.stringify({ status: button.dataset.toggleStatus }) });
+    } else if (button.hasAttribute("data-rotate")) {
+      if (!confirm("Passcode erneuern und alle verbundenen Geräte abmelden?")) return;
+      cardResult = await api(`/api/admin/passes/${encodeURIComponent(passId)}/rotate`, { method: "POST", body: JSON.stringify({ revokeSessions: true }) });
+      const notice = emailDeliveryNotice(cardResult.emailDelivery);
+      if (notice) toast(notice.trim());
+    } else if (button.hasAttribute("data-delete-pass")) {
+      const pass = state.overview?.passes?.find((entry) => entry.id === passId);
+      const label = pass?.label || "diesen Pass";
+      if (!confirm(`„${label}“ und alle zugehörigen Arbeitsbereiche, Geräte, Guthabenverläufe, Rückmeldungen und Anfragen unwiderruflich löschen?`)) return;
+      await api(`/api/admin/passes/${encodeURIComponent(passId)}`, { method: "DELETE" });
+      if (state.generatedCard?.passId === passId) state.generatedCard = null;
+      toast("Pass und zugehörige Beta-Daten wurden gelöscht.");
+    }
+    await loadOverview();
+    if (button.hasAttribute("data-rotate")) {
+      showCard(cardResult, "Passcode erneuert", `sheetify-img-pass-${passId}`, { kind: "pass", passId });
+    }
+  } catch (error) { toast(error.message); }
+});
+
+elements.requestList.addEventListener("click", async (event) => {
+  const row = event.target.closest("[data-request-id]");
+  const button = event.target.closest("button");
+  if (!row || !button) return;
+  const requestId = row.dataset.requestId;
+  try {
+    if (button.hasAttribute("data-create-recovery")) {
+      const recovery = await api(`/api/admin/requests/${encodeURIComponent(requestId)}/recovery-link`, {
+        method: "POST",
+        body: "{}"
+      });
+      state.recoveryLinks.set(requestId, recovery);
+      await copyText(recovery.url);
+      renderRequests();
+      toast(recovery.emailDelivery?.status === "sent"
+        ? "Wiederherstellungslink per E-Mail gesendet und kopiert."
+        : "Wiederherstellungslink erstellt und kopiert; E-Mail wurde nicht versendet.");
+      return;
+    }
+    if (button.hasAttribute("data-copy-link")) {
+      await copyText(state.recoveryLinks.get(requestId)?.url || "");
+      toast("Link kopiert.");
+      return;
+    }
+    if (button.dataset.requestStatus) {
+      await api(`/api/admin/requests/${encodeURIComponent(requestId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: button.dataset.requestStatus })
+      });
+      await loadOverview();
+    }
+  } catch (error) { toast(error.message); }
+});
+
+elements.feedbackList.addEventListener("click", async (event) => {
+  const row = event.target.closest("[data-feedback-id]");
+  const button = event.target.closest("button[data-feedback-status]");
+  if (!row || !button) return;
+  try {
+    await api(`/api/admin/feedback/${encodeURIComponent(row.dataset.feedbackId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: button.dataset.feedbackStatus })
+    });
+    await loadOverview();
+  } catch (error) { toast(error.message); }
+});
+
+elements.downloadSvg.addEventListener("click", () => {
+  downloadGeneratedCard("svg");
+});
+
+elements.downloadPng.addEventListener("click", () => {
+  downloadGeneratedCard("png");
+});
+
+elements.tabs.forEach((tab) => tab.addEventListener("click", () => setActiveTab(tab.dataset.adminTab)));
+elements.refreshPasses.addEventListener("click", () => loadOverview().catch((error) => toast(error.message)));
+elements.refreshRequests.addEventListener("click", () => loadOverview().catch((error) => toast(error.message)));
+elements.refreshFeedback.addEventListener("click", () => loadOverview().catch((error) => toast(error.message)));
+setActiveTab(location.hash.replace(/^#/, ""), { updateUrl: false });
+loadOverview().catch((error) => toast(error.message));
+
+let backgroundOverviewRefresh = null;
+function refreshOverviewInBackground() {
+  if (backgroundOverviewRefresh || document.visibilityState !== "visible") return;
+  backgroundOverviewRefresh = loadOverview()
+    .catch(() => {})
+    .finally(() => { backgroundOverviewRefresh = null; });
+}
+window.addEventListener("focus", refreshOverviewInBackground);
+document.addEventListener("visibilitychange", refreshOverviewInBackground);
+setInterval(refreshOverviewInBackground, 12000);

@@ -11,6 +11,12 @@ const CONTEXT_FILE = "teaching-context.json";
 
 const FIELD_DEFINITIONS = Object.freeze([
   {
+    id: "subject",
+    label: "Fach/Bereich",
+    required: false,
+    question: null
+  },
+  {
     id: "topic",
     label: "Thema",
     required: true,
@@ -218,8 +224,7 @@ function inferTopic(message, project = {}) {
   if (project.topic) {
     return project.topic;
   }
-  const title = cleanValue(project.title || "");
-  return title && !/^untitled|neues arbeitsblatt$/i.test(title) ? title : null;
+  return null;
 }
 
 function weakTopicValue(value) {
@@ -569,7 +574,11 @@ function inferFromProjectAndDocuments(context, options = {}) {
   const brief = options.brief || {};
   const content = options.content || {};
   const source = options.source || {};
-  setField(context, "topic", brief.topic || content.title || project.topic || project.title, {
+  setField(context, "subject", brief.subject || project.subject, {
+    onlyIfMissing: true,
+    source: brief.subject ? "brief" : "project"
+  });
+  setField(context, "topic", brief.topic || content.title || project.topic, {
     onlyIfMissing: true,
     source: "project"
   });

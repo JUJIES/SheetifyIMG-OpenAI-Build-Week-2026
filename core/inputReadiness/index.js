@@ -2,43 +2,6 @@
 
 const { EVENT_TYPES } = require("../contracts");
 
-const MIN_MEANINGFUL_CHARS = 32;
-const MEANINGFUL_TERMS = [
-  "arbeitsblatt",
-  "aufgabe",
-  "aufgaben",
-  "bildbeschreibung",
-  "diagramm",
-  "einordnung",
-  "erklaer",
-  "erklär",
-  "evolution",
-  "fach",
-  "klasse",
-  "lernziel",
-  "material",
-  "picture",
-  "schueler",
-  "schüler",
-  "stunde",
-  "thema",
-  "unterricht",
-  "ziel"
-];
-
-const LOW_SIGNAL_MESSAGES = new Set([
-  "test",
-  "okay",
-  "ok",
-  "ja",
-  "nein",
-  "weiter",
-  "mach",
-  "bitte",
-  "prüfen",
-  "pruefen"
-]);
-
 function normalizeText(value) {
   return String(value || "")
     .normalize("NFKC")
@@ -65,13 +28,7 @@ function isMeaningfulTeacherMessage(event = {}) {
     return false;
   }
   const message = normalizeText(event.payload?.message);
-  if (!message || LOW_SIGNAL_MESSAGES.has(message)) {
-    return false;
-  }
-  if (message.length >= MIN_MEANINGFUL_CHARS && /\s/.test(message)) {
-    return true;
-  }
-  return MEANINGFUL_TERMS.some((term) => message.includes(normalizeText(term)));
+  return Boolean(message);
 }
 
 function inputReadiness({ source = {}, events = [] } = {}) {
@@ -99,8 +56,8 @@ function inputReadiness({ source = {}, events = [] } = {}) {
 
 function missingInputAssistantMessage() {
   return [
-    "Ich brauche noch den eigentlichen Arbeitsblatt-Auftrag, bevor ich ein Konzept vorschlage.",
-    "Schreib mir kurz: Thema, Zielgruppe/Klasse und was die Lernenden auf dem Blatt tun sollen. Optional: gewünschte Bildart oder Material."
+    "Sag mir kurz, was für ein Blatt entstehen soll, oder hänge Material dazu an.",
+    "Du kannst frei anfangen; offene Details können wir im Chat klären oder im ersten Konzept als Annahmen sichtbar machen."
   ].join(" ");
 }
 

@@ -9,7 +9,8 @@ Beruecksichtige:
 - Thema
 - Fach
 - Zielgruppe
-- Metadaten aus der Projektanlage wie Titel, Fach, Thema und Klassenstufe
+- Der Projektname ist nur organisatorisch und darf nicht als Thema, Fach,
+  Zielgruppe oder sichtbarer Blatttitel verwendet werden.
 - vorhandenen Projektstand
 - Upload-Auswertungen und relevante Chat-Genese aus `projectState.inputAnalyses`
   und `projectState.recentMessages`
@@ -43,6 +44,9 @@ Default-Guidelines fuer ein einseitiges DIN-A4-Image-First-Arbeitsblatt:
   Visualisierung der Default
 - das Konzept soll grob klaeren, was die Visualisierung zeigt und wo sie steht
 - wenn Details fehlen, darfst du sinnvolle Defaults vorschlagen
+- Fach und Zielgruppe duerfen fehlen, wenn sie fuer die gewuenschte Blattart
+  nicht relevant sind; bei freien Vorlagen oder Formularen darf das Ziel den
+  funktionalen Zweck beschreiben
 - ueberschreibe keine expliziten Vorgaben der Lehrkraft
 - wenn die Lehrkraft exakten Text oder exakte Aufgaben vorgibt, muessen diese
   als verbindliche Content-Control-Anforderung in `requirements` stehen

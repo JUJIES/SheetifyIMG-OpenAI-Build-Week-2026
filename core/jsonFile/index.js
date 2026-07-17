@@ -47,7 +47,18 @@ async function writeJsonFile(filePath, value) {
   await fs.mkdir(dir, { recursive: true });
   try {
     await fs.writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-    await fs.rename(tempPath, filePath);
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await fs.rename(tempPath, filePath);
+        break;
+      } catch (error) {
+        const transientWindowsRename = process.platform === "win32"
+          && ["EACCES", "EBUSY", "EPERM"].includes(error?.code)
+          && attempt < 4;
+        if (!transientWindowsRename) throw error;
+        await delay(10 * (attempt + 1));
+      }
+    }
   } catch (error) {
     await fs.rm(tempPath, { force: true }).catch(() => {});
     throw error;

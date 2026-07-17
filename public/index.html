@@ -16,18 +16,20 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16x16.png">
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/app-icon-180.png">
     <link rel="stylesheet" href="/vendor/simplebar/simplebar.min.css?v=1">
-    <link rel="stylesheet" href="/styles.css?v=111">
+    <link rel="stylesheet" href="/brand.css?v=3">
+    <link rel="stylesheet" href="/styles.css?v=117">
+    <link rel="stylesheet" href="/pass-ui.css?v=4">
+    <link rel="stylesheet" href="/beta-experience.css?v=4">
   </head>
   <body>
     <div class="app-shell">
       <header class="topbar">
         <div class="brand" aria-label="SheetifyIMG">
-          <img class="brand-logo" src="/icons/sheetifyimg-header-logo.png" alt="" width="1200" height="382" decoding="async">
-          <span class="sr-only">SheetifyIMG</span>
+          <span class="sheetify-wordmark"><span>Sheetify</span><span class="sheetify-wordmark__suffix">IMG</span></span>
         </div>
         <div class="topbar-project hidden" id="topbarProject">
           <div class="topbar-project-title">
-            <button class="icon-button icon-button-plain" type="button" id="backToLibraryButton" title="Zur Projektübersicht" aria-label="Zur Projektübersicht">
+            <button class="icon-button icon-button-plain" type="button" id="backToLibraryButton" title="Zur Projektübersicht" aria-label="Zur Projektübersicht" data-i18n-title="app.nav.back" data-i18n-aria-label="app.nav.back">
               <svg class="icon icon-small" aria-hidden="true">
                 <use href="/icons/lucide-sprite.svg?v=7#chevron-right"></use>
               </svg>
@@ -35,21 +37,28 @@
             <h1 id="workspaceProjectTitle"></h1>
           </div>
           <div class="topbar-project-actions">
-            <button class="primary-button action-icon-button" type="button" id="workspaceLibraryButton" aria-label="Zur Projektübersicht" title="Zur Projektübersicht">
+            <button class="primary-button action-icon-button" type="button" id="workspaceLibraryButton" aria-label="Zur Projektübersicht" title="Zur Projektübersicht" data-i18n-title="app.nav.back" data-i18n-aria-label="app.nav.back">
               <svg class="icon icon-small" aria-hidden="true">
                 <use href="/icons/lucide-sprite.svg?v=7#folder-open"></use>
               </svg>
-              <span>Zur Projektübersicht</span>
+              <span data-i18n="app.nav.back">Zur Projektübersicht</span>
             </button>
           </div>
         </div>
         <div class="topbar-global-actions">
-          <button class="icon-button icon-button-plain" type="button" id="shareButton" data-share-button aria-label="QR-Link anzeigen" title="QR-Link anzeigen" aria-haspopup="dialog" aria-expanded="false">
+          <button class="icon-button draft-credit-status" type="button" id="passButton" aria-label="Mein SheetifyIMG Pass" title="Mein SheetifyIMG Pass" aria-haspopup="dialog" data-i18n-title="app.nav.pass" data-i18n-aria-label="app.nav.pass" hidden>
             <svg class="icon icon-small" aria-hidden="true">
-              <use href="/icons/lucide-sprite.svg?v=13#qr-code"></use>
+              <use href="/icons/lucide-sprite.svg?v=17#badge-check"></use>
+            </svg>
+            <span class="draft-credit-status__count" id="draftCreditStatusCount" aria-hidden="true">–</span>
+            <span class="draft-credit-status__label" id="draftCreditStatusLabel" aria-hidden="true" data-i18n="passUi.draftPages">Entwurfsseiten</span>
+          </button>
+          <button class="icon-button icon-button-plain" type="button" id="connectionsButton" aria-label="Verbundene Geräte" title="Verbundene Geräte" aria-haspopup="dialog" data-i18n-title="passUi.devices.title" data-i18n-aria-label="passUi.devices.title">
+            <svg class="icon icon-small" aria-hidden="true">
+              <use href="/icons/lucide-sprite.svg?v=17#monitor-smartphone"></use>
             </svg>
           </button>
-          <button class="icon-button icon-button-plain" type="button" id="settingsButton" aria-label="Einstellungen" title="Einstellungen">
+          <button class="icon-button icon-button-plain" type="button" id="settingsButton" aria-label="Einstellungen" title="Einstellungen" data-i18n-title="app.nav.settings" data-i18n-aria-label="app.nav.settings">
             <svg class="icon icon-small" aria-hidden="true">
               <use href="/icons/lucide-sprite.svg?v=7#settings"></use>
             </svg>
@@ -58,20 +67,20 @@
       </header>
 
       <main class="workspace">
-        <aside class="sidebar" aria-label="Übersicht">
+        <aside class="sidebar" aria-label="Übersicht" data-i18n-aria-label="app.sidebar.label">
           <div class="library-sidebar" id="librarySidebar">
             <div class="sidebar-header">
               <div>
-                <p class="eyebrow" id="sidebarEyebrow">Übersicht</p>
-                <h1 id="sidebarTitle">Projekte</h1>
+                <p class="eyebrow" id="sidebarEyebrow" data-i18n="app.sidebar.label">Übersicht</p>
+                <h1 id="sidebarTitle" data-i18n="app.sidebar.projects">Projekte</h1>
               </div>
               <div class="sidebar-header-actions">
-                <button class="icon-button icon-button-plain new-worksheet-button" type="button" id="newWorksheetButton" title="Neues Projekt" aria-label="Neues Projekt">
+                <button class="icon-button icon-button-plain new-worksheet-button" type="button" id="newWorksheetButton" title="Neues Projekt" aria-label="Neues Projekt" data-i18n-title="app.sidebar.newProject" data-i18n-aria-label="app.sidebar.newProject">
                   <svg class="icon icon-small" aria-hidden="true">
                     <use href="/icons/lucide-sprite.svg?v=7#plus"></use>
                   </svg>
                 </button>
-                <button class="icon-button icon-button-plain" type="button" id="refreshButton" title="Aktualisieren" aria-label="Aktualisieren">
+                <button class="icon-button icon-button-plain" type="button" id="refreshButton" title="Aktualisieren" aria-label="Aktualisieren" data-i18n-title="common.refresh" data-i18n-aria-label="common.refresh">
                   <svg class="icon icon-refresh-button" aria-hidden="true">
                     <use href="/icons/lucide-sprite.svg?v=7#rotate-cw"></use>
                   </svg>
@@ -79,9 +88,9 @@
               </div>
             </div>
 
-            <div class="library-view-switch" role="tablist" aria-label="Ansicht">
-              <button class="library-view-tab active" type="button" id="projectsViewButton" data-library-view="projects" role="tab" aria-selected="true">Projekte</button>
-              <button class="library-view-tab" type="button" id="worksheetsViewButton" data-library-view="worksheets" role="tab" aria-selected="false">Arbeitsblätter</button>
+            <div class="library-view-switch" role="tablist" aria-label="Ansicht" data-i18n-aria-label="app.sidebar.view">
+              <button class="library-view-tab active" type="button" id="projectsViewButton" data-library-view="projects" role="tab" aria-selected="true" data-i18n="app.sidebar.projects">Projekte</button>
+              <button class="library-view-tab" type="button" id="worksheetsViewButton" data-library-view="worksheets" role="tab" aria-selected="false" data-i18n="app.sidebar.worksheets">Arbeitsblätter</button>
             </div>
 
             <div class="sidebar-search">
@@ -91,6 +100,8 @@
                 type="search"
                 placeholder="Projekte suchen"
                 aria-label="Projekte durchsuchen"
+                data-i18n-placeholder="app.sidebar.searchProjects"
+                data-i18n-aria-label="app.sidebar.searchAriaProjects"
                 autocomplete="off"
                 spellcheck="false"
               >
@@ -98,42 +109,28 @@
 
             <form class="new-worksheet-panel hidden" id="newWorksheetForm">
               <label>
-                <span>Titel</span>
-                <input id="newWorksheetTitle" type="text" autocomplete="off" required placeholder="z. B. Mitose Bildvergleich">
-              </label>
-              <div class="new-worksheet-grid">
-                <label>
-                  <span>Fach</span>
-                  <input id="newWorksheetSubject" type="text" autocomplete="off" placeholder="Biologie">
-                </label>
-                <label>
-                  <span>Thema</span>
-                  <input id="newWorksheetTopic" type="text" autocomplete="off" placeholder="Zellteilung">
-                </label>
-              </div>
-              <label>
-                <span>Zielgruppe</span>
-                <input id="newWorksheetTargetGroup" type="text" autocomplete="off" placeholder="Klasse 7">
+                <span data-i18n="app.form.projectName">Projektname</span>
+                <input id="newWorksheetTitle" type="text" autocomplete="off" required placeholder="z. B. Material für nächste Woche" data-i18n-placeholder="app.form.projectNamePlaceholder">
               </label>
               <div class="new-worksheet-actions">
-                <button class="secondary-button mini-button" type="button" id="cancelNewWorksheetButton">Abbrechen</button>
-                <button class="primary-button mini-button" type="submit" id="createNewWorksheetButton">Anlegen</button>
+                <button class="secondary-button mini-button" type="button" id="cancelNewWorksheetButton" data-i18n="common.cancel">Abbrechen</button>
+                <button class="primary-button mini-button" type="submit" id="createNewWorksheetButton" data-i18n="app.form.create">Anlegen</button>
               </div>
             </form>
 
-            <nav class="tree" id="libraryTree" aria-label="Projekt-Baum">
-              <div class="tree-loading">Lade Projekte...</div>
+            <nav class="tree" id="libraryTree" aria-label="Projekt-Baum" data-i18n-aria-label="app.sidebar.tree">
+              <div class="tree-loading" data-i18n="app.sidebar.loading">Lade Projekte …</div>
             </nav>
           </div>
 
           <div class="production-sidebar hidden" id="productionSidebar">
             <div class="production-sidebar-header">
-              <p class="eyebrow">Arbeitsstand</p>
+              <p class="eyebrow" data-i18n="app.work.label">Arbeitsstand</p>
               <h2 id="productionSidebarTitle"></h2>
             </div>
-            <nav class="production-step-list" id="productionStepList" aria-label="Arbeitsstand"></nav>
+            <nav class="production-step-list" id="productionStepList" aria-label="Arbeitsstand" data-i18n-aria-label="app.work.label"></nav>
             <div class="production-artifacts">
-              <p class="eyebrow">Artefakte</p>
+              <p class="eyebrow" data-i18n="app.work.artifacts">Artefakte</p>
               <div id="productionArtifactList"></div>
             </div>
           </div>
@@ -142,9 +139,9 @@
 
         <section class="viewer" aria-live="polite">
           <div class="empty-state" id="emptyState">
-            <p class="eyebrow">Start</p>
-            <h2 id="emptyStateTitle">Wähle links ein Projekt.</h2>
-            <p id="emptyStateCopy">Dann erscheint hier die schnelle Vorschau mit Status, Aktionen und vorhandenen Entwürfen.</p>
+            <p class="eyebrow" data-i18n="app.empty.eyebrow">Start</p>
+            <h2 id="emptyStateTitle" data-i18n="app.empty.title">Wähle links ein Projekt.</h2>
+            <p id="emptyStateCopy" data-i18n="app.empty.copy">Dann erscheint hier die schnelle Vorschau mit Status, Aktionen und vorhandenen Entwürfen.</p>
           </div>
 
           <article class="project-view hidden" id="projectView">
@@ -160,7 +157,7 @@
                   <svg class="icon icon-small" aria-hidden="true">
                     <use href="/icons/lucide-sprite.svg?v=9#square-pen"></use>
                   </svg>
-                  <span id="loadProjectButtonLabel">Projekt öffnen</span>
+                  <span id="loadProjectButtonLabel" data-i18n="app.project.open">Projekt öffnen</span>
                 </button>
                 <button class="secondary-button action-icon-button action-icon-only" type="button" id="downloadButton" aria-label="Download" title="Download">
                   <svg class="icon icon-small" aria-hidden="true">
@@ -173,9 +170,9 @@
             <section class="project-split-view" id="projectSplitView">
               <section class="status-panel" id="statusPanel">
                 <div class="status-panel-header">
-                  <p class="eyebrow">Übersicht</p>
+                  <p class="eyebrow" data-i18n="app.project.overview">Übersicht</p>
                   <div class="status-title-row">
-                    <h3>Status</h3>
+                    <h3 data-i18n="app.project.status">Status</h3>
                     <div class="status-artifact-summary" id="statusArtifactSummary" aria-live="polite"></div>
                   </div>
                 </div>
@@ -195,8 +192,8 @@
               <section class="preview-section">
               <div class="section-heading">
                 <div>
-                  <p class="eyebrow" id="previewEyebrow">Vorschau</p>
-                  <h3 id="previewTitle">Entwürfe</h3>
+                  <p class="eyebrow" id="previewEyebrow" data-i18n="app.preview.eyebrow">Vorschau</p>
+                  <h3 id="previewTitle" data-i18n="app.preview.drafts">Entwürfe</h3>
                 </div>
               </div>
 
@@ -209,27 +206,22 @@
             <section class="chat-panel">
               <header class="workspace-panel-header">
                 <div class="workspace-panel-title">
-                  <p class="eyebrow">Chat</p>
-                  <h2>SheetifyIMG AI</h2>
+                  <p class="eyebrow" data-i18n="app.chat.eyebrow">Chat</p>
+                  <h2><span class="sheetify-wordmark sheetify-wordmark--inline"><span>Sheetify</span><span class="sheetify-wordmark__suffix">AI</span></span></h2>
                   <p class="workspace-mobile-project-title" id="workspaceMobileProjectTitle"></p>
                 </div>
                 <div class="workspace-panel-actions">
-                  <button class="icon-button icon-button-plain" type="button" id="refreshChatButton" aria-label="Aktualisieren" title="Aktualisieren">
+                  <button class="icon-button icon-button-plain" type="button" id="refreshChatButton" aria-label="Aktualisieren" title="Aktualisieren" data-i18n-title="common.refresh" data-i18n-aria-label="common.refresh">
                     <svg class="icon icon-small" aria-hidden="true">
                       <use href="/icons/lucide-sprite.svg?v=7#refresh-cw"></use>
                     </svg>
                   </button>
-                  <button class="icon-button icon-button-plain workspace-mobile-action" type="button" id="workspaceMobileLibraryButton" aria-label="Zur Projektübersicht" title="Zur Projektübersicht">
+                  <button class="icon-button icon-button-plain workspace-mobile-action" type="button" id="workspaceMobileLibraryButton" aria-label="Zur Projektübersicht" title="Zur Projektübersicht" data-i18n-title="app.nav.back" data-i18n-aria-label="app.nav.back">
                     <svg class="icon icon-small" aria-hidden="true">
                       <use href="/icons/lucide-sprite.svg?v=7#folder-open"></use>
                     </svg>
                   </button>
-                  <button class="icon-button icon-button-plain workspace-mobile-action" type="button" id="workspaceMobileShareButton" data-share-button aria-label="QR-Link anzeigen" title="QR-Link anzeigen" aria-haspopup="dialog" aria-expanded="false">
-                    <svg class="icon icon-small" aria-hidden="true">
-                      <use href="/icons/lucide-sprite.svg?v=13#qr-code"></use>
-                    </svg>
-                  </button>
-                  <button class="icon-button icon-button-plain workspace-mobile-action" type="button" id="workspaceMobileSettingsButton" aria-label="Einstellungen" title="Einstellungen">
+                  <button class="icon-button icon-button-plain workspace-mobile-action" type="button" id="workspaceMobileSettingsButton" aria-label="Einstellungen" title="Einstellungen" data-i18n-title="app.nav.settings" data-i18n-aria-label="app.nav.settings">
                     <svg class="icon icon-small" aria-hidden="true">
                       <use href="/icons/lucide-sprite.svg?v=7#settings"></use>
                     </svg>
@@ -237,19 +229,17 @@
                 </div>
               </header>
 
-              <aside class="teaching-context-panel hidden" id="teachingContextPanel" aria-label="Unterrichtsrahmen"></aside>
-
-              <div class="chat-timeline" id="chatTimeline" aria-label="Produktionsverlauf"></div>
+              <div class="chat-timeline" id="chatTimeline" aria-label="Produktionsverlauf" data-i18n-aria-label="app.chat.timeline"></div>
 
               <form class="chat-composer" id="chatComposer">
-                <button class="chat-attachment-button" type="button" id="chatAttachmentButton" aria-label="Input hinzufügen" title="Input hinzufügen">
+                <button class="chat-attachment-button" type="button" id="chatAttachmentButton" aria-label="Input hinzufügen" title="Input hinzufügen" data-i18n-title="app.chat.addInput" data-i18n-aria-label="app.chat.addInput">
                   <svg class="icon icon-small">
                     <use href="/icons/lucide-sprite.svg?v=7#plus"></use>
                   </svg>
                 </button>
-                <input class="sr-only" type="file" id="chatAttachmentInput" aria-label="Input-Dateien hinzufügen" multiple>
+                <input class="sr-only" type="file" id="chatAttachmentInput" aria-label="Input-Dateien hinzufügen" multiple data-i18n-aria-label="app.chat.addFiles">
                 <div class="chat-input-shell" id="chatInputShell">
-                  <label class="sr-only" for="chatInput">Nachricht an SheetifyIMG AI</label>
+                  <label class="sr-only" for="chatInput" data-i18n="app.chat.messageLabel">Nachricht an Sheetify AI</label>
                   <div class="chat-input-row">
                     <span class="revision-target-pill hidden" id="revisionTargetPill">
                       <svg class="icon icon-small" aria-hidden="true">
@@ -262,7 +252,7 @@
                         </svg>
                       </button>
                     </span>
-                    <textarea id="chatInput" rows="1" placeholder="Nachricht an SheetifyIMG AI..."></textarea>
+                    <textarea id="chatInput" rows="1" placeholder="Nachricht an Sheetify AI …" data-i18n-placeholder="app.chat.placeholder"></textarea>
                     <button class="chat-transcript-review-button hidden" type="button" id="voiceTranscriptReviewButton" aria-label="Transkript ansehen" title="Transkript ansehen" aria-controls="voiceTranscriptLayer" aria-expanded="false">
                       <svg class="icon icon-small" aria-hidden="true">
                         <use href="/icons/lucide-sprite.svg?v=16#eye"></use>
@@ -273,7 +263,7 @@
                         <use href="/icons/lucide-sprite.svg?v=12#mic"></use>
                       </svg>
                     </button>
-                    <button class="primary-button chat-send-button" type="submit" aria-label="Senden" title="Senden">
+                    <button class="primary-button chat-send-button" type="submit" aria-label="Senden" title="Senden" data-i18n-title="app.chat.send" data-i18n-aria-label="app.chat.send">
                       <svg class="icon icon-small" viewBox="0 0 24 24" aria-hidden="true">
                         <path d="m3 3 3 9-3 9 19-9Z"></path>
                         <path d="M6 12h16"></path>
@@ -284,15 +274,15 @@
               </form>
             </section>
 
-            <button class="canvas-resize-handle" type="button" id="canvasResizeHandle" aria-label="Canvas ein- oder ausklappen" title="Canvas ziehen">
+            <button class="canvas-resize-handle" type="button" id="canvasResizeHandle" aria-label="Canvas ein- oder ausklappen" title="Canvas ziehen" data-i18n-aria-label="app.canvas.collapse" data-i18n-title="app.canvas.drag">
               <span class="canvas-resize-grip" aria-hidden="true"></span>
             </button>
 
             <section class="canvas-panel" id="canvasPanel">
               <header class="workspace-panel-header canvas-header">
                 <div>
-                  <p class="eyebrow">Canvas</p>
-                  <h2 id="canvasTitle">Vorschau</h2>
+                  <p class="eyebrow" data-i18n="app.canvas.label">Canvas</p>
+                  <h2 id="canvasTitle" data-i18n="app.canvas.preview">Vorschau</h2>
                 </div>
               </header>
               <div class="canvas-body" id="canvasBody"></div>
@@ -302,49 +292,21 @@
       </main>
     </div>
 
-    <div class="share-popover hidden" id="sharePopover" role="dialog" aria-hidden="true" aria-labelledby="shareTitle">
-      <section class="share-card">
-        <header class="share-header">
-          <div>
-            <p class="eyebrow">QR</p>
-            <h2 id="shareTitle">SheetifyIMG öffnen</h2>
-            <p id="shareStatus">Adresse wird geladen...</p>
-          </div>
-          <button class="icon-button icon-button-plain share-close-button" type="button" id="shareCloseButton" aria-label="QR-Link schließen" title="Schließen">
-            <svg class="icon icon-small" aria-hidden="true">
-              <use href="/icons/lucide-sprite.svg?v=13#x"></use>
-            </svg>
-          </button>
-        </header>
-        <div class="share-qr-frame" id="shareQrCode" aria-live="polite"></div>
-        <div class="share-url-row">
-          <span id="shareUrlText"></span>
-          <button class="icon-button share-copy-button" type="button" id="shareCopyLinkButton" aria-label="Link kopieren" title="Link kopieren">
-            <svg class="icon icon-small" aria-hidden="true">
-              <use href="/icons/lucide-sprite.svg?v=13#copy"></use>
-            </svg>
-          </button>
-        </div>
-        <div class="share-target-list" id="shareTargetList" aria-label="QR-Ziel"></div>
-        <p class="share-hint" id="shareHint"></p>
-      </section>
-    </div>
-
     <div class="settings-modal hidden" id="settingsModal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="settingsTitle">
       <section class="settings-card">
         <header class="settings-header">
           <div>
-            <p class="eyebrow">Einstellungen</p>
+            <p class="eyebrow" data-i18n="app.nav.settings">Einstellungen</p>
             <h2 id="settingsTitle">SheetifyIMG</h2>
           </div>
-          <button class="secondary-button" type="button" id="settingsCloseButton">Schließen</button>
+          <button class="secondary-button" type="button" id="settingsCloseButton" data-i18n="common.close">Schließen</button>
         </header>
         <div class="settings-body">
           <section class="settings-section">
-            <p class="eyebrow">Bildgenerierung</p>
-            <h3>Neue Entwürfe</h3>
-            <p>Lege fest, wie SheetifyIMG die nächsten Arbeitsblatt-Entwürfe erzeugt.</p>
-            <div class="image-generation-settings" id="imageProviderSettings"></div>
+            <p class="eyebrow" data-i18n="app.nav.settings">Einstellungen</p>
+            <h3 data-i18n="passUi.language.title">Sprache auf diesem Gerät</h3>
+            <p data-i18n="passUi.language.help">Die Auswahl gilt nur für dieses Gerät.</p>
+            <div class="pass-ui-language" id="settingsLanguageOptions" role="group" aria-label="Sprache wählen" data-i18n-aria-label="pass.languageLabel"></div>
           </section>
         </div>
       </section>
@@ -352,13 +314,13 @@
 
     <div class="confirmation-modal hidden" id="confirmationModal" role="dialog" aria-modal="true" aria-labelledby="confirmationTitle">
       <div class="confirmation-card">
-        <p class="eyebrow" id="confirmationEyebrow">Bestätigung</p>
-        <h2 id="confirmationTitle">Entwurf erstellen?</h2>
-        <p id="confirmationMessage">Dieser Schritt kann Kosten verursachen.</p>
+        <p class="eyebrow" id="confirmationEyebrow" data-i18n="app.confirm.eyebrow">Bestätigung</p>
+        <h2 id="confirmationTitle" data-i18n="app.confirm.title">Entwurf erstellen?</h2>
+        <p id="confirmationMessage" data-i18n="app.confirm.cost">Dieser Schritt kann Kosten verursachen.</p>
         <div class="confirmation-extra hidden" id="confirmationExtra"></div>
         <div class="confirmation-actions">
-          <button class="secondary-button" type="button" id="confirmationCancelButton">Abbrechen</button>
-          <button class="primary-button" type="button" id="confirmationAcceptButton">Entwurf erstellen</button>
+          <button class="secondary-button" type="button" id="confirmationCancelButton" data-i18n="common.cancel">Abbrechen</button>
+          <button class="primary-button" type="button" id="confirmationAcceptButton" data-i18n="app.confirm.create">Entwurf erstellen</button>
         </div>
       </div>
     </div>
@@ -371,7 +333,7 @@
             <h2 id="manualCopyTitle">Inhalt markieren</h2>
             <p>Der Browser blockiert automatisches Kopieren. Der Inhalt ist markiert und kann über Kopieren übernommen werden.</p>
           </div>
-          <button class="secondary-button" type="button" id="manualCopyCloseButton">Schließen</button>
+          <button class="secondary-button" type="button" id="manualCopyCloseButton" data-i18n="common.close">Schließen</button>
         </header>
         <textarea id="manualCopyText" spellcheck="false" autocomplete="off"></textarea>
       </section>
@@ -381,12 +343,12 @@
       <section class="candidate-viewer-card">
         <header class="candidate-viewer-header">
           <div>
-            <p class="eyebrow" id="candidateViewerCounter">Entwurf</p>
-            <h2 id="candidateViewerTitle">Entwurf ansehen</h2>
+            <p class="eyebrow" id="candidateViewerCounter" data-i18n="app.preview.draftAlt">Entwurf</p>
+            <h2 id="candidateViewerTitle" data-i18n="app.preview.viewDraft">Entwurf ansehen</h2>
             <p id="candidateViewerMeta"></p>
           </div>
           <div class="candidate-viewer-actions">
-            <button class="icon-button icon-button-plain candidate-viewer-close-button" type="button" id="candidateViewerCloseButton" aria-label="Vorschau schließen" title="Schließen">
+            <button class="icon-button icon-button-plain candidate-viewer-close-button" type="button" id="candidateViewerCloseButton" aria-label="Vorschau schließen" title="Schließen" data-i18n-aria-label="app.preview.close" data-i18n-title="common.close">
               <svg class="icon icon-small" aria-hidden="true">
                 <use href="/icons/lucide-sprite.svg?v=13#x"></use>
               </svg>
@@ -394,13 +356,13 @@
           </div>
         </header>
         <div class="candidate-viewer-stage">
-          <button class="candidate-viewer-nav previous" type="button" id="candidateViewerPreviousButton" aria-label="Vorheriger Entwurf">
+          <button class="candidate-viewer-nav previous" type="button" id="candidateViewerPreviousButton" aria-label="Vorheriger Entwurf" data-i18n-aria-label="app.preview.previousDraft">
             <svg class="icon icon-small" aria-hidden="true">
               <use href="/icons/lucide-sprite.svg?v=8#chevron-right"></use>
             </svg>
           </button>
-          <img id="candidateViewerImage" alt="Entwurf">
-          <button class="candidate-viewer-nav next" type="button" id="candidateViewerNextButton" aria-label="Nächster Entwurf">
+          <img id="candidateViewerImage" alt="Entwurf" data-i18n-aria-label="app.preview.draftAlt">
+          <button class="candidate-viewer-nav next" type="button" id="candidateViewerNextButton" aria-label="Nächster Entwurf" data-i18n-aria-label="app.preview.nextDraft">
             <svg class="icon icon-small" aria-hidden="true">
               <use href="/icons/lucide-sprite.svg?v=8#chevron-right"></use>
             </svg>
@@ -417,23 +379,23 @@
             <h2 id="candidateInfoTitle">Entwurf</h2>
             <p id="candidateInfoMeta"></p>
           </div>
-          <button class="secondary-button" type="button" id="candidateInfoCloseButton">Schließen</button>
+          <button class="secondary-button" type="button" id="candidateInfoCloseButton" data-i18n="common.close">Schließen</button>
         </header>
         <div class="candidate-info-body" id="candidateInfoBody"></div>
       </section>
     </div>
 
     <div class="mobile-preview-layer hidden" id="mobilePreviewLayer" aria-hidden="true">
-      <button class="mobile-preview-backdrop" type="button" id="mobilePreviewBackdrop" aria-label="Vorschau schließen"></button>
+      <button class="mobile-preview-backdrop" type="button" id="mobilePreviewBackdrop" aria-label="Vorschau schließen" data-i18n-aria-label="app.preview.close"></button>
       <section class="mobile-preview-sheet" id="mobilePreviewSheet" role="dialog" aria-modal="true" aria-labelledby="mobilePreviewTitle">
         <div class="mobile-preview-grip" aria-hidden="true"></div>
         <header class="mobile-preview-header">
           <div>
-            <p class="eyebrow" id="mobilePreviewEyebrow">Vorschau</p>
-            <h2 id="mobilePreviewTitle">Arbeitsblatt-Konzept</h2>
+            <p class="eyebrow" id="mobilePreviewEyebrow" data-i18n="app.preview.eyebrow">Vorschau</p>
+            <h2 id="mobilePreviewTitle" data-i18n="app.concept.title">Arbeitsblatt-Konzept</h2>
             <p id="mobilePreviewSubtitle"></p>
           </div>
-          <button class="mobile-preview-icon-button mobile-preview-close-icon-button" type="button" id="mobilePreviewCloseIconButton" aria-label="Vorschau schließen" title="Vorschau schließen">
+          <button class="mobile-preview-icon-button mobile-preview-close-icon-button" type="button" id="mobilePreviewCloseIconButton" aria-label="Vorschau schließen" title="Vorschau schließen" data-i18n-aria-label="app.preview.close" data-i18n-title="app.preview.close">
             <svg class="icon icon-small" aria-hidden="true">
               <use href="/icons/lucide-sprite.svg?v=15#x"></use>
             </svg>
@@ -443,8 +405,8 @@
         <footer class="mobile-preview-footer" id="mobilePreviewFooter"></footer>
       </section>
     </div>
-    <button class="mobile-preview-mini hidden" type="button" id="mobilePreviewMini" aria-label="Geöffnete Vorschau wieder öffnen">
-      <span id="mobilePreviewMiniLabel">Vorschau</span>
+    <button class="mobile-preview-mini hidden" type="button" id="mobilePreviewMini" aria-label="Geöffnete Vorschau wieder öffnen" data-i18n-aria-label="app.preview.reopen">
+      <span id="mobilePreviewMiniLabel" data-i18n="app.preview.eyebrow">Vorschau</span>
     </button>
 
     <div class="voice-transcript-layer mobile-preview-layer hidden" id="voiceTranscriptLayer" aria-hidden="true">
@@ -467,18 +429,45 @@
           <textarea id="voiceTranscriptText" spellcheck="true" autocomplete="off"></textarea>
         </div>
         <footer class="mobile-preview-footer voice-transcript-footer">
-          <button class="primary-button voice-transcript-save-button" type="button" id="voiceTranscriptSaveButton">Speichern</button>
+          <button class="primary-button voice-transcript-save-button" type="button" id="voiceTranscriptSaveButton" data-i18n="common.save">Speichern</button>
         </footer>
       </section>
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <div class="pass-modal-layer hidden" id="passModal" aria-hidden="true">
+      <button class="pass-modal-backdrop" type="button" data-pass-close aria-label="Mein Pass schließen" data-i18n-aria-label="passUi.modal.close"></button>
+      <section class="pass-modal" role="dialog" aria-modal="true" aria-labelledby="passModalTitle">
+        <header class="pass-modal-header">
+          <div>
+            <p class="eyebrow" id="passModalEyebrow" data-i18n="passUi.modal.eyebrow">Gemeinsamer Arbeitsbereich</p>
+            <h2 id="passModalTitle" data-i18n="passUi.modal.title">Mein SheetifyIMG Pass</h2>
+          </div>
+          <button class="icon-button icon-button-plain" type="button" data-pass-close aria-label="Schließen" data-i18n-aria-label="common.close">
+            <svg class="icon icon-small" aria-hidden="true"><use href="/icons/lucide-sprite.svg?v=15#x"></use></svg>
+          </button>
+        </header>
+        <div class="pass-modal-content" id="passModalContent"></div>
+      </section>
+    </div>
     <script src="/pwa.js?v=1"></script>
-    <script src="/candidateCards.js?v=2"></script>
-    <script src="/actionBindings.js?v=1"></script>
-    <script src="/mobilePreviewRenderer.js?v=7"></script>
-    <script src="/canvasRenderer.js?v=1"></script>
+    <script src="/candidateCards.js?v=3"></script>
+    <script src="/actionBindings.js?v=2"></script>
+    <script src="/worksheetBlueprint.js?v=3"></script>
+    <script src="/mobilePreviewRenderer.js?v=9"></script>
+    <script src="/canvasRenderer.js?v=2"></script>
     <script src="/vendor/simplebar/simplebar.min.js?v=1"></script>
-    <script src="/app.js?v=183"></script>
+    <script src="/locale.js?v=8"></script>
+    <script>
+      window.sheetifyLocale.set(window.sheetifyLocale.resolve({
+        query: new URLSearchParams(window.location.search),
+        stored: window.localStorage.getItem(window.sheetifyLocale.STORAGE_KEY),
+        browser: window.navigator.languages
+      }), { persistLocal: false });
+      window.sheetifyLocale.apply(document);
+    </script>
+    <script src="/app.js?v=190"></script>
+    <script src="/pass-ui.js?v=7"></script>
+    <script src="/beta-experience.js?v=6"></script>
   </body>
 </html>

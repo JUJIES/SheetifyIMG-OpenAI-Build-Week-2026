@@ -158,7 +158,9 @@ async function sendOpenAiChatResponse(projectId, projectDir, input = {}, options
     route,
     now: options.now
   });
-  const instructions = await composePrompts(route.promptNames, { repoRoot: options.repoRoot });
+  const instructions = await composePrompts(route.promptNames, {
+    repoRoot: options.promptRoot || options.repoRoot
+  });
   const startedAt = Date.now();
   let modelCallLogged = false;
   let requestShape = null;

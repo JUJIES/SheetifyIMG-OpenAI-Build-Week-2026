@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f5f6f8">
+    <title>SheetifyIMG Pass</title>
+    <link rel="icon" href="/icons/favicon.ico" sizes="any">
+    <link rel="apple-touch-icon" href="/icons/app-icon-180.png">
+    <link rel="stylesheet" href="/brand.css?v=3">
+    <link rel="stylesheet" href="/pass.css?v=6">
+    <style>html:not([data-locale-ready]) body{visibility:hidden}</style>
+    <script src="/locale.js?v=8"></script>
+    <script>
+      try {
+        sheetifyLocale.set(sheetifyLocale.resolve({
+          query: new URLSearchParams(location.search),
+          stored: localStorage.getItem(sheetifyLocale.STORAGE_KEY),
+          browser: navigator.languages
+        }), { persistLocal: false });
+      } catch {
+        sheetifyLocale.set(sheetifyLocale.resolve({ query: new URLSearchParams(location.search), browser: navigator.languages }), { persistLocal: false });
+      }
+    </script>
+  </head>
+  <body>
+    <main class="pass-page">
+      <section class="pass-intro">
+        <a class="pass-brand sheetify-wordmark sheetify-wordmark--large" href="/" aria-label="SheetifyIMG Startseite" data-i18n-aria-label="pass.brandHome">
+          <span>Sheetify</span><span class="sheetify-wordmark__suffix">IMG</span>
+        </a>
+        <div class="pass-mobile-intro">
+          <h1 data-i18n="pass.mobileIntro.title">Willkommen zur Wochenend-Beta</h1>
+          <p data-i18n="pass.mobileIntro.description">Gib den Code aus deinem Voucher oder Beta Pass ein, um deinen Arbeitsbereich zu öffnen und dein erstes Arbeitsblatt zu erstellen.</p>
+        </div>
+        <div class="pass-copy">
+          <p class="pass-eyebrow" data-i18n="pass.intro.eyebrow">Willkommen bei SheetifyIMG</p>
+          <h1><span data-i18n="pass.intro.titleLine1">Dein Einstieg</span><br><span data-i18n="pass.intro.titleLine2">in die Wochenend-Beta.</span></h1>
+          <p data-i18n="pass.intro.description">Gib den Code aus deiner Einladung oder deinem Pass ein. Du kannst auch den QR-Code mit der Handykamera scannen.</p>
+        </div>
+      </section>
+
+      <section class="pass-panel" aria-labelledby="connectTitle">
+        <div class="pass-language" role="group" aria-label="Sprache wählen" data-i18n-aria-label="pass.languageLabel">
+          <button type="button" data-pass-locale="de" aria-label="Deutsch" data-i18n-aria-label="language.de" title="Deutsch" data-i18n-title="language.de"><img src="/icons/flags/de.svg" alt=""></button>
+          <button type="button" data-pass-locale="en" aria-label="Englisch" data-i18n-aria-label="language.en" title="Englisch" data-i18n-title="language.en"><img src="/icons/flags/gb.svg" alt=""></button>
+        </div>
+        <div class="pass-panel-head">
+          <h2 id="connectTitle" data-i18n="pass.panel.title">Code eingeben</h2>
+        </div>
+
+        <div class="pass-notice hidden" id="passNotice" role="status"></div>
+
+        <form id="connectForm" class="pass-form">
+          <label for="passCode" data-i18n="pass.form.code">Pass- oder Kopplungscode</label>
+          <input id="passCode" name="code" type="text" inputmode="text" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="SHEET-••••-••••-••••" data-i18n-placeholder="pass.form.codePlaceholder" required>
+          <button type="submit" class="pass-primary" id="connectButton" data-i18n="pass.form.connect">Verbinden</button>
+        </form>
+
+        <div class="pass-divider"><span data-i18n="pass.divider">oder</span></div>
+
+        <div class="pass-qr-hint">
+          <span class="pass-qr-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM19 14h2v2h-2zM14 19h2v2h-2zM18 18h3v3h-3z"/></svg>
+          </span>
+          <div>
+            <strong data-i18n="pass.qr.title">QR-Code vorhanden?</strong>
+            <p data-i18n="pass.qr.description">Mit der Handykamera scannen, um dieses Gerät zu verbinden.</p>
+          </div>
+        </div>
+
+        <button class="pass-link" type="button" id="supportToggle" data-i18n="pass.support.toggle">Pass weg, Problem oder noch kein Zugang?</button>
+        <form id="supportForm" class="pass-form pass-support hidden">
+          <p class="pass-support-note" data-i18n="pass.support.passSharing">Wer denselben Pass verwendet, öffnet denselben Arbeitsbereich und teilt das Entwurfsguthaben.</p>
+          <label for="requestKind" data-i18n="pass.support.kind">Wobei können wir helfen?</label>
+          <select id="requestKind">
+            <option value="recovery" data-i18n="pass.support.recovery">SheetifyIMG Pass wiederherstellen</option>
+            <option value="beta_access" data-i18n="pass.support.access">Beta-Zugang anfragen</option>
+            <option value="problem" data-i18n="pass.support.problem">Problem oder Frage melden</option>
+          </select>
+          <label for="supportEmail" data-i18n="pass.support.email">Deine E-Mail</label>
+          <input id="supportEmail" type="email" autocomplete="email" placeholder="name@schule.de" data-i18n-placeholder="pass.support.emailPlaceholder" required>
+          <label for="supportMessage"><span class="pass-label-main" data-i18n="pass.support.message">Kurze Nachricht</span> <span data-i18n="pass.support.optional">(optional)</span></label>
+          <textarea id="supportMessage" rows="3" maxlength="2000" placeholder="Was ist passiert oder was möchtest du testen?" data-i18n-placeholder="pass.support.messagePlaceholder"></textarea>
+          <button type="submit" class="pass-secondary" id="supportButton" data-i18n="pass.support.submit">Anfrage senden</button>
+          <p class="pass-contact"><span data-i18n="pass.support.direct">Oder direkt an</span> <a href="mailto:sheetify@jujies.app">sheetify@jujies.app</a></p>
+        </form>
+
+        <p class="pass-privacy" data-i18n="pass.privacy">Dieses Gerät bleibt verbunden.</p>
+      </section>
+    </main>
+    <script src="/pass.js?v=5"></script>
+  </body>
+</html>

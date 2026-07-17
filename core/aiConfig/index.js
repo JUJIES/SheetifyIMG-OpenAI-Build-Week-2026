@@ -13,7 +13,7 @@ const DEFAULT_TRANSCRIPTION_TIMEOUT_MS = 60000;
 const DEFAULT_CODEX_IMAGE_TIMEOUT_MS = 300000;
 const DEFAULT_REASONING_EFFORT = "low";
 const DEFAULT_CODEX_REASONING_EFFORT = "low";
-const DEFAULT_IMAGE_PROVIDER = "codex_cli";
+const DEFAULT_IMAGE_PROVIDER = "openai";
 const DEFAULT_IMAGE_SIZE = "1120x1584";
 const DEFAULT_IMAGE_OUTPUT_FORMAT = "png";
 const DEFAULT_IMAGE_PRESET = "standard";
@@ -64,7 +64,7 @@ function preferredImageProvider(env = process.env, overrides = {}) {
   if (nonEmpty(explicit)) {
     return normalizedImageProvider(explicit);
   }
-  return codexImageEnabled(env) ? DEFAULT_IMAGE_PROVIDER : "openai";
+  return DEFAULT_IMAGE_PROVIDER;
 }
 
 function codexImageEnabled(env = process.env) {

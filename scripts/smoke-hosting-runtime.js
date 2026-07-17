@@ -5,7 +5,8 @@ const fs = require("node:fs/promises");
 const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
+const { generateOwnerPasswordHash } = require("../server/owner-auth");
 const { resolveServerConfig } = require("../server/runtime-config");
 
 const repoRoot = path.resolve(__dirname, "..");
@@ -52,13 +53,13 @@ async function waitForHealth(baseUrl, child, output, timeoutMs = 8000) {
 
 async function waitForExit(child, timeoutMs = 6000) {
   if (child.exitCode !== null) {
-    return child.exitCode;
+    return { code: child.exitCode, signal: child.signalCode };
   }
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error("Hosting server did not stop in time.")), timeoutMs);
-    child.once("exit", (code) => {
+    child.once("exit", (code, signal) => {
       clearTimeout(timeout);
-      resolve(code);
+      resolve({ code, signal });
     });
   });
 }
@@ -81,6 +82,11 @@ async function main() {
   const envFile = path.join(tempRoot, "sheetifyimg.env");
   const port = await freePort();
   const fakeSecret = "sk-hosting-smoke-not-a-real-key";
+  const ownerPassword = "hosting-owner-password-not-a-secret";
+  const ownerPasswordHash = await generateOwnerPasswordHash(ownerPassword, {
+    salt: Buffer.alloc(16, 11)
+  });
+  const ownerAuthorization = `Basic ${Buffer.from(`owner:${ownerPassword}`, "utf8").toString("base64")}`;
 
   assert.throws(
     () => resolveServerConfig({ repoRoot, env: productionEnv("", { SHEETIFYIMG_RUNTIME_DIR: "" }) }),
@@ -98,12 +104,37 @@ async function main() {
     () => resolveServerConfig({ repoRoot, env: productionEnv(runtimeDir, { SHEETIFYIMG_PUBLIC_URL: "http://example.test" }) }),
     /must use HTTPS/
   );
+  assert.throws(
+    () => resolveServerConfig({
+      repoRoot,
+      env: productionEnv(runtimeDir, { SHEETIFYIMG_PUBLIC_URL: "https://sheetify.example.test" })
+    }),
+    /requires owner auth/
+  );
+  assert.throws(
+    () => resolveServerConfig({
+      repoRoot,
+      env: productionEnv(runtimeDir, { SHEETIFYIMG_OWNER_AUTH_ENABLED: "1" })
+    }),
+    /PASSWORD_HASH is required/
+  );
+  assert.throws(
+    () => resolveServerConfig({
+      repoRoot,
+      env: productionEnv(runtimeDir, {
+        SHEETIFYIMG_OWNER_AUTH_ENABLED: "1",
+        SHEETIFYIMG_OWNER_AUTH_PASSWORD_HASH: "invalid"
+      })
+    }),
+    /supported scrypt format/
+  );
 
   const config = resolveServerConfig({ repoRoot, env: productionEnv(runtimeDir) });
   assert.equal(config.production, true);
   assert.equal(config.projectsDir, path.join(runtimeDir, "projects"));
   assert.equal(config.worksheetsDir, path.join(runtimeDir, "worksheets"));
   assert.equal(config.exposeBillingStatus, false);
+  assert.equal(config.ownerAuth.enabled, false);
   assert.equal(config.planningFlow, "v2");
   assert.equal(resolveServerConfig({
     repoRoot,
@@ -122,8 +153,34 @@ async function main() {
     "SHEETIFYIMG_IMAGE_PROVIDER=openai",
     "SHEETIFYIMG_CODEX_IMAGE_ENABLED=0",
     "SHEETIFYIMG_IMAGE_PRESET=sparsam",
+    "SHEETIFYIMG_OWNER_AUTH_ENABLED=1",
+    "SHEETIFYIMG_OWNER_AUTH_USERNAME=owner",
+    `SHEETIFYIMG_OWNER_AUTH_PASSWORD_HASH=${ownerPasswordHash}`,
     ""
   ].join("\n"), { mode: 0o600 });
+
+  const inheritedKeyProbe = spawnSync(process.execPath, ["-e", [
+    "const path = require('node:path');",
+    "const { loadServerEnvironment } = require('./server/runtime-config');",
+    "loadServerEnvironment({ repoRoot: process.cwd(), localOverrideKeys: ['OPENAI_API_KEY'] });",
+    "process.stdout.write(process.env.OPENAI_API_KEY || '');"
+  ].join("\n")], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      NODE_ENV: "production",
+      SHEETIFYIMG_RUNTIME_MODE: "production",
+      SHEETIFYIMG_ENV_FILE: envFile,
+      OPENAI_API_KEY: "sk-inherited-stale-test"
+    },
+    encoding: "utf8"
+  });
+  assert.equal(inheritedKeyProbe.status, 0, inheritedKeyProbe.stderr);
+  assert.equal(
+    inheritedKeyProbe.stdout,
+    fakeSecret,
+    "The external production env must override an inherited stale OpenAI key."
+  );
 
   const env = { ...process.env };
   for (const key of [
@@ -132,6 +189,9 @@ async function main() {
     "PROJECTS_DIR",
     "WORKSHEETS_DIR",
     "SHEETIFYIMG_PLANNING_FLOW",
+    "SHEETIFYIMG_OWNER_AUTH_ENABLED",
+    "SHEETIFYIMG_OWNER_AUTH_USERNAME",
+    "SHEETIFYIMG_OWNER_AUTH_PASSWORD_HASH",
     "SHEETIFYIMG_HTTPS_KEY",
     "SHEETIFYIMG_HTTPS_CERT"
   ]) {
@@ -187,17 +247,54 @@ async function main() {
     assert.equal(liveResponse.status, 200);
     assert.equal(liveResponse.headers.get("x-content-type-options"), "nosniff");
 
-    const rootResponse = await fetch(`${baseUrl}/`);
+    const anonymousRootResponse = await fetch(`${baseUrl}/`, {
+      headers: { "cf-connecting-ip": "203.0.113.10" }
+    });
+    assert.equal(anonymousRootResponse.status, 401);
+    assert.match(anonymousRootResponse.headers.get("www-authenticate") || "", /^Basic realm="SheetifyIMG"/);
+    assert.equal(anonymousRootResponse.headers.get("cache-control"), "no-store");
+
+    const anonymousProjectResponse = await fetch(`${baseUrl}/api/projects/single`, {
+      method: "POST",
+      headers: {
+        "cf-connecting-ip": "203.0.113.20",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ title: "Must not be created" })
+    });
+    assert.equal(anonymousProjectResponse.status, 401);
+    assert.deepEqual(await fs.readdir(path.join(runtimeDir, "projects")), []);
+
+    const wrongAuthorization = `Basic ${Buffer.from("owner:wrong-password-with-enough-bytes").toString("base64")}`;
+    const wrongPasswordResponse = await fetch(`${baseUrl}/`, {
+      headers: {
+        authorization: wrongAuthorization,
+        "cf-connecting-ip": "203.0.113.10"
+      }
+    });
+    assert.equal(wrongPasswordResponse.status, 401);
+
+    const rootResponse = await fetch(`${baseUrl}/`, {
+      headers: {
+        authorization: ownerAuthorization,
+        "cf-connecting-ip": "203.0.113.10"
+      }
+    });
     assert.equal(rootResponse.status, 200);
     assert.match(rootResponse.headers.get("content-type") || "", /text\/html/);
 
-    const serviceWorkerResponse = await fetch(`${baseUrl}/service-worker.js`);
+    const serviceWorkerResponse = await fetch(`${baseUrl}/service-worker.js`, {
+      headers: { authorization: ownerAuthorization }
+    });
     assert.equal(serviceWorkerResponse.status, 200);
     assert.match(serviceWorkerResponse.headers.get("content-type") || "", /javascript/);
 
     const projectResponse = await fetch(`${baseUrl}/api/projects/single`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        authorization: ownerAuthorization,
+        "content-type": "application/json"
+      },
       body: JSON.stringify({
         title: "Hosting Smoke",
         subject: "Test",
@@ -209,39 +306,54 @@ async function main() {
     assert.equal(created.project.projectId, "hosting-smoke");
     await fs.access(path.join(runtimeDir, "projects", "hosting-smoke", "project-manifest.json"));
 
-    const listResponse = await fetch(`${baseUrl}/api/projects`);
+    const listResponse = await fetch(`${baseUrl}/api/projects`, {
+      headers: { authorization: ownerAuthorization }
+    });
     assert.equal(listResponse.status, 200);
     assert.equal(listResponse.headers.get("cache-control"), "no-store");
     assert.equal((await listResponse.json()).projects.length, 1);
 
     const invalidJson = await fetch(`${baseUrl}/api/projects/single`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        authorization: ownerAuthorization,
+        "content-type": "application/json"
+      },
       body: "{invalid"
     });
     assert.equal(invalidJson.status, 400);
 
     const oversizedJson = await fetch(`${baseUrl}/api/projects/single`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        authorization: ownerAuthorization,
+        "content-type": "application/json"
+      },
       body: JSON.stringify({ title: "x".repeat(400) })
     });
     assert.equal(oversizedJson.status, 413);
 
-    const billingResponse = await fetch(`${baseUrl}/api/billing/status`);
+    const billingResponse = await fetch(`${baseUrl}/api/billing/status`, {
+      headers: { authorization: ownerAuthorization }
+    });
     assert.equal(billingResponse.status, 404);
 
     assert.match(output(), /"planningFlow":"v2"/);
+    assert.match(output(), /"ownerAuthEnabled":true/);
     assert.doesNotMatch(output(), new RegExp(fakeSecret.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.doesNotMatch(output(), new RegExp(ownerPassword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.doesNotMatch(output(), new RegExp(ownerPasswordHash.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   } finally {
     if (child.exitCode === null) {
       child.kill("SIGTERM");
     }
-    const exitCode = await waitForExit(child).catch(async (error) => {
+    const exit = await waitForExit(child).catch(async (error) => {
       child.kill("SIGKILL");
       throw error;
     });
-    assert.equal(exitCode, 0, output());
+    const cleanExit = exit.code === 0
+      || (process.platform === "win32" && exit.code === null && exit.signal === "SIGTERM");
+    assert.equal(cleanExit, true, output());
     await fs.rm(tempRoot, { recursive: true, force: true });
   }
 

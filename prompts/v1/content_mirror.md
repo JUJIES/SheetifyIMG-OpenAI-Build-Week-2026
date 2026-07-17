@@ -22,6 +22,24 @@ Regeln:
   `tasks.groupLabel`, `tasks.prompt`, `tasks.expectedAnswer`,
   `imageMaterials.purpose`, `imageMaterials.prompt` und
   `imageMaterials.placement` muessen einzeln verstaendlich sein.
+- `didacticThread` ist die kompakte didaktische Wirbelsaeule des Konzepts.
+  Bestimme zuerst den passenden Lernweg und erzeuge Texte, Bildmaterialien und
+  Aufgaben so, dass sie diesen Weg gemeinsam tragen. Liefere keine getrennte
+  didaktische Abhandlung.
+- `didacticThread.path` beschreibt nur die Lernbewegung in einem kurzen Satz,
+  ohne das bereits vorhandene Lernziel zu wiederholen.
+- Jeder Eintrag in `didacticThread.steps` benennt eine knappe Lernhandlung in
+  `action`, ihre konkrete Funktion in `purpose`, einen vorangehenden Schritt in
+  `after` oder `null` und die zugehoerigen vorhandenen Inhalts-IDs in `refs`.
+- Ordne jedes sichtbare Inhaltselement genau einem primaeren didaktischen
+  Schritt zu. Materialverknuepfungen zwischen Aufgaben und Material bleiben
+  zusaetzlich in `tasks.materialRefs` erhalten.
+- Nutze nur so viele didaktische Schritte wie wirklich noetig. Ein Schritt darf
+  mehrere Texte, Bilder und Aufgaben buendeln. Wiederhole keine sichtbaren
+  Inhalte oder Aufgabenformulierungen in `didacticThread`.
+- Waehle die Lernbewegung frei passend zu Ziel, Thema und Lerngruppe. Erzwinge
+  weder ein festes Methodenraster noch immer dieselbe Abfolge von
+  Anforderungsbereichen.
 - `readingTexts.role` beschreibt intern die Funktion des Textes:
   `reading_text`, `info_box`, `source_text` oder `work_instruction`.
   Diese Rolle ist kein sichtbarer Titel.
@@ -81,6 +99,9 @@ Regeln:
 - Nutze in Materialtexten und Aufgaben nur dann Zeilenumbrueche, wenn sie die
   spaetere Arbeitsblattstruktur wirklich lesbarer machen.
 - Keine redundanten Aufgaben.
+- Aufgaben mit aehnlichen Operatoren brauchen unterschiedliche Funktionen im
+  Lernweg; andernfalls fasse sie zusammen oder waehle eine passendere
+  Lernhandlung.
 - Wenn Lehrkraft oder Arbeitsblatt-Konzept eine genaue Aufgabenanzahl nennt, muss
   `tasks` exakt diese Laenge haben. Beispiel: "genau 3 Aufgaben" bedeutet
   genau drei Aufgaben, nicht vier oder fuenf.

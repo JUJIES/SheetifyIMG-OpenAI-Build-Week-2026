@@ -104,6 +104,7 @@ async function appendWorkspaceCommandTrace(
 
 async function runWorkspaceCommand(projectId, input = {}, options = {}) {
   const repoRoot = options.repoRoot || DEFAULT_REPO_ROOT;
+  const promptRoot = options.promptRoot || repoRoot;
   const projectsDir = options.projectsDir || DEFAULT_PROJECTS_DIR;
   const worksheetsDir = options.worksheetsDir;
   const projectDir = projectDirFor(projectId, { projectsDir });
@@ -126,11 +127,13 @@ async function runWorkspaceCommand(projectId, input = {}, options = {}) {
 
   await assertWorkflowCommandAllowed(projectId, command, payload, {
     repoRoot,
+    promptRoot,
     projectsDir,
     worksheetsDir,
     now,
     planningFlow,
-    usageAttribution
+    usageAttribution,
+    generationQuota: options.generationQuota || null
   });
 
   const result = await runWorkspaceCommandHandler({
@@ -141,11 +144,13 @@ async function runWorkspaceCommand(projectId, input = {}, options = {}) {
     payload,
     input,
     repoRoot,
+    promptRoot,
     projectsDir,
     worksheetsDir,
     now,
     planningFlow,
-    usageAttribution
+    usageAttribution,
+    generationQuota: options.generationQuota || null
   });
 
   await refreshStatusSnapshot(projectDir, {

@@ -22,6 +22,14 @@ Regeln:
   nenne dann jede ID der Sammlung genau einmal.
 - `title.change`, `solutionNotes.change` und `outputPreference.fields` bleiben
   leer beziehungsweise `false`, wenn diese Bereiche nicht betroffen sind.
+- `didacticThread` wird nur als ganzer kompakter Faden ersetzt. Setze
+  `didacticThread.change=true` und liefere den vollstaendigen neuen Wert, wenn
+  geaenderte Texte, Aufgaben, Materialien oder deren Reihenfolge den Lernweg,
+  seine Begründung oder seine Referenzen beruehren. Andernfalls nutze
+  `didacticThread.change=false` und `value=null`.
+- Wiederhole im neuen `didacticThread` keine sichtbaren Inhalte. Aktualisiere nur
+  Lernhandlung, Funktion, Abfolge und Inhalts-IDs, die fuer einen stimmigen
+  Faden erforderlich sind.
 - Korrigiere keine weiteren Formulierungen, Rechtschreibungen oder
   didaktischen Details aus Eigeninitiative.
 - Inhalt und Designreferenz bleiben getrennt. Ein Wunsch, nur Stil oder Layout

@@ -1,5 +1,7 @@
 "use strict";
 
+const { didacticThreadSchema, normalizeDidacticThread } = require("../didacticThread");
+
 const COLLECTIONS = Object.freeze({
   READING_TEXTS: "readingTexts",
   TASKS: "tasks",
@@ -101,6 +103,7 @@ function contentDeltaSchema() {
       "readingTextPatches",
       "taskPatches",
       "imageMaterialPatches",
+      "didacticThread",
       "solutionNotes",
       "orders"
     ],
@@ -141,6 +144,7 @@ function contentDeltaSchema() {
         purpose: nullableString(),
         placement: nullableString()
       }),
+      didacticThread: changeValueSchema(didacticThreadSchema({ nullable: true })),
       solutionNotes: changeValueSchema({ type: "array", items: { type: "string" } }),
       orders: {
         type: "object",
@@ -368,6 +372,17 @@ function applyContentDelta(baseContent = {}, delta = {}) {
   applyEntityPatches(content, COLLECTIONS.READING_TEXTS, delta.readingTextPatches, changedPaths);
   applyEntityPatches(content, COLLECTIONS.TASKS, delta.taskPatches, changedPaths);
   applyEntityPatches(content, COLLECTIONS.IMAGE_MATERIALS, delta.imageMaterialPatches, changedPaths);
+
+  if (delta.didacticThread?.change) {
+    if (!delta.didacticThread.value) {
+      throw new Error("A changed didacticThread requires its complete new value.");
+    }
+    const nextThread = normalizeDidacticThread(delta.didacticThread.value, content);
+    if (JSON.stringify(content.didacticThread || null) !== JSON.stringify(nextThread)) {
+      content.didacticThread = nextThread;
+      changedPaths.push("didacticThread");
+    }
+  }
 
   if (delta.solutionNotes?.change) {
     const nextNotes = Array.isArray(delta.solutionNotes.value) ? delta.solutionNotes.value : [];

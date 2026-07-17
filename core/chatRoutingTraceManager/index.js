@@ -36,6 +36,10 @@ function compactRevisionTarget(target = null) {
     proposalId: target.proposalId || null,
     contentMirrorId: target.contentMirrorId || null,
     conceptVersion: target.conceptVersion || null,
+    elementId: target.elementId || null,
+    elementType: target.elementType || null,
+    elementLabel: cleanText(target.elementLabel, 120),
+    elementPage: target.elementPage || null,
     runId: target.runId || null,
     candidateId: target.candidateId || null,
     page: target.page || null

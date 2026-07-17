@@ -28,6 +28,7 @@ const TARGET_KINDS = Object.freeze([
 const FIELD_OPERATIONS = Object.freeze(["keep", "set", "clear"]);
 const FIELD_STATUSES = Object.freeze(["known", "partial", "assumed", "missing"]);
 const TEACHING_FIELD_IDS = Object.freeze([
+  "subject",
   "topic",
   "targetGroup",
   "lessonGoal",
@@ -131,6 +132,16 @@ function compactContent(content = null) {
       purpose: compactText(entry.purpose, 300),
       placement: compactText(entry.placement, 240)
     })),
+    didacticThread: content.didacticThread ? {
+      path: compactText(content.didacticThread.path, 180),
+      steps: (content.didacticThread.steps || []).slice(0, 8).map((step) => ({
+        id: step.id || null,
+        action: compactText(step.action, 120),
+        purpose: compactText(step.purpose, 220),
+        after: step.after || null,
+        refs: (step.refs || []).slice(0, 16)
+      }))
+    } : null,
     solutionNotes: (content.solutionNotes || []).slice(0, 12).map((entry) => compactText(entry, 400))
   };
 }
@@ -138,9 +149,21 @@ function compactContent(content = null) {
 function compactWorkspace(workspace = {}) {
   const currentContent = workspace.documents?.content?.data || null;
   const openProposal = workspace.proposals?.latestContentMirror || null;
+  const project = workspace.project || {};
+  const teachingFields = workspace.teachingContext?.fields || {};
   return {
-    project: workspace.project || null,
-    teachingContext: workspace.teachingContext || null,
+    project: {
+      projectId: project.projectId || null,
+      projectType: project.projectType || null,
+      projectName: project.title || null,
+      subject: project.subject || null,
+      topic: project.topic || null,
+      targetGroup: project.targetGroup || null,
+      status: project.status || null
+    },
+    teachingContext: {
+      fields: Object.fromEntries(TEACHING_FIELD_IDS.map((id) => [id, teachingFields[id] || null]))
+    },
     inputReadiness: workspace.inputReadiness || null,
     currentConcept: compactContent(currentContent),
     openConceptProposal: openProposal ? {
@@ -414,7 +437,9 @@ async function interpretPlanningTurn(projectDir, input = {}, options = {}) {
   const payload = planningTurnPayload(input);
   const responseBody = {
     model: route.model || requestConfig.textModel,
-    instructions: await composePrompts(route.promptNames, { repoRoot: options.repoRoot }),
+    instructions: await composePrompts(route.promptNames, {
+      repoRoot: options.promptRoot || options.repoRoot
+    }),
     input: modelInput(payload, input.openAiContentItems),
     text: {
       format: {
