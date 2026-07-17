@@ -10,6 +10,8 @@
     pass: document.querySelector("#passButton"),
     connections: document.querySelector("#connectionsButton")
   };
+  const draftCreditStatusCount = document.querySelector("#draftCreditStatusCount");
+  const draftCreditStatusLabel = document.querySelector("#draftCreditStatusLabel");
   if (!modal || !content || !openButtons.pass || !openButtons.connections) return;
   const locale = window.sheetifyLocale;
 
@@ -73,6 +75,27 @@
     }
   }
 
+  function renderDraftCreditStatus() {
+    const pass = summary?.pass;
+    if (!pass || !draftCreditStatusCount) {
+      openButtons.pass.hidden = true;
+      return;
+    }
+    const balance = Number(pass.balance);
+    if (!Number.isFinite(balance)) {
+      openButtons.pass.hidden = true;
+      return;
+    }
+    const label = t("passUi.draftPages");
+    draftCreditStatusCount.textContent = String(balance);
+    if (draftCreditStatusLabel) draftCreditStatusLabel.textContent = label;
+    openButtons.pass.hidden = false;
+    const passName = t("app.nav.pass");
+    const statusName = `${passName}: ${balance} ${label}`;
+    openButtons.pass.setAttribute("aria-label", statusName);
+    openButtons.pass.setAttribute("title", statusName);
+  }
+
   function render(message = "", error = false) {
     const pass = summary?.pass;
     if (!pass) {
@@ -120,13 +143,14 @@
 
   async function load(message = "") {
     summary = await api("/api/pass");
+    renderDraftCreditStatus();
     render(message);
   }
 
   async function refreshBalance() {
-    if (modal.classList.contains("hidden")) return;
     const next = await api("/api/pass");
     summary = next;
+    renderDraftCreditStatus();
     const value = content.querySelector(".pass-balance-badge strong");
     if (value) value.textContent = String(next.pass.balance);
   }
@@ -217,6 +241,7 @@
   window.addEventListener("sheetify:balancechange", (event) => {
     const balance = Number(event.detail?.balance);
     if (summary?.pass && Number.isFinite(balance)) summary.pass.balance = balance;
+    if (summary?.pass && Number.isFinite(balance)) renderDraftCreditStatus();
     const value = content.querySelector(".pass-balance-badge strong");
     if (value && Number.isFinite(balance)) value.textContent = String(balance);
   });
@@ -227,11 +252,15 @@
   setInterval(() => refreshBalance().catch(() => {}), 12000);
 
   renderLanguageOptions();
-  window.addEventListener("sheetify:localechange", renderLanguageOptions);
+  window.addEventListener("sheetify:localechange", () => {
+    renderLanguageOptions();
+    renderDraftCreditStatus();
+  });
 
   api("/api/auth/session")
     .then((session) => {
       if (!session.authenticated) Object.values(openButtons).forEach((button) => { button.hidden = true; });
+      else refreshBalance().catch(() => { openButtons.pass.hidden = true; });
     })
     .catch(() => {
       Object.values(openButtons).forEach((button) => { button.hidden = true; });

@@ -3049,6 +3049,50 @@ button {
   gap: 8px;
 }
 
+.draft-credit-status {
+  width: auto;
+  min-width: 0;
+  height: 36px;
+  flex: 0 0 auto;
+  gap: 7px;
+  padding: 0 11px 0 10px;
+  border: 1px solid #e4e7ec;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #475467;
+}
+
+.draft-credit-status .icon {
+  color: #667085;
+}
+
+.draft-credit-status:hover,
+.draft-credit-status:focus-visible {
+  border-color: #cbd5e1;
+  background: #ffffff;
+}
+
+.draft-credit-status:hover .icon,
+.draft-credit-status:focus-visible .icon {
+  color: var(--blue);
+}
+
+.draft-credit-status__count {
+  color: #1d2939;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.draft-credit-status__label {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .topbar-project-title h1 {
   overflow: hidden;
   max-width: 760px;
@@ -6311,6 +6355,15 @@ button {
 
   .topbar-global-actions {
     margin-left: 8px;
+  }
+
+  .draft-credit-status {
+    min-width: 62px;
+    padding: 0 10px;
+  }
+
+  .draft-credit-status__label {
+    display: none;
   }
 
   .icon-button-plain {

@@ -328,6 +328,7 @@ async function main() {
     await creditLayer.getByRole("button", { name: "Got it" }).click();
     await creditLayer.waitFor({ state: "hidden" });
     assert.equal(await englishPage.locator("#passModal .pass-balance-badge strong").textContent(), "53");
+    assert.equal(await englishPage.locator("#draftCreditStatusCount").textContent(), "53");
     assert.equal((await pageApi(englishPage, "/api/pass/credit-notice")).body.notice, null);
     const syncedAdminOverview = await fetch(`${baseUrl}/api/admin/overview`, {
       headers: { authorization: ownerAuthorization }
@@ -368,10 +369,12 @@ async function main() {
     if (captureDir) await germanPage.screenshot({ path: path.join(captureDir, "judge-credit-grant-notice-de.png"), fullPage: true });
     await germanCreditLayer.getByRole("button", { name: "Verstanden" }).click();
     assert.equal(await germanPage.locator("#passModal .pass-balance-badge strong").textContent(), "55");
+    assert.equal(await germanPage.locator("#draftCreditStatusCount").textContent(), "55");
     await englishPage.evaluate(() => window.dispatchEvent(new Event("focus")));
     await creditLayer.getByRole("heading", { name: "2 draft pages have been added." }).waitFor();
     await creditLayer.getByRole("button", { name: "Got it" }).click();
     assert.equal(await englishPage.locator("#passModal .pass-balance-badge strong").textContent(), "55");
+    assert.equal(await englishPage.locator("#draftCreditStatusCount").textContent(), "55");
     await germanPage.locator("#passModal [data-pass-close]").last().click();
     await germanPage.getByRole("button", { name: demoProjectTitle }).click();
     await germanPage.getByRole("button", { name: "Projekt öffnen" }).click();

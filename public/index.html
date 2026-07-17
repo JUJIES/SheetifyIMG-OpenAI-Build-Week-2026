@@ -17,7 +17,7 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/app-icon-180.png">
     <link rel="stylesheet" href="/vendor/simplebar/simplebar.min.css?v=1">
     <link rel="stylesheet" href="/brand.css?v=3">
-    <link rel="stylesheet" href="/styles.css?v=116">
+    <link rel="stylesheet" href="/styles.css?v=117">
     <link rel="stylesheet" href="/pass-ui.css?v=4">
     <link rel="stylesheet" href="/beta-experience.css?v=3">
   </head>
@@ -46,10 +46,12 @@
           </div>
         </div>
         <div class="topbar-global-actions">
-          <button class="icon-button icon-button-plain" type="button" id="passButton" aria-label="Mein SheetifyIMG Pass" title="Mein SheetifyIMG Pass" aria-haspopup="dialog" data-i18n-title="app.nav.pass" data-i18n-aria-label="app.nav.pass">
+          <button class="icon-button draft-credit-status" type="button" id="passButton" aria-label="Mein SheetifyIMG Pass" title="Mein SheetifyIMG Pass" aria-haspopup="dialog" data-i18n-title="app.nav.pass" data-i18n-aria-label="app.nav.pass" hidden>
             <svg class="icon icon-small" aria-hidden="true">
               <use href="/icons/lucide-sprite.svg?v=17#badge-check"></use>
             </svg>
+            <span class="draft-credit-status__count" id="draftCreditStatusCount" aria-hidden="true">–</span>
+            <span class="draft-credit-status__label" id="draftCreditStatusLabel" aria-hidden="true" data-i18n="passUi.draftPages">Entwurfsseiten</span>
           </button>
           <button class="icon-button icon-button-plain" type="button" id="connectionsButton" aria-label="Verbundene Geräte" title="Verbundene Geräte" aria-haspopup="dialog" data-i18n-title="passUi.devices.title" data-i18n-aria-label="passUi.devices.title">
             <svg class="icon icon-small" aria-hidden="true">
@@ -487,7 +489,7 @@
       window.sheetifyLocale.apply(document);
     </script>
     <script src="/app.js?v=189"></script>
-    <script src="/pass-ui.js?v=6"></script>
+    <script src="/pass-ui.js?v=7"></script>
     <script src="/beta-experience.js?v=5"></script>
   </body>
 </html>

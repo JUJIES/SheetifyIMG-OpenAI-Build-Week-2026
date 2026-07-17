@@ -31,10 +31,11 @@ button, input, select, textarea { font: inherit; }
   width: min(1120px, calc(100% - 40px));
   min-height: 100vh;
   margin: 0 auto;
-  padding: clamp(64px, 10vh, 82px) 0 56px;
+  padding: 56px 0;
   display: grid;
   grid-template-columns: minmax(0, 1.08fr) minmax(360px, .72fr);
   align-items: start;
+  align-content: center;
   gap: clamp(48px, 8vw, 110px);
 }
 
