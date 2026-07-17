@@ -8,7 +8,7 @@
     <link rel="icon" href="/icons/favicon.ico" sizes="any">
     <link rel="apple-touch-icon" href="/icons/app-icon-180.png">
     <link rel="stylesheet" href="/brand.css?v=3">
-    <link rel="stylesheet" href="/pass.css?v=4">
+    <link rel="stylesheet" href="/pass.css?v=5">
     <style>html:not([data-locale-ready]) body{visibility:hidden}</style>
     <script src="/locale.js?v=5"></script>
     <script>
@@ -25,19 +25,18 @@
   </head>
   <body>
     <main class="pass-page">
-      <section class="pass-intro" aria-labelledby="passTitle">
+      <section class="pass-intro">
         <a class="pass-brand sheetify-wordmark sheetify-wordmark--large" href="/" aria-label="SheetifyIMG Startseite" data-i18n-aria-label="pass.brandHome">
           <span>Sheetify</span><span class="sheetify-wordmark__suffix">IMG</span>
         </a>
-        <div class="pass-copy">
-          <p class="pass-eyebrow" data-i18n="pass.intro.eyebrow">Einfach verbinden</p>
-          <h1 id="passTitle"><span data-i18n="pass.intro.titleLine1">Dein Arbeitsbereich.</span><br><span data-i18n="pass.intro.titleLine2">Auf jedem Gerät.</span></h1>
-          <p data-i18n="pass.intro.description">Mit einem SheetifyIMG Pass teilst du Projekte, Entwürfe und Guthaben – per Code oder QR, ohne Passwort.</p>
+        <div class="pass-mobile-intro">
+          <h1 data-i18n="pass.mobileIntro.title">Willkommen zur Wochenend-Beta</h1>
+          <p data-i18n="pass.mobileIntro.description">Gib den Code aus deinem Voucher oder Beta Pass ein, um deinen Arbeitsbereich zu öffnen und dein erstes Arbeitsblatt zu erstellen.</p>
         </div>
-        <div class="pass-benefits" aria-label="Vorteile" data-i18n-aria-label="pass.benefits.label">
-          <span data-i18n="pass.benefits.share">Gemeinsam arbeiten</span>
-          <span data-i18n="pass.benefits.persistent">Dauerhaft verbunden</span>
-          <span data-i18n="pass.benefits.separate">Sicher getrennte Bereiche</span>
+        <div class="pass-copy">
+          <p class="pass-eyebrow" data-i18n="pass.intro.eyebrow">Willkommen bei SheetifyIMG</p>
+          <h1><span data-i18n="pass.intro.titleLine1">Dein Einstieg</span><br><span data-i18n="pass.intro.titleLine2">in die Wochenend-Beta.</span></h1>
+          <p data-i18n="pass.intro.description">Gib den Code aus deiner Einladung oder deinem Pass ein. Du kannst auch den QR-Code mit der Handykamera scannen.</p>
         </div>
       </section>
 
@@ -47,18 +46,14 @@
           <button type="button" data-pass-locale="en">EN</button>
         </div>
         <div class="pass-panel-head">
-          <span class="pass-mark" aria-hidden="true">S</span>
-          <div>
-            <p class="pass-eyebrow" data-i18n="pass.panel.eyebrow">SheetifyIMG Pass</p>
-            <h2 id="connectTitle" data-i18n="pass.panel.title">Arbeitsbereich öffnen</h2>
-          </div>
+          <h2 id="connectTitle" data-i18n="pass.panel.title">Code eingeben</h2>
         </div>
 
         <div class="pass-notice hidden" id="passNotice" role="status"></div>
 
         <form id="connectForm" class="pass-form">
           <label for="passCode" data-i18n="pass.form.code">Pass- oder Kopplungscode</label>
-          <input id="passCode" name="code" type="text" inputmode="text" autocomplete="one-time-code" spellcheck="false" placeholder="SHEET-••••-••••-••••" required>
+          <input id="passCode" name="code" type="text" inputmode="text" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="SHEET-••••-••••-••••" data-i18n-placeholder="pass.form.codePlaceholder" required>
           <button type="submit" class="pass-primary" id="connectButton" data-i18n="pass.form.connect">Verbinden</button>
         </form>
 
@@ -69,13 +64,14 @@
             <svg viewBox="0 0 24 24"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM19 14h2v2h-2zM14 19h2v2h-2zM18 18h3v3h-3z"/></svg>
           </span>
           <div>
-            <strong data-i18n="pass.qr.title">QR-Code bekommen?</strong>
-            <p data-i18n="pass.qr.description">Einfach mit der Handykamera scannen. SheetifyIMG verbindet das Gerät automatisch.</p>
+            <strong data-i18n="pass.qr.title">QR-Code vorhanden?</strong>
+            <p data-i18n="pass.qr.description">Mit der Handykamera scannen, um dieses Gerät zu verbinden.</p>
           </div>
         </div>
 
         <button class="pass-link" type="button" id="supportToggle" data-i18n="pass.support.toggle">Pass weg, Problem oder noch kein Zugang?</button>
         <form id="supportForm" class="pass-form pass-support hidden">
+          <p class="pass-support-note" data-i18n="pass.support.passSharing">Wer denselben Pass verwendet, öffnet denselben Arbeitsbereich und teilt das Entwurfsguthaben.</p>
           <label for="requestKind" data-i18n="pass.support.kind">Wobei können wir helfen?</label>
           <select id="requestKind">
             <option value="recovery" data-i18n="pass.support.recovery">SheetifyIMG Pass wiederherstellen</option>
@@ -90,9 +86,9 @@
           <p class="pass-contact"><span data-i18n="pass.support.direct">Oder direkt an</span> <a href="mailto:sheetify@jujies.app">sheetify@jujies.app</a></p>
         </form>
 
-        <p class="pass-privacy" data-i18n="pass.privacy">Ein verbundener Browser bleibt angemeldet. Wer denselben Pass verwendet, teilt denselben Arbeitsbereich und das Entwurfsguthaben.</p>
+        <p class="pass-privacy" data-i18n="pass.privacy">Dieses Gerät bleibt verbunden.</p>
       </section>
     </main>
-    <script src="/pass.js?v=3"></script>
+    <script src="/pass.js?v=4"></script>
   </body>
 </html>

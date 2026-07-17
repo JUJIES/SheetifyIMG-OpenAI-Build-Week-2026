@@ -1,7 +1,8 @@
 "use strict";
 
 (() => {
-  const REMINDER_KEY = "sheetifyimg.feedback-reminder.v1";
+  const REMINDER_KEY = "sheetifyimg.feedback-reminder.v2";
+  const RENDER_NUDGE_KEY = "sheetifyimg.feedback-render-nudge.v1";
   const locale = window.sheetifyLocale;
   let experience = null;
   let activeContext = {};
@@ -12,14 +13,14 @@
   root.id = "betaExperienceRoot";
   root.innerHTML = `
     <button class="beta-feedback-trigger hidden" id="betaFeedbackTrigger" type="button" aria-haspopup="dialog">
-      <span aria-hidden="true">✦</span>
-      <span data-i18n="beta.feedback.trigger">Feedback</span>
+      <img class="beta-feedback-trigger-icon" src="/icons/lucide/message-square-plus.svg" aria-hidden="true" alt="">
+      <span data-i18n="beta.feedback.trigger">Beta-Feedback</span>
     </button>
     <aside class="beta-feedback-reminder hidden" id="betaFeedbackReminder" aria-live="polite">
       <button class="beta-feedback-reminder-close" type="button" aria-label="Hinweis schließen" data-i18n-aria-label="beta.reminder.close">×</button>
-      <strong data-i18n="beta.reminder.title">Wie war dein Entwurf?</strong>
-      <span data-i18n="beta.reminder.body">Eine kurze Rückmeldung hilft uns sehr.</span>
-      <button class="beta-feedback-reminder-action" type="button" data-i18n="beta.reminder.action">Feedback geben</button>
+      <strong id="betaFeedbackReminderTitle" data-i18n="beta.reminder.complete.title">Der Entwurf ist da.</strong>
+      <span id="betaFeedbackReminderBody" data-i18n="beta.reminder.complete.body">Was ist dir aufgefallen?</span>
+      <button class="beta-feedback-reminder-action" type="button" data-i18n="beta.reminder.action">Beta-Feedback geben</button>
     </aside>
     <div class="beta-experience-layer beta-consent-layer hidden" id="betaConsentLayer" role="dialog" aria-modal="true" aria-labelledby="betaConsentTitle">
       <section class="beta-experience-card beta-consent-card">
@@ -38,41 +39,22 @@
         <header class="beta-feedback-header">
           <div>
             <p class="beta-experience-eyebrow" data-i18n="beta.feedback.eyebrow">Beta-Feedback</p>
-            <h2 id="betaFeedbackTitle" data-i18n="beta.feedback.title">Wie war deine Erfahrung?</h2>
-            <p id="betaFeedbackContext" data-i18n="beta.feedback.contextGeneral">Allgemeines Feedback zu SheetifyIMG</p>
+            <h2 id="betaFeedbackTitle" data-i18n="beta.feedback.title">Was ist dir gerade aufgefallen?</h2>
+            <p data-i18n="beta.feedback.description">Schreib es kurz auf. Hinweise direkt beim Arbeiten helfen uns am meisten.</p>
           </div>
           <button class="beta-feedback-close" id="betaFeedbackClose" type="button" aria-label="Feedback schließen" data-i18n-aria-label="beta.feedback.close">×</button>
         </header>
         <form id="betaFeedbackForm">
-          <fieldset class="beta-rating-fieldset">
-            <legend data-i18n="beta.feedback.overall">Gesamteindruck</legend>
-            <div class="beta-rating-options" aria-label="Bewertung von 1 bis 5" data-i18n-aria-label="beta.feedback.rating">
-              ${[1, 2, 3, 4, 5].map((rating) => `<button type="button" data-beta-rating="${rating}" aria-label="${rating} von 5" data-rating-label>${rating}</button>`).join("")}
-            </div>
-            <input type="hidden" name="rating" value="">
-          </fieldset>
-          <label class="beta-feedback-label"><span data-i18n="beta.feedback.category">Worum geht es?</span>
-            <select name="category">
-              <option value="result" data-i18n="beta.feedback.category.result">Ergebnis / Entwurf</option>
-              <option value="usability" data-i18n="beta.feedback.category.usability">Bedienung</option>
-              <option value="problem" data-i18n="beta.feedback.category.problem">Technisches Problem</option>
-              <option value="idea" data-i18n="beta.feedback.category.idea">Idee oder Wunsch</option>
-              <option value="general" data-i18n="beta.feedback.category.general">Allgemein</option>
-            </select>
+          <div class="beta-feedback-prompts" role="group" aria-label="Satzanfänge" data-i18n-aria-label="beta.feedback.prompts">
+            <button type="button" data-feedback-prompt="stuck" data-i18n="beta.feedback.prompt.stuck">Ich komme gerade nicht weiter:</button>
+            <button type="button" data-feedback-prompt="cumbersome" data-i18n="beta.feedback.prompt.cumbersome">Das war umständlich:</button>
+            <button type="button" data-feedback-prompt="unexpected" data-i18n="beta.feedback.prompt.unexpected">Die App hat gerade etwas anders gemacht als erwartet:</button>
+            <button type="button" data-feedback-prompt="improve" data-i18n="beta.feedback.prompt.improve">Das könnte besser funktionieren:</button>
+          </div>
+          <label class="beta-feedback-label"><span data-i18n="beta.feedback.message">Dein Hinweis</span>
+            <textarea name="message" rows="4" maxlength="4000" placeholder="Oder beschreibe einfach, was dir gerade aufgefallen ist." data-i18n-placeholder="beta.feedback.messagePlaceholder" required></textarea>
           </label>
-          <fieldset class="beta-tag-fieldset">
-            <legend data-i18n="beta.feedback.tags">Passt etwas davon?</legend>
-            <div class="beta-tag-options">
-              <label><input type="checkbox" name="tags" value="helpful"><span data-i18n="beta.feedback.tag.helpful">Hilfreich</span></label>
-              <label><input type="checkbox" name="tags" value="unclear"><span data-i18n="beta.feedback.tag.unclear">Unklar</span></label>
-              <label><input type="checkbox" name="tags" value="incorrect"><span data-i18n="beta.feedback.tag.incorrect">Inhaltlich falsch</span></label>
-              <label><input type="checkbox" name="tags" value="design"><span data-i18n="beta.feedback.tag.design">Design</span></label>
-              <label><input type="checkbox" name="tags" value="technical"><span data-i18n="beta.feedback.tag.technical">Technik</span></label>
-            </div>
-          </fieldset>
-          <label class="beta-feedback-label"><span data-i18n="beta.feedback.message">Was möchtest du uns sagen?</span>
-            <textarea name="message" rows="4" maxlength="4000" placeholder="Kurz und ehrlich reicht völlig." data-i18n-placeholder="beta.feedback.messagePlaceholder"></textarea>
-          </label>
+          <p class="beta-feedback-note" data-i18n="beta.feedback.note">Bitte keine sensiblen persönlichen Daten eingeben.</p>
           <p class="beta-experience-error hidden" id="betaFeedbackError"></p>
           <div class="beta-experience-actions">
             <button class="beta-secondary-button" id="betaFeedbackCancel" type="button" data-i18n="beta.feedback.later">Später</button>
@@ -97,7 +79,9 @@
     feedbackClose: root.querySelector("#betaFeedbackClose"),
     feedbackCancel: root.querySelector("#betaFeedbackCancel"),
     feedbackForm: root.querySelector("#betaFeedbackForm"),
-    feedbackContext: root.querySelector("#betaFeedbackContext"),
+    feedbackMessage: root.querySelector("#betaFeedbackForm textarea[name='message']"),
+    reminderTitle: root.querySelector("#betaFeedbackReminderTitle"),
+    reminderBody: root.querySelector("#betaFeedbackReminderBody"),
     feedbackError: root.querySelector("#betaFeedbackError"),
     feedbackSubmit: root.querySelector("#betaFeedbackSubmit"),
     feedbackToast: root.querySelector("#betaFeedbackToast")
@@ -117,9 +101,6 @@
 
   function applyLocale() {
     locale.apply(root);
-    root.querySelectorAll("[data-rating-label]").forEach((button) => {
-      button.setAttribute("aria-label", t("beta.feedback.ratingItem", { rating: button.dataset.betaRating }));
-    });
   }
 
   function localizedError(payload) {
@@ -186,12 +167,6 @@
     }).filter(([, value]) => value !== null && value !== ""));
   }
 
-  function contextLabel(context) {
-    if (context.candidateId) return t("beta.feedback.contextDraft");
-    if (context.projectId) return t("beta.feedback.contextProject");
-    return t("beta.feedback.contextGeneral");
-  }
-
   function showFeedbackToast() {
     elements.feedbackToast.classList.remove("hidden");
     clearTimeout(showFeedbackToast.timer);
@@ -202,17 +177,35 @@
     elements.feedbackReminder.classList.add("hidden");
   }
 
+  function canNudgeFeedback() {
+    return Boolean(experience?.consent?.accepted)
+      && !experience.feedback?.count
+      && elements.feedbackLayer.classList.contains("hidden");
+  }
+
+  function pulseFeedbackTrigger() {
+    elements.feedbackTrigger.classList.remove("is-nudged");
+    void elements.feedbackTrigger.offsetWidth;
+    elements.feedbackTrigger.classList.add("is-nudged");
+  }
+
+  function showReminder(kind) {
+    if (!canNudgeFeedback() || sessionStorage.getItem(REMINDER_KEY)) return;
+    sessionStorage.setItem(REMINDER_KEY, kind);
+    elements.reminderTitle.textContent = t(`beta.reminder.${kind}.title`);
+    elements.reminderBody.textContent = t(`beta.reminder.${kind}.body`);
+    elements.feedbackReminder.classList.remove("hidden");
+  }
+
   function openFeedback() {
     if (!experience?.consent?.accepted) return;
     activeContext = feedbackContext();
-    elements.feedbackContext.textContent = contextLabel(activeContext);
-    elements.feedbackForm.elements.category.value = activeContext.candidateId ? "result" : "general";
     setError(elements.feedbackError);
     lastFocusedElement = document.activeElement;
     elements.feedbackLayer.classList.remove("hidden");
     document.body.classList.add("beta-feedback-open");
     hideReminder();
-    elements.feedbackForm.querySelector("[data-beta-rating='5']")?.focus();
+    elements.feedbackMessage.focus();
   }
 
   function closeFeedback() {
@@ -224,18 +217,33 @@
 
   function resetFeedbackForm() {
     elements.feedbackForm.reset();
-    elements.feedbackForm.elements.rating.value = "";
-    elements.feedbackForm.querySelectorAll("[data-beta-rating]").forEach((button) => button.classList.remove("selected"));
   }
 
-  function maybeShowReminder() {
-    if (!experience?.consent?.accepted || experience.feedback?.count || sessionStorage.getItem(REMINDER_KEY)) return;
-    if (!document.querySelector("[data-capture-kind='candidate'][data-candidate-id]")) return;
-    sessionStorage.setItem(REMINDER_KEY, "shown");
-    setTimeout(() => {
-      if (elements.feedbackLayer.classList.contains("hidden")) {
-        elements.feedbackReminder.classList.remove("hidden");
-      }
+  function firstVisible(selector) {
+    return Array.from(document.querySelectorAll(selector)).find((element) => element.getClientRects().length > 0) || null;
+  }
+
+  function observeFeedbackMoments() {
+    if (!canNudgeFeedback()) return;
+    const rendering = firstVisible(".render-progress-steps, .candidate-rendering, .is-rendering-candidate");
+    if (rendering && !sessionStorage.getItem(RENDER_NUDGE_KEY) && !observeFeedbackMoments.renderTimer) {
+      observeFeedbackMoments.renderTimer = setTimeout(() => {
+        observeFeedbackMoments.renderTimer = null;
+        if (canNudgeFeedback() && firstVisible(".render-progress-steps, .candidate-rendering, .is-rendering-candidate")) {
+          sessionStorage.setItem(RENDER_NUDGE_KEY, "shown");
+          pulseFeedbackTrigger();
+        }
+      }, 12000);
+    }
+    if (!rendering && observeFeedbackMoments.renderTimer) {
+      clearTimeout(observeFeedbackMoments.renderTimer);
+      observeFeedbackMoments.renderTimer = null;
+    }
+    if (!firstVisible("[data-capture-kind='candidate'][data-candidate-id]")) return;
+    if (observeFeedbackMoments.completeTimer || sessionStorage.getItem(REMINDER_KEY)) return;
+    observeFeedbackMoments.completeTimer = setTimeout(() => {
+      observeFeedbackMoments.completeTimer = null;
+      showReminder("complete");
     }, 1200);
   }
 
@@ -264,7 +272,7 @@
       if (experience.consent?.accepted) {
         elements.consentLayer.classList.add("hidden");
         elements.feedbackTrigger.classList.remove("hidden");
-        maybeShowReminder();
+        observeFeedbackMoments();
       } else {
         elements.consentLayer.classList.remove("hidden");
         elements.consentAccept.focus();
@@ -292,7 +300,7 @@
       };
       elements.consentLayer.classList.add("hidden");
       elements.feedbackTrigger.classList.remove("hidden");
-      maybeShowReminder();
+      observeFeedbackMoments();
     } catch (error) {
       setError(elements.consentError, error.message);
     } finally {
@@ -301,24 +309,24 @@
     }
   });
 
-  elements.feedbackForm.querySelectorAll("[data-beta-rating]").forEach((button) => {
+  elements.feedbackForm.querySelectorAll("[data-feedback-prompt]").forEach((button) => {
     button.addEventListener("click", () => {
-      elements.feedbackForm.elements.rating.value = button.dataset.betaRating;
-      elements.feedbackForm.querySelectorAll("[data-beta-rating]").forEach((entry) => {
-        entry.classList.toggle("selected", entry === button);
-      });
+      const starter = t(`beta.feedback.prompt.${button.dataset.feedbackPrompt}`);
+      const current = elements.feedbackMessage.value.trim();
+      elements.feedbackMessage.value = current ? `${current}\n${starter} ` : `${starter} `;
+      elements.feedbackMessage.focus();
     });
   });
 
   elements.feedbackForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const data = new FormData(elements.feedbackForm);
-    const payload = {
-      ...activeContext,
-      rating: data.get("rating") ? Number(data.get("rating")) : null,
-      category: data.get("category"),
-      tags: data.getAll("tags"),
-      message: data.get("message")
+      const payload = {
+        ...activeContext,
+        category: "general",
+        rating: null,
+        tags: [],
+        message: data.get("message")
     };
     elements.feedbackSubmit.disabled = true;
     setError(elements.feedbackError);
@@ -328,6 +336,7 @@
         count: Number(experience.feedback?.count || 0) + 1,
         lastSubmittedAt: new Date().toISOString()
       };
+      hideReminder();
       closeFeedback();
       resetFeedbackForm();
       showFeedbackToast();
@@ -366,10 +375,9 @@
 
   window.addEventListener("sheetify:localechange", () => {
     applyLocale();
-    elements.feedbackContext.textContent = contextLabel(activeContext);
   });
 
-  new MutationObserver(maybeShowReminder).observe(document.querySelector(".app-shell") || document.body, {
+  new MutationObserver(observeFeedbackMoments).observe(document.querySelector(".app-shell") || document.body, {
     childList: true,
     subtree: true
   });
