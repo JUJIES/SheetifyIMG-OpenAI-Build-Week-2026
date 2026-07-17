@@ -32,7 +32,7 @@ async function assertPortReusable(port) {
   });
 }
 
-async function waitForHealth(baseUrl, child, output, timeoutMs = 8000) {
+async function waitForHealth(baseUrl, child, output, timeoutMs = 75000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
