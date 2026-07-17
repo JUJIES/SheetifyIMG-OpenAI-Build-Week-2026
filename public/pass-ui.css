@@ -16,7 +16,8 @@
 .pass-ui-section-head { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 12px; }
 .pass-ui-section h3 { margin: 0; font-size: 15px; }
 .pass-ui-help { margin: 7px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
-.pass-ui-button { min-height: 39px; padding: 0 14px; border: 0; border-radius: 10px; color: var(--blue); background: var(--blue-soft); cursor: pointer; font-weight: 700; }
+.pass-ui-button { display: inline-flex; min-height: 39px; align-items: center; justify-content: center; gap: 8px; padding: 0 14px; border: 0; border-radius: 10px; color: var(--blue); background: var(--blue-soft); cursor: pointer; font-weight: 700; }
+.pass-ui-icon { display: none; width: 17px; height: 17px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .pass-ui-button.primary { color: #fff; background: var(--blue); }
 .pass-ui-button.danger { color: var(--danger); background: var(--danger-soft); }
 .pairing-result { display: grid; grid-template-columns: 150px 1fr; gap: 19px; align-items: center; padding: 17px; border: 1px solid var(--line-soft); border-radius: 16px; background: var(--panel-soft); }
@@ -26,8 +27,11 @@
 .topup-form input { min-width: 0; flex: 1; height: 43px; padding: 0 13px; border: 1px solid var(--line); border-radius: 10px; outline: 0; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .device-list { display: grid; gap: 8px; }
 .device-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 14px; border: 1px solid var(--line-soft); border-radius: 12px; }
-.device-row strong { display: block; font-size: 13px; }
-.device-row span { color: var(--muted); font-size: 10px; }
+.device-icon { display: none; width: 36px; height: 36px; place-items: center; border-radius: 10px; color: var(--blue); background: var(--blue-soft); }
+.device-icon .pass-ui-icon { width: 18px; height: 18px; }
+.device-copy { min-width: 0; }
+.device-row strong { display: block; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.device-row .device-copy span { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; }
 .device-current { color: var(--green) !important; font-weight: 700; }
 .pass-ui-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 25px; padding-top: 20px; border-top: 1px solid var(--line-soft); }
 .pass-ui-footer p { margin: 0; color: var(--muted); font-size: 11px; }
@@ -39,4 +43,26 @@
 .pass-ui-language-option:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .pass-ui-message { padding: 12px; border-radius: 11px; color: #28513d; background: var(--green-soft); font-size: 12px; }
 .pass-ui-message.error { color: var(--danger); background: var(--danger-soft); }
-@media (max-width: 600px) { .pass-modal-layer { padding: 0; place-items: end center; } .pass-modal { width: 100%; max-height: 92vh; border-radius: 24px 24px 0 0; } .pairing-result { grid-template-columns: 1fr; text-align: center; } .pairing-result svg { margin: auto; } .pass-ui-footer { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 600px) {
+  .pass-modal-layer { padding: 0; place-items: end center; }
+  .pass-modal { width: 100%; max-height: 92vh; border-radius: 24px 24px 0 0; }
+  .pass-modal-header { padding: 20px 20px 15px; }
+  .pass-modal-content { padding: 18px 20px max(22px, env(safe-area-inset-bottom)); }
+  .pass-ui-section { margin-top: 20px; }
+  .pass-ui-section-head { align-items: flex-start; gap: 12px; }
+  .pass-ui-button .pass-ui-icon,
+  .device-icon .pass-ui-icon { display: block; }
+  .pass-pair-button { width: 44px; min-width: 44px; height: 44px; padding: 0; border-radius: 14px; }
+  .pass-pair-button span,
+  .device-revoke-button span,
+  .pass-logout-button span { display: none; }
+  .pairing-result { grid-template-columns: 1fr; text-align: center; }
+  .pairing-result svg { margin: auto; }
+  .device-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; justify-content: normal; gap: 10px; padding: 10px 11px; }
+  .device-icon { display: grid; }
+  .device-revoke-button { width: 40px; min-width: 40px; height: 40px; padding: 0; border-radius: 12px; }
+  .current-device-action { display: none; }
+  .pass-ui-footer { align-items: center; flex-direction: row; gap: 12px; margin-top: 20px; padding-top: 16px; }
+  .pass-ui-footer p { min-width: 0; flex: 1; }
+  .pass-logout-button { width: 44px; min-width: 44px; height: 44px; padding: 0; border-radius: 14px; }
+}

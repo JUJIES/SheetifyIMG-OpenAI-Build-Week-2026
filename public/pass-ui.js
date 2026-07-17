@@ -31,6 +31,10 @@
     return language === "de" ? "/icons/flags/de.svg" : "/icons/flags/gb.svg";
   }
 
+  function iconMarkup(name) {
+    return `<svg class="pass-ui-icon" aria-hidden="true"><use href="/icons/lucide-sprite.svg?v=18#${name}"></use></svg>`;
+  }
+
   function localizedError(payload = {}) {
     const passKey = `pass.error.${payload.error || "default"}`;
     const passMessage = t(passKey);
@@ -107,23 +111,28 @@
     const help = `<p>${escapeHtml(t("passUi.help"))} <a href="mailto:sheetify@jujies.app">sheetify@jujies.app</a></p>`;
 
     if (activeView === "connections") {
+      const removeLabel = t("passUi.devices.remove");
+      const logoutLabel = t("passUi.logout");
       content.innerHTML = `
         ${notice}
         <section class="pass-ui-section pass-ui-section-first">
-          <div class="pass-ui-section-head"><div><h3>${escapeHtml(t("passUi.pair.title"))}</h3><p class="pass-ui-help">${escapeHtml(t("passUi.pair.help"))}</p></div><button class="pass-ui-button primary" type="button" data-create-pair>${escapeHtml(t("passUi.pair.start"))}</button></div>
+          <div class="pass-ui-section-head"><div><h3>${escapeHtml(t("passUi.pair.title"))}</h3><p class="pass-ui-help">${escapeHtml(t("passUi.pair.help"))}</p></div><button class="pass-ui-button primary pass-pair-button" type="button" data-create-pair aria-label="${escapeHtml(t("passUi.pair.start"))}" title="${escapeHtml(t("passUi.pair.start"))}">${iconMarkup("plus")}<span>${escapeHtml(t("passUi.pair.start"))}</span></button></div>
           <div id="pairingResult"></div>
         </section>
         <section class="pass-ui-section">
           <div class="pass-ui-section-head"><h3>${escapeHtml(t("passUi.devices.title"))}</h3><span class="pass-ui-help">${escapeHtml(t("passUi.devices.connected", { count: summary.devices.length }))}</span></div>
           <div class="device-list">${summary.devices.map((device) => `
             <div class="device-row" data-device-id="${escapeHtml(device.id)}">
-              <div><strong>${escapeHtml(device.deviceName)}</strong><span class="${device.current ? "device-current" : ""}">${device.current ? escapeHtml(t("passUi.devices.current")) : escapeHtml(t("passUi.devices.last", { date: shortDate(device.lastSeenAt) }))}</span></div>
-              <button class="pass-ui-button ${device.current ? "danger" : ""}" type="button" data-revoke-device>${escapeHtml(t(device.current ? "passUi.devices.logout" : "passUi.devices.remove"))}</button>
+              <span class="device-icon">${iconMarkup("monitor-smartphone")}</span>
+              <div class="device-copy"><strong>${escapeHtml(device.deviceName)}</strong><span class="${device.current ? "device-current" : ""}">${device.current ? escapeHtml(t("passUi.devices.current")) : escapeHtml(t("passUi.devices.last", { date: shortDate(device.lastSeenAt) }))}</span></div>
+              ${device.current
+                ? `<button class="pass-ui-button danger device-revoke-button current-device-action" type="button" data-revoke-device aria-label="${escapeHtml(`${device.deviceName}: ${t("passUi.devices.logout")}`)}" title="${escapeHtml(t("passUi.devices.logout"))}">${iconMarkup("log-out")}<span>${escapeHtml(t("passUi.devices.logout"))}</span></button>`
+                : `<button class="pass-ui-button device-revoke-button" type="button" data-revoke-device aria-label="${escapeHtml(`${device.deviceName}: ${removeLabel}`)}" title="${escapeHtml(removeLabel)}">${iconMarkup("trash-2")}<span>${escapeHtml(removeLabel)}</span></button>`}
             </div>`).join("")}</div>
         </section>
         <footer class="pass-ui-footer">
           ${help}
-          <button class="pass-ui-button danger" type="button" data-logout>${escapeHtml(t("passUi.logout"))}</button>
+          <button class="pass-ui-button danger pass-logout-button" type="button" data-logout aria-label="${escapeHtml(logoutLabel)}" title="${escapeHtml(logoutLabel)}">${iconMarkup("log-out")}<span>${escapeHtml(logoutLabel)}</span></button>
         </footer>`;
       return;
     }
