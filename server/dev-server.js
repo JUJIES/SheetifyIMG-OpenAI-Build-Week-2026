@@ -780,7 +780,11 @@ function requestOrigin(request) {
 
 function localizedEntryUrl(request, locale, kind, secret) {
   const language = normalizeLocale(locale);
-  return `${requestOrigin(request)}/?lang=${encodeURIComponent(language)}#${kind}=${encodeURIComponent(secret)}`;
+  const entryUrl = `${requestOrigin(request)}/?lang=${encodeURIComponent(language)}`;
+  // A shared pass invitation opens the entry page but never submits its secret.
+  // Pairing, top-up and recovery remain explicit one-time link flows.
+  if (kind === "pass") return entryUrl;
+  return `${entryUrl}#${kind}=${encodeURIComponent(secret)}`;
 }
 
 function sendRedirect(response, location, statusCode = 302) {

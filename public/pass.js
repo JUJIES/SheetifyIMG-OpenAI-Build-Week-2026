@@ -243,9 +243,14 @@ applyLocale();
     }
     return;
   }
-  if (payload.pass || payload.pair) {
-    elements.code.value = payload.pass || payload.pair;
-    await connect(payload.pass || payload.pair);
+  if (payload.pass) {
+    // Legacy invitation links may still contain a reusable pass secret. Remove
+    // it without filling or submitting the form; pass access stays deliberate.
+    cleanAddress();
+  }
+  if (payload.pair) {
+    elements.code.value = payload.pair;
+    await connect(payload.pair);
     return;
   }
   const session = await api("/api/auth/session").catch(() => ({ authenticated: false }));
