@@ -8204,6 +8204,7 @@ async function requestImageGenerationConfirmation(command = {}, payload = {}) {
     message: "Optional Referenzen festlegen.",
     acceptLabel: "Entwurf erstellen",
     compact: true,
+    variant: "reference",
     extraHtml: "<div></div>",
     onRender: (host) => {
       extraHost = host;
@@ -8242,6 +8243,7 @@ function requestConfirmation(options = {}) {
       eyebrow.textContent = options.eyebrow || "Bestätigung";
     }
     card?.classList.toggle("confirmation-card-compact", Boolean(options.compact));
+    modal.classList.toggle("confirmation-modal-reference", options.variant === "reference");
     title.textContent = options.title || "Aktion bestätigen?";
     message.textContent = options.message || "Diese Aktion kann nicht automatisch rückgängig gemacht werden.";
     if (extra) {
@@ -8259,6 +8261,7 @@ function requestConfirmation(options = {}) {
 
     const cleanup = (value) => {
       modal.classList.add("hidden");
+      modal.classList.remove("confirmation-modal-reference");
       card?.classList.remove("confirmation-card-compact");
       accept.classList.remove("danger-button");
       if (extra) {
