@@ -49,7 +49,7 @@
     content.innerHTML = `
       ${message ? `<p class="pass-ui-message ${error ? "error" : ""}">${escapeHtml(message)}</p>` : ""}
       <article class="pass-overview-card">
-        <div><h3>${escapeHtml(pass.label)}</h3><p>${escapeHtml(t("passUi.workspace", { hint: pass.codeHint || "" }))}</p></div>
+        <div><h3>${escapeHtml(t("passUi.overview.title"))}</h3><p>${escapeHtml(t("passUi.workspace", { hint: pass.codeHint || "" }))}</p></div>
         <div class="pass-balance-badge"><strong>${pass.balance}</strong><span>${escapeHtml(t("passUi.draftPages"))}</span></div>
       </article>
       <section class="pass-ui-section">

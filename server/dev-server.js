@@ -1159,7 +1159,6 @@ async function passCardPayload(request, created) {
   const card = await createBetaCard({
     kind: "pass",
     code: created.code,
-    label: created.pass.label,
     locale,
     qrContent: url
   });
@@ -1195,7 +1194,6 @@ async function handleAdminApi(request, response) {
       ? await deliverEmail(() => emailService.sendBetaInvitation({
         email: created.pass.recoveryEmail,
         name: body.name,
-        workspaceName: created.pass.label,
         passCode: created.code,
         locale: created.pass.invitationLocale,
         appUrl: payload.url,
@@ -1217,6 +1215,10 @@ async function handleAdminApi(request, response) {
     sendJson(response, 200, { pass: await betaAccessManager.updatePass(passMatch[1], await readJsonBody(request)) });
     return true;
   }
+  if (request.method === "DELETE" && passMatch) {
+    sendJson(response, 200, { deletedPass: await betaAccessManager.deletePass(passMatch[1]) });
+    return true;
+  }
   const rotateMatch = pathname.match(/^\/api\/admin\/passes\/(pass_[A-Za-z0-9-]+)\/rotate$/);
   if (request.method === "POST" && rotateMatch) {
     const body = await readJsonBody(request);
@@ -1226,7 +1228,6 @@ async function handleAdminApi(request, response) {
     const emailDelivery = rotated.pass.recoveryEmail
       ? await deliverEmail(() => emailService.sendBetaInvitation({
         email: rotated.pass.recoveryEmail,
-        workspaceName: rotated.pass.label,
         passCode: rotated.code,
         locale: rotated.pass.invitationLocale,
         appUrl: payload.url,
@@ -1310,7 +1311,6 @@ async function handleAdminApi(request, response) {
     const emailDelivery = await deliverEmail(() => emailService.sendRecoveryLink({
       email: recovery.request.email,
       name: recovery.request.name,
-      workspaceName: recovery.request.pass?.label,
       recoveryUrl: url,
       expiresAt: recovery.expiresAt,
       locale,

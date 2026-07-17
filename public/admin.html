@@ -6,7 +6,7 @@
     <title>SheetifyIMG Beta Admin</title>
     <link rel="icon" href="/icons/favicon.ico">
     <link rel="stylesheet" href="/brand.css?v=3">
-    <link rel="stylesheet" href="/admin.css?v=7">
+    <link rel="stylesheet" href="/admin.css?v=8">
   </head>
   <body>
     <header class="admin-topbar">
@@ -62,7 +62,7 @@
               </div>
             </div>
             <form id="createPassForm" class="admin-form admin-form--stacked">
-              <label>Name des Arbeitsbereichs<input name="label" required placeholder="z. B. Beta · Anna"></label>
+              <label>Interne Bezeichnung<input name="label" required placeholder="z. B. Beta · Anna"><small>Nur zur schnellen Zuordnung in deiner Passliste.</small></label>
               <label>E-Mail optional<input name="email" type="email" placeholder="anna@schule.de"></label>
               <div class="form-row">
                 <label>Startguthaben<input name="credits" type="number" min="1" max="1000" value="20" required></label>
@@ -82,7 +82,7 @@
             <div class="directory-heading">
               <div>
                 <h3 id="passDirectoryTitle">Arbeitsbereiche</h3>
-                <p>Guthaben, Geräte und Passstatus auf einen Blick.</p>
+                <p>Interne Zuordnung, Guthaben, Geräte und Passstatus auf einen Blick.</p>
               </div>
             </div>
             <div class="pass-list" id="passList"></div>
@@ -166,6 +166,6 @@
       </section>
     </main>
     <div class="admin-toast hidden" id="adminToast" role="status"></div>
-    <script src="/admin.js?v=6"></script>
+    <script src="/admin.js?v=7"></script>
   </body>
 </html>

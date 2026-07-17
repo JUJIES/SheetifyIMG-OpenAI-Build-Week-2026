@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "sheetifyimg-static-v67";
+const CACHE_NAME = "sheetifyimg-static-v70";
 const APP_SHELL_URLS = [
   "/vendor/simplebar/simplebar.min.css?v=1",
   "/brand.css?v=3",
@@ -8,13 +8,13 @@ const APP_SHELL_URLS = [
   "/pass-ui.css?v=3",
   "/beta-experience.css?v=1",
   "/pass.css?v=4",
-  "/admin.css?v=7",
+  "/admin.css?v=8",
   "/vendor/simplebar/simplebar.min.js?v=1",
   "/app.js?v=188",
-  "/pass-ui.js?v=3",
-  "/locale.js?v=5",
+  "/pass-ui.js?v=4",
+  "/locale.js?v=6",
   "/pass.js?v=3",
-  "/admin.js?v=6",
+  "/admin.js?v=7",
   "/beta-experience.js?v=3",
   "/pwa.js?v=1",
   "/candidateCards.js?v=3",

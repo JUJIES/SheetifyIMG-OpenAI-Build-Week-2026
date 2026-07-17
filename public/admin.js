@@ -198,13 +198,7 @@ function renderPasses() {
   }
   elements.passList.innerHTML = passes.map((pass) => {
     const generated = state.generatedCard?.kind === "pass" && state.generatedCard.passId === pass.id
-      ? `<div class="pass-card-result" data-generated-result="pass">
-          <div><strong>${escapeHtml(state.generatedCard.title)}</strong><span>Die Karte wird nicht dauerhaft angezeigt. Jetzt herunterladen oder über die versendete E-Mail weitergeben.</span></div>
-          <div class="pass-card-downloads">
-            <button class="primary" type="button" data-download-png>PNG</button>
-            <button class="secondary" type="button" data-download-svg>SVG</button>
-          </div>
-        </div>`
+      ? `<span class="pass-card-ready" data-generated-result="pass">Karte gerade erstellt · Download nur jetzt verfügbar</span>`
       : "";
     return `
       <article class="pass-row" data-pass-id="${escapeHtml(pass.id)}">
@@ -214,20 +208,21 @@ function renderPasses() {
             <span class="pass-status ${escapeHtml(pass.status)}">${escapeHtml(passStatusLabel(pass.status))}</span>
             <span class="pass-locale">${pass.invitationLocale === "en" ? "EN" : "DE"}</span>
             <span>${pass.deviceCount} ${pass.deviceCount === 1 ? "Gerät" : "Geräte"}</span>
-            <span>Code ···· ${escapeHtml(pass.codeHint || "")}</span>
             ${pass.expiresAt ? `<span>Ablauf ${escapeHtml(shortDate(pass.expiresAt))}</span>` : ""}
             ${pass.recoveryEmail ? `<span>${escapeHtml(pass.recoveryEmail)}</span>` : ""}
           </div>
         </div>
         <div class="pass-balance"><strong>${pass.balance}</strong><span>Entwurfsseiten</span></div>
-        ${generated}
         <div class="pass-actions">
+          ${generated ? '<button class="primary" type="button" data-download-png>PNG</button><button class="secondary" type="button" data-download-svg>SVG</button>' : ""}
           <button class="secondary" data-grant="3">+3</button>
           <button class="secondary" data-grant="5">+5</button>
           <button class="secondary" data-grant="10">+10</button>
           <button class="ghost" data-toggle-status="${pass.status === "active" ? "paused" : "active"}">${pass.status === "active" ? "Pausieren" : "Aktivieren"}</button>
           <button class="ghost" data-rotate>Code erneuern</button>
+          <button class="danger" data-delete-pass>Löschen</button>
         </div>
+        ${generated}
       </article>`;
   }).join("");
 }
@@ -412,6 +407,13 @@ elements.passList.addEventListener("click", async (event) => {
       cardResult = await api(`/api/admin/passes/${encodeURIComponent(passId)}/rotate`, { method: "POST", body: JSON.stringify({ revokeSessions: true }) });
       const notice = emailDeliveryNotice(cardResult.emailDelivery);
       if (notice) toast(notice.trim());
+    } else if (button.hasAttribute("data-delete-pass")) {
+      const pass = state.overview?.passes?.find((entry) => entry.id === passId);
+      const label = pass?.label || "diesen Pass";
+      if (!confirm(`„${label}“ und alle zugehörigen Arbeitsbereiche, Geräte, Guthabenverläufe, Rückmeldungen und Anfragen unwiderruflich löschen?`)) return;
+      await api(`/api/admin/passes/${encodeURIComponent(passId)}`, { method: "DELETE" });
+      if (state.generatedCard?.passId === passId) state.generatedCard = null;
+      toast("Pass und zugehörige Beta-Daten wurden gelöscht.");
     }
     await loadOverview();
     if (button.hasAttribute("data-rotate")) {

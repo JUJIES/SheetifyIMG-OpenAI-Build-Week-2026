@@ -755,6 +755,47 @@ function createBetaAccessManager(config = {}) {
     }, options);
   }
 
+  async function deletePass(passId, options = {}) {
+    return transact(async (state, now) => {
+      const pass = passRecord(state, passId);
+      if (state.reservations.some((entry) => entry.passId === pass.id && entry.status === "reserved")) {
+        throw Object.assign(new Error("Dieser Pass kann während einer laufenden Entwurfserstellung nicht gelöscht werden."), { statusCode: 409 });
+      }
+
+      const passRoot = path.resolve(storageRoot, pass.id);
+      const relativePassRoot = path.relative(storageRoot, passRoot);
+      if (!relativePassRoot || relativePassRoot.startsWith("..") || path.isAbsolute(relativePassRoot)) {
+        throw new Error("Der Pass-Speicherpfad konnte nicht sicher aufgelöst werden.");
+      }
+
+      const requestIds = new Set(state.requests.filter((entry) => entry.passId === pass.id).map((entry) => entry.id));
+      const deleted = {
+        sessions: state.sessions.filter((entry) => entry.passId === pass.id).length,
+        pairings: state.pairings.filter((entry) => entry.passId === pass.id).length,
+        requests: requestIds.size,
+        feedback: state.feedback.filter((entry) => entry.passId === pass.id).length,
+        recoveryTokens: state.recoveryTokens.filter((entry) => entry.passId === pass.id || requestIds.has(entry.requestId)).length,
+        topupCards: state.topupCards.filter((entry) => entry.redeemedByPassId === pass.id).length,
+        reservations: state.reservations.filter((entry) => entry.passId === pass.id).length,
+        ledgerEntries: state.ledger.filter((entry) => entry.passId === pass.id).length
+      };
+
+      await fs.rm(passRoot, { recursive: true, force: true });
+      state.passes = state.passes.filter((entry) => entry.id !== pass.id);
+      state.sessions = state.sessions.filter((entry) => entry.passId !== pass.id);
+      state.pairings = state.pairings.filter((entry) => entry.passId !== pass.id);
+      state.requests = state.requests.filter((entry) => entry.passId !== pass.id);
+      state.feedback = state.feedback.filter((entry) => entry.passId !== pass.id);
+      state.recoveryTokens = state.recoveryTokens.filter((entry) => entry.passId !== pass.id && !requestIds.has(entry.requestId));
+      state.topupCards = state.topupCards.filter((entry) => entry.redeemedByPassId !== pass.id);
+      state.reservations = state.reservations.filter((entry) => entry.passId !== pass.id);
+      state.ledger = state.ledger.filter((entry) => entry.passId !== pass.id);
+      state.audit = state.audit.filter((entry) => entry.passId !== pass.id);
+      addAudit(state, "pass_deleted", now, { passId: pass.id, ...deleted });
+      return { id: pass.id, deleted };
+    }, options);
+  }
+
   async function rotatePass(passId, input = {}, options = {}) {
     const rawCode = randomCode(PASS_CODE_PREFIX);
     return transact((state, now) => {
@@ -1135,6 +1176,7 @@ function createBetaAccessManager(config = {}) {
     createRecoveryChallenge,
     createRequest,
     createTopupCard,
+    deletePass,
     devices,
     ensureStorage,
     grant,
