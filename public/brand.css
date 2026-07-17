@@ -1,8 +1,8 @@
 .sheetify-wordmark {
   display: inline-flex;
   align-items: baseline;
-  gap: .16em;
-  color: #101827;
+  gap: .2em;
+  color: #171717;
   font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 27px;
   font-weight: 820;
@@ -12,12 +12,21 @@
   white-space: nowrap;
 }
 
-.sheetify-wordmark__img {
+.sheetify-wordmark__img,
+.sheetify-wordmark__suffix {
+  position: relative;
+  top: -.08em;
   color: #1f63d6;
-  font-size: .72em;
-  font-weight: 850;
-  letter-spacing: .09em;
+  font-family: inherit;
+  font-size: .92em;
+  font-weight: inherit;
+  letter-spacing: .015em;
 }
 
 .sheetify-wordmark--large { font-size: 34px; }
 .sheetify-wordmark--small { font-size: 24px; }
+.sheetify-wordmark--inline {
+  gap: .18em;
+  font: inherit;
+  letter-spacing: inherit;
+}
