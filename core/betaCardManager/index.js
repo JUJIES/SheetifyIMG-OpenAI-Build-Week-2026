@@ -67,16 +67,14 @@ function cardCopy(input) {
       fullTitle: `Sheetify IMG ${messages.topup.title}`,
       accessCode: messages.accessCode,
       eyebrow: `${credits} ${credits === 1 ? messages.topup.singularCredits : messages.topup.pluralCredits}`,
-      accent: "#23845b",
-      accentSoft: "#dcefe5"
+      accent: "#23845b"
     };
   }
   return {
     ...messages.pass,
     fullTitle: `Sheetify IMG ${messages.pass.title}`,
     accessCode: messages.accessCode,
-    accent: "#df6c4f",
-    accentSoft: "#f8ded5"
+    accent: "#df6c4f"
   };
 }
 
@@ -93,21 +91,11 @@ async function createBetaCard(input = {}) {
   });
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${CARD_WIDTH}" height="${CARD_HEIGHT}" viewBox="0 0 ${CARD_WIDTH} ${CARD_HEIGHT}" role="img" aria-label="${escapeXml(copy.fullTitle)}">
   <defs>
-    <linearGradient id="card-bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#fffdf8"/>
-      <stop offset="1" stop-color="#f7f1e8"/>
-    </linearGradient>
-    <linearGradient id="accent-line" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="${copy.accent}"/>
-      <stop offset="1" stop-color="${copy.accent}" stop-opacity=".15"/>
-    </linearGradient>
     <clipPath id="card-clip"><rect width="${CARD_WIDTH}" height="${CARD_HEIGHT}" rx="48"/></clipPath>
   </defs>
   <g clip-path="url(#card-clip)">
-    <rect width="${CARD_WIDTH}" height="${CARD_HEIGHT}" fill="url(#card-bg)"/>
-    <rect width="${CARD_WIDTH}" height="14" fill="url(#accent-line)"/>
-    <circle cx="1134" cy="42" r="230" fill="${copy.accentSoft}" opacity=".68"/>
-    <circle cx="75" cy="720" r="180" fill="${copy.accentSoft}" opacity=".42"/>
+    <rect width="${CARD_WIDTH}" height="${CARD_HEIGHT}" fill="#fffdf8"/>
+    <rect width="12" height="${CARD_HEIGHT}" fill="${copy.accent}"/>
   </g>
   <rect x="1" y="1" width="${CARD_WIDTH - 2}" height="${CARD_HEIGHT - 2}" rx="47" fill="none" stroke="#ded5ca" stroke-width="2"/>
 
