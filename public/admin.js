@@ -5,6 +5,8 @@ const state = {
   cardSvg: null,
   cardPngDataUrl: null,
   cardName: "sheetify-card",
+  generatedCard: null,
+  activeTab: "passes",
   recoveryLinks: new Map()
 };
 
@@ -14,7 +16,7 @@ const elements = {
   createTopupForm: document.querySelector("#createTopupForm"),
   generated: document.querySelector("#generatedCard"),
   generatedTitle: document.querySelector("#generatedTitle"),
-  generatedPreview: document.querySelector("#generatedPreview"),
+  generatedSummary: document.querySelector("#generatedSummary"),
   downloadPng: document.querySelector("#downloadCardPng"),
   downloadSvg: document.querySelector("#downloadCardSvg"),
   passList: document.querySelector("#passList"),
@@ -23,6 +25,11 @@ const elements = {
   refreshPasses: document.querySelector("#refreshPasses"),
   refreshRequests: document.querySelector("#refreshRequests"),
   refreshFeedback: document.querySelector("#refreshFeedback"),
+  tabs: [...document.querySelectorAll("[data-admin-tab]")],
+  panels: [...document.querySelectorAll("[data-admin-panel]")],
+  passTabCount: document.querySelector("#passTabCount"),
+  feedbackTabCount: document.querySelector("#feedbackTabCount"),
+  inboxTabCount: document.querySelector("#inboxTabCount"),
   contact: document.querySelector(".admin-contact"),
   toast: document.querySelector("#adminToast")
 };
@@ -55,17 +62,59 @@ function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
 }
 
-function showCard(payload, title, fileName) {
+function showCard(payload, title, fileName, options = {}) {
   state.cardSvg = payload.svg;
   state.cardPngDataUrl = payload.pngDataUrl;
   state.cardName = fileName;
+  state.generatedCard = {
+    kind: options.kind || "topup",
+    passId: options.passId || null,
+    title,
+    svg: payload.svg,
+    pngDataUrl: payload.pngDataUrl,
+    fileName
+  };
+  renderPasses();
+  if (state.generatedCard.kind === "pass") {
+    elements.generated.classList.add("hidden");
+    return;
+  }
   elements.generatedTitle.textContent = title;
-  const image = document.createElement("img");
-  image.src = payload.pngDataUrl;
-  image.alt = title;
-  elements.generatedPreview.replaceChildren(image);
+  elements.generatedSummary.textContent = options.summary || "Die Karte kann jetzt versendet oder heruntergeladen werden.";
   elements.generated.classList.remove("hidden");
   elements.generated.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function downloadGeneratedCard(format) {
+  const generated = state.generatedCard;
+  if (!generated) return;
+  const link = document.createElement("a");
+  if (format === "svg") {
+    link.href = URL.createObjectURL(new Blob([generated.svg], { type: "image/svg+xml" }));
+    link.download = `${generated.fileName}.svg`;
+  } else {
+    link.href = generated.pngDataUrl;
+    link.download = `${generated.fileName}.png`;
+  }
+  link.click();
+  if (format === "svg") setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+function setActiveTab(value, options = {}) {
+  const next = elements.tabs.some((tab) => tab.dataset.adminTab === value) ? value : "passes";
+  state.activeTab = next;
+  elements.tabs.forEach((tab) => {
+    const active = tab.dataset.adminTab === next;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", String(active));
+    tab.tabIndex = active ? 0 : -1;
+  });
+  elements.panels.forEach((panel) => {
+    const active = panel.dataset.adminPanel === next;
+    panel.classList.toggle("active", active);
+    panel.hidden = !active;
+  });
+  if (options.updateUrl !== false) history.replaceState(null, "", `${location.pathname}${location.search}#${next}`);
 }
 
 function passStatusLabel(status) {
@@ -147,28 +196,40 @@ function renderPasses() {
     elements.passList.innerHTML = '<div class="empty">Noch keine SheetifyIMG Pässe.</div>';
     return;
   }
-  elements.passList.innerHTML = passes.map((pass) => `
-    <article class="pass-row" data-pass-id="${escapeHtml(pass.id)}">
-      <div>
-        <h3>${escapeHtml(pass.label)}</h3>
-        <div class="pass-meta">
-          <span class="pass-status ${escapeHtml(pass.status)}">${escapeHtml(passStatusLabel(pass.status))}</span>
-          <span class="pass-locale">${pass.invitationLocale === "en" ? "EN" : "DE"}</span>
-          <span>${pass.deviceCount} ${pass.deviceCount === 1 ? "Gerät" : "Geräte"}</span>
-          <span>Code ···· ${escapeHtml(pass.codeHint || "")}</span>
-          ${pass.expiresAt ? `<span>Ablauf ${escapeHtml(shortDate(pass.expiresAt))}</span>` : ""}
-          ${pass.recoveryEmail ? `<span>${escapeHtml(pass.recoveryEmail)}</span>` : ""}
+  elements.passList.innerHTML = passes.map((pass) => {
+    const generated = state.generatedCard?.kind === "pass" && state.generatedCard.passId === pass.id
+      ? `<div class="pass-card-result" data-generated-result="pass">
+          <div><strong>${escapeHtml(state.generatedCard.title)}</strong><span>Die Karte wird nicht dauerhaft angezeigt. Jetzt herunterladen oder über die versendete E-Mail weitergeben.</span></div>
+          <div class="pass-card-downloads">
+            <button class="primary" type="button" data-download-png>PNG</button>
+            <button class="secondary" type="button" data-download-svg>SVG</button>
+          </div>
+        </div>`
+      : "";
+    return `
+      <article class="pass-row" data-pass-id="${escapeHtml(pass.id)}">
+        <div>
+          <h3>${escapeHtml(pass.label)}</h3>
+          <div class="pass-meta">
+            <span class="pass-status ${escapeHtml(pass.status)}">${escapeHtml(passStatusLabel(pass.status))}</span>
+            <span class="pass-locale">${pass.invitationLocale === "en" ? "EN" : "DE"}</span>
+            <span>${pass.deviceCount} ${pass.deviceCount === 1 ? "Gerät" : "Geräte"}</span>
+            <span>Code ···· ${escapeHtml(pass.codeHint || "")}</span>
+            ${pass.expiresAt ? `<span>Ablauf ${escapeHtml(shortDate(pass.expiresAt))}</span>` : ""}
+            ${pass.recoveryEmail ? `<span>${escapeHtml(pass.recoveryEmail)}</span>` : ""}
+          </div>
         </div>
-      </div>
-      <div class="pass-balance"><strong>${pass.balance}</strong><span>Entwurfsseiten</span></div>
-      <div class="pass-actions">
-        <button class="secondary" data-grant="3">+3</button>
-        <button class="secondary" data-grant="5">+5</button>
-        <button class="secondary" data-grant="10">+10</button>
-        <button class="ghost" data-toggle-status="${pass.status === "active" ? "paused" : "active"}">${pass.status === "active" ? "Pausieren" : "Aktivieren"}</button>
-        <button class="ghost" data-rotate>Code erneuern</button>
-      </div>
-    </article>`).join("");
+        <div class="pass-balance"><strong>${pass.balance}</strong><span>Entwurfsseiten</span></div>
+        ${generated}
+        <div class="pass-actions">
+          <button class="secondary" data-grant="3">+3</button>
+          <button class="secondary" data-grant="5">+5</button>
+          <button class="secondary" data-grant="10">+10</button>
+          <button class="ghost" data-toggle-status="${pass.status === "active" ? "paused" : "active"}">${pass.status === "active" ? "Pausieren" : "Aktivieren"}</button>
+          <button class="ghost" data-rotate>Code erneuern</button>
+        </div>
+      </article>`;
+  }).join("");
 }
 
 function renderRequests() {
@@ -267,6 +328,11 @@ async function loadOverview() {
   const openRequests = state.overview.requests.filter((request) => request.status === "open").length;
   const newFeedback = state.overview.feedback.filter((entry) => entry.status === "new").length;
   elements.status.textContent = `${state.overview.passes.length}/10 Pässe · ${newFeedback} Feedback neu · ${openRequests} Anfragen offen · Entwürfe ${beta.paidGenerationEnabled ? "aktiv" : "pausiert"}`;
+  elements.passTabCount.textContent = String(state.overview.passes.length);
+  elements.feedbackTabCount.textContent = String(newFeedback);
+  elements.feedbackTabCount.hidden = newFeedback === 0;
+  elements.inboxTabCount.textContent = String(openRequests);
+  elements.inboxTabCount.hidden = openRequests === 0;
   if (elements.contact && beta.contactEmail) {
     elements.contact.textContent = beta.contactEmail;
     elements.contact.href = `mailto:${beta.contactEmail}`;
@@ -290,12 +356,12 @@ elements.createPassForm.addEventListener("submit", async (event) => {
         invitationLocale: data.get("invitationLocale")
       })
     });
-    showCard(result, "SheetifyIMG Pass erstellt", `sheetify-img-pass-${result.pass.id}`);
     const notice = emailDeliveryNotice(result.emailDelivery);
     if (notice) toast(notice.trim());
     elements.createPassForm.reset();
     elements.createPassForm.elements.credits.value = 20;
     await loadOverview();
+    showCard(result, "Passkarte erstellt", `sheetify-img-pass-${result.pass.id}`, { kind: "pass", passId: result.pass.id });
   } catch (error) { toast(error.message); }
 });
 
@@ -312,7 +378,10 @@ elements.createTopupForm.addEventListener("submit", async (event) => {
         locale: data.get("locale")
       })
     });
-    showCard(result, "Guthabenkarte erstellt", `sheetify-guthaben-${result.card.credits}`);
+    showCard(result, "Guthabenkarte erstellt", `sheetify-guthaben-${result.card.credits}`, {
+      kind: "topup",
+      summary: `${result.card.credits} Entwurfsseiten · Karte jetzt herunterladen oder per E-Mail weitergeben.`
+    });
     const notice = emailDeliveryNotice(result.emailDelivery);
     if (notice) toast(notice.trim());
   } catch (error) { toast(error.message); }
@@ -323,6 +392,15 @@ elements.passList.addEventListener("click", async (event) => {
   const button = event.target.closest("button");
   if (!row || !button) return;
   const passId = row.dataset.passId;
+  if (button.hasAttribute("data-download-png")) {
+    downloadGeneratedCard("png");
+    return;
+  }
+  if (button.hasAttribute("data-download-svg")) {
+    downloadGeneratedCard("svg");
+    return;
+  }
+  let cardResult = null;
   try {
     if (button.dataset.grant) {
       const result = await api(`/api/admin/passes/${encodeURIComponent(passId)}/grant`, { method: "POST", body: JSON.stringify({ amount: Number(button.dataset.grant) }) });
@@ -331,12 +409,14 @@ elements.passList.addEventListener("click", async (event) => {
       await api(`/api/admin/passes/${encodeURIComponent(passId)}`, { method: "PATCH", body: JSON.stringify({ status: button.dataset.toggleStatus }) });
     } else if (button.hasAttribute("data-rotate")) {
       if (!confirm("Passcode erneuern und alle verbundenen Geräte abmelden?")) return;
-      const result = await api(`/api/admin/passes/${encodeURIComponent(passId)}/rotate`, { method: "POST", body: JSON.stringify({ revokeSessions: true }) });
-      showCard(result, "Neuer SheetifyIMG Pass", `sheetify-img-pass-${passId}`);
-      const notice = emailDeliveryNotice(result.emailDelivery);
+      cardResult = await api(`/api/admin/passes/${encodeURIComponent(passId)}/rotate`, { method: "POST", body: JSON.stringify({ revokeSessions: true }) });
+      const notice = emailDeliveryNotice(cardResult.emailDelivery);
       if (notice) toast(notice.trim());
     }
     await loadOverview();
+    if (button.hasAttribute("data-rotate")) {
+      showCard(cardResult, "Passcode erneuert", `sheetify-img-pass-${passId}`, { kind: "pass", passId });
+    }
   } catch (error) { toast(error.message); }
 });
 
@@ -388,23 +468,16 @@ elements.feedbackList.addEventListener("click", async (event) => {
 });
 
 elements.downloadSvg.addEventListener("click", () => {
-  if (!state.cardSvg) return;
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(new Blob([state.cardSvg], { type: "image/svg+xml" }));
-  link.download = `${state.cardName}.svg`;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  downloadGeneratedCard("svg");
 });
 
 elements.downloadPng.addEventListener("click", () => {
-  if (!state.cardPngDataUrl) return;
-  const link = document.createElement("a");
-  link.href = state.cardPngDataUrl;
-  link.download = `${state.cardName}.png`;
-  link.click();
+  downloadGeneratedCard("png");
 });
 
+elements.tabs.forEach((tab) => tab.addEventListener("click", () => setActiveTab(tab.dataset.adminTab)));
 elements.refreshPasses.addEventListener("click", () => loadOverview().catch((error) => toast(error.message)));
 elements.refreshRequests.addEventListener("click", () => loadOverview().catch((error) => toast(error.message)));
 elements.refreshFeedback.addEventListener("click", () => loadOverview().catch((error) => toast(error.message)));
+setActiveTab(location.hash.replace(/^#/, ""), { updateUrl: false });
 loadOverview().catch((error) => toast(error.message));
