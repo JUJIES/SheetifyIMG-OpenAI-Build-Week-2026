@@ -44,6 +44,14 @@
       }
       container.querySelectorAll("[data-canvas-mode]").forEach((button) => {
         button.addEventListener("click", () => {
+          const candidateCard = button.dataset.canvasMode === "candidates"
+            && button.dataset.artifactKind === "candidate"
+            ? button.closest("[data-capture-kind='candidate']")
+            : null;
+          if (isMobileViewport() && candidateCard) {
+            openCandidateViewerFromCard(candidateCard, container);
+            return;
+          }
           handleCanvasModeRequest(button.dataset.canvasMode, artifactSelectionFromButton(button));
         });
       });

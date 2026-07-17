@@ -8799,15 +8799,19 @@ function parsePayload(value) {
   }
 }
 
+function renderChatMessageMeta(role = "assistant", suffix = "") {
+  const author = role === "user" ? t("app.chat.me") : t("app.chat.assistant");
+  return `<div class="message-meta"><strong>${escapeHtml(author)}</strong>${suffix}</div>`;
+}
+
 function renderChatIntro(workspace) {
   const text = workspace.project.isLegacy
     ? t("app.chat.legacy")
     : t("app.chat.intro");
   return `
     <div class="chat-message assistant">
-      <div class="assistant-avatar">AI</div>
       <div class="message-bubble">
-        <strong>SheetifyAI</strong>
+        ${renderChatMessageMeta("assistant")}
         <div class="message-copy">${markdownToHtml(text)}</div>
       </div>
     </div>
@@ -9559,9 +9563,8 @@ function renderChatMessage(message, visibleCommandIds = new Set(), extraCommands
     : null;
   return `
     <div class="chat-message ${role}${stateClass}${commandClass}">
-      ${role === "assistant" ? '<div class="assistant-avatar">AI</div>' : ""}
       <div class="message-bubble">
-        <div class="message-meta">${role === "user" ? t("app.chat.me") : "SheetifyAI"}${metaSuffix}</div>
+        ${renderChatMessageMeta(role, metaSuffix)}
         ${renderChatRevisionTarget(message.revisionTarget)}
         ${copyAfterCard ? "" : copyHtml}
         ${renderChatAttachments(message.attachments || [])}
@@ -9580,9 +9583,8 @@ function renderChatMessage(message, visibleCommandIds = new Set(), extraCommands
 function renderThinkingMessage() {
   return `
     <div class="chat-message assistant thinking">
-      <div class="assistant-avatar">AI</div>
       <div class="message-bubble">
-        <div class="message-meta">SheetifyAI</div>
+        ${renderChatMessageMeta("assistant")}
         <p class="thinking-line"><span></span><span></span><span></span><em>${escapeHtml(t("app.chat.thinking"))}</em></p>
       </div>
     </div>

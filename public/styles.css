@@ -3802,7 +3802,7 @@ button {
 }
 
 .chat-timeline {
-  --assistant-message-inset: 12px;
+  --assistant-message-inset: 8px;
   --user-message-inset: 8px;
   --chat-timeline-padding-inline-start: 24px;
   --chat-timeline-padding-inline-end: 32px;
@@ -4117,21 +4117,8 @@ button {
 }
 
 .chat-message.assistant {
+  justify-content: flex-start;
   padding-left: var(--assistant-message-inset);
-}
-
-.assistant-avatar {
-  display: inline-flex;
-  width: 30px;
-  height: 30px;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: var(--blue);
-  color: #ffffff;
-  font-size: 11px;
-  font-weight: 740;
 }
 
 .message-bubble {
@@ -4177,9 +4164,14 @@ button {
 
 .message-meta {
   margin-bottom: 5px;
-  color: var(--muted);
+  color: #7a8495;
   font-size: 12px;
-  font-weight: 620;
+  font-weight: 540;
+}
+
+.message-meta strong {
+  color: #33405a;
+  font-weight: 780;
 }
 
 .message-revision-target {
@@ -6634,12 +6626,6 @@ button {
     margin-bottom: 14px;
   }
 
-  .assistant-avatar {
-    width: 26px;
-    height: 26px;
-    font-size: 10px;
-  }
-
   .message-bubble {
     max-width: calc(100% - 34px);
     border-radius: 12px;
@@ -6647,7 +6633,8 @@ button {
     box-shadow: 0 8px 18px rgba(16, 24, 39, 0.06);
   }
 
-  .chat-message.user .message-bubble {
+  .chat-message.user .message-bubble,
+  .chat-message.assistant .message-bubble {
     max-width: 86%;
   }
 
@@ -8288,6 +8275,7 @@ button {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
+  justify-content: center;
   gap: 6px;
   min-width: 0;
 }
@@ -8322,19 +8310,6 @@ button {
   background: var(--blueprint-node-chip);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.worksheet-blueprint-node-heading em {
-  display: grid;
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
-  place-items: center;
-  border-radius: 999px;
-  background: var(--blueprint-node-chip);
-  color: var(--blueprint-node-accent);
-  font-size: 0.55rem;
-  font-style: normal;
 }
 
 .worksheet-blueprint-node strong {
