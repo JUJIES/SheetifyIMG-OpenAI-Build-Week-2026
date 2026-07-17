@@ -56,7 +56,7 @@ assert.deepEqual(
   Object.keys(browserLocale.CATALOGUES.en).sort(),
   Object.keys(browserLocale.CATALOGUES.de).sort()
 );
-assert.equal(browserLocale.t("pass.panel.title", {}, "en"), "Open workspace");
+assert.equal(browserLocale.t("pass.panel.title", {}, "en"), "Enter your code");
 assert.equal(browserLocale.t("beta.consent.title", {}, "en"), "Help improve SheetifyIMG");
 assert.equal(browserLocale.t("pass.notice.topup", { count: 12 }, "en"), "12 draft pages have been added.");
 assert.equal(browserLocale.t("missing.key"), "missing.key");

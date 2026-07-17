@@ -2006,6 +2006,22 @@ button {
   line-height: 1.5;
 }
 
+.settings-access-section {
+  margin-top: 22px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 20px;
+}
+
+.settings-disconnect-button {
+  border-color: rgba(180, 35, 24, 0.28);
+  color: var(--danger);
+}
+
+.settings-disconnect-button:hover {
+  border-color: rgba(180, 35, 24, 0.48);
+  background: var(--danger-soft);
+}
+
 .image-generation-settings {
   display: grid;
   gap: 16px;

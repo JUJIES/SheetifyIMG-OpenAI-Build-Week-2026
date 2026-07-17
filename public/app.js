@@ -324,6 +324,7 @@ const elements = {
   settingsButton: document.querySelector("#settingsButton"),
   settingsModal: document.querySelector("#settingsModal"),
   settingsCloseButton: document.querySelector("#settingsCloseButton"),
+  settingsDisconnectButton: document.querySelector("#settingsDisconnectButton"),
   imageProviderSettings: document.querySelector("#imageProviderSettings"),
   billingStatusPanel: document.querySelector("#billingStatusPanel"),
   newWorksheetButton: document.querySelector("#newWorksheetButton"),
@@ -7804,6 +7805,29 @@ function closeSettings() {
   state.settingsModal.lastFocusedElement = null;
 }
 
+async function disconnectCurrentDevice() {
+  closeSettings();
+  const confirmed = await requestConfirmation({
+    eyebrow: t("app.settings.disconnectEyebrow"),
+    title: t("app.settings.disconnectTitle"),
+    message: t("app.settings.disconnectMessage"),
+    acceptLabel: t("app.settings.disconnectConfirm"),
+    cancelLabel: t("common.cancel"),
+    danger: true
+  });
+  if (!confirmed) {
+    openSettings();
+    return;
+  }
+  try {
+    await fetchJson("/api/auth/logout", { method: "POST", body: "{}" });
+    window.location.replace("/");
+  } catch (error) {
+    openSettings();
+    showToast(error.message || t("app.settings.disconnectError"), "error");
+  }
+}
+
 function runReferenceRoleOptions() {
   return [
     {
@@ -11239,6 +11263,7 @@ elements.refreshButton.addEventListener("click", () => {
 elements.settingsButton?.addEventListener("click", openSettings);
 elements.workspaceMobileSettingsButton?.addEventListener("click", openSettings);
 elements.settingsCloseButton?.addEventListener("click", closeSettings);
+elements.settingsDisconnectButton?.addEventListener("click", disconnectCurrentDevice);
 elements.settingsModal?.addEventListener("click", (event) => {
   if (event.target === elements.settingsModal) {
     closeSettings();

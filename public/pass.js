@@ -58,6 +58,27 @@ function deviceName() {
   return t("pass.device.browser");
 }
 
+function normalizeCode(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s_–—−]+/g, "-")
+    .replace(/[^A-Z0-9-]/g, "")
+    .replace(/-+/g, "-");
+}
+
+function normalizeCodeField() {
+  const normalized = normalizeCode(elements.code.value);
+  if (elements.code.value !== normalized) elements.code.value = normalized;
+  return normalized;
+}
+
+function focusCodeField() {
+  if (window.matchMedia("(min-width: 821px)").matches) {
+    elements.code.focus();
+  }
+}
+
 function showNotice(message, error = false) {
   elements.notice.textContent = message;
   elements.notice.classList.toggle("error", error);
@@ -136,8 +157,9 @@ async function redeemPendingTopup() {
 }
 
 async function connect(code) {
-  const normalized = String(code || "").trim();
+  const normalized = normalizeCode(code);
   if (!normalized) return;
+  elements.code.value = normalized;
   elements.button.disabled = true;
   try {
     const pairing = /^PAIR/i.test(normalized);
@@ -161,6 +183,8 @@ elements.form.addEventListener("submit", (event) => {
   event.preventDefault();
   connect(elements.code.value);
 });
+
+elements.code.addEventListener("input", normalizeCodeField);
 
 elements.localeButtons.forEach((button) => {
   button.addEventListener("click", () => chooseLocale(button.dataset.passLocale).catch((error) => showNotice(error.message, true)));
@@ -245,4 +269,5 @@ applyLocale();
     }
     location.replace("/app");
   }
+  if (!session.authenticated) focusCodeField();
 })();
