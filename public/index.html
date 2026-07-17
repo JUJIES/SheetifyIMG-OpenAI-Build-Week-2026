@@ -17,8 +17,8 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/app-icon-180.png">
     <link rel="stylesheet" href="/vendor/simplebar/simplebar.min.css?v=1">
     <link rel="stylesheet" href="/brand.css?v=3">
-    <link rel="stylesheet" href="/styles.css?v=115">
-    <link rel="stylesheet" href="/pass-ui.css?v=3">
+    <link rel="stylesheet" href="/styles.css?v=116">
+    <link rel="stylesheet" href="/pass-ui.css?v=4">
     <link rel="stylesheet" href="/beta-experience.css?v=3">
   </head>
   <body>
@@ -48,12 +48,12 @@
         <div class="topbar-global-actions">
           <button class="icon-button icon-button-plain" type="button" id="passButton" aria-label="Mein SheetifyIMG Pass" title="Mein SheetifyIMG Pass" aria-haspopup="dialog" data-i18n-title="app.nav.pass" data-i18n-aria-label="app.nav.pass">
             <svg class="icon icon-small" aria-hidden="true">
-              <use href="/icons/lucide-sprite.svg?v=13#qr-code"></use>
+              <use href="/icons/lucide-sprite.svg?v=17#badge-check"></use>
             </svg>
           </button>
-          <button class="icon-button icon-button-plain" type="button" id="shareButton" data-share-button aria-label="QR-Link anzeigen" title="QR-Link anzeigen" aria-haspopup="dialog" aria-expanded="false" data-i18n-title="app.nav.share" data-i18n-aria-label="app.nav.share">
+          <button class="icon-button icon-button-plain" type="button" id="connectionsButton" aria-label="Verbundene Geräte" title="Verbundene Geräte" aria-haspopup="dialog" data-i18n-title="passUi.devices.title" data-i18n-aria-label="passUi.devices.title">
             <svg class="icon icon-small" aria-hidden="true">
-              <use href="/icons/lucide-sprite.svg?v=13#qr-code"></use>
+              <use href="/icons/lucide-sprite.svg?v=17#monitor-smartphone"></use>
             </svg>
           </button>
           <button class="icon-button icon-button-plain" type="button" id="settingsButton" aria-label="Einstellungen" title="Einstellungen" data-i18n-title="app.nav.settings" data-i18n-aria-label="app.nav.settings">
@@ -233,11 +233,6 @@
                       <use href="/icons/lucide-sprite.svg?v=7#folder-open"></use>
                     </svg>
                   </button>
-                  <button class="icon-button icon-button-plain workspace-mobile-action" type="button" id="workspaceMobileShareButton" data-share-button aria-label="QR-Link anzeigen" title="QR-Link anzeigen" aria-haspopup="dialog" aria-expanded="false" data-i18n-title="app.nav.share" data-i18n-aria-label="app.nav.share">
-                    <svg class="icon icon-small" aria-hidden="true">
-                      <use href="/icons/lucide-sprite.svg?v=13#qr-code"></use>
-                    </svg>
-                  </button>
                   <button class="icon-button icon-button-plain workspace-mobile-action" type="button" id="workspaceMobileSettingsButton" aria-label="Einstellungen" title="Einstellungen" data-i18n-title="app.nav.settings" data-i18n-aria-label="app.nav.settings">
                     <svg class="icon icon-small" aria-hidden="true">
                       <use href="/icons/lucide-sprite.svg?v=7#settings"></use>
@@ -311,34 +306,6 @@
       </main>
     </div>
 
-    <div class="share-popover hidden" id="sharePopover" role="dialog" aria-hidden="true" aria-labelledby="shareTitle">
-      <section class="share-card">
-        <header class="share-header">
-          <div>
-            <p class="eyebrow">QR</p>
-            <h2 id="shareTitle" data-i18n="app.share.title">SheetifyIMG öffnen</h2>
-            <p id="shareStatus" data-i18n="app.share.loading">Adresse wird geladen …</p>
-          </div>
-          <button class="icon-button icon-button-plain share-close-button" type="button" id="shareCloseButton" aria-label="QR-Link schließen" title="Schließen" data-i18n-aria-label="app.share.close" data-i18n-title="common.close">
-            <svg class="icon icon-small" aria-hidden="true">
-              <use href="/icons/lucide-sprite.svg?v=13#x"></use>
-            </svg>
-          </button>
-        </header>
-        <div class="share-qr-frame" id="shareQrCode" aria-live="polite"></div>
-        <div class="share-url-row">
-          <span id="shareUrlText"></span>
-          <button class="icon-button share-copy-button" type="button" id="shareCopyLinkButton" aria-label="Link kopieren" title="Link kopieren" data-i18n-aria-label="app.share.copy" data-i18n-title="app.share.copy">
-            <svg class="icon icon-small" aria-hidden="true">
-              <use href="/icons/lucide-sprite.svg?v=13#copy"></use>
-            </svg>
-          </button>
-        </div>
-        <div class="share-target-list" id="shareTargetList" aria-label="QR-Ziel" data-i18n-aria-label="app.share.target"></div>
-        <p class="share-hint" id="shareHint"></p>
-      </section>
-    </div>
-
     <div class="settings-modal hidden" id="settingsModal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="settingsTitle">
       <section class="settings-card">
         <header class="settings-header">
@@ -350,16 +317,16 @@
         </header>
         <div class="settings-body">
           <section class="settings-section">
+            <p class="eyebrow" data-i18n="app.nav.settings">Einstellungen</p>
+            <h3 data-i18n="passUi.language.title">Sprache auf diesem Gerät</h3>
+            <p data-i18n="passUi.language.help">Die Auswahl gilt nur für dieses Gerät.</p>
+            <div class="pass-ui-language" id="settingsLanguageOptions" role="group" aria-label="Sprache wählen" data-i18n-aria-label="pass.languageLabel"></div>
+          </section>
+          <section class="settings-section">
             <p class="eyebrow" data-i18n="app.settings.imageGeneration">Bildgenerierung</p>
             <h3 data-i18n="app.settings.newDrafts">Neue Entwürfe</h3>
             <p data-i18n="app.settings.description">Lege fest, wie SheetifyIMG die nächsten Arbeitsblatt-Entwürfe erzeugt.</p>
             <div class="image-generation-settings" id="imageProviderSettings"></div>
-          </section>
-          <section class="settings-section settings-access-section">
-            <p class="eyebrow" data-i18n="app.settings.access">Zugang</p>
-            <h3 data-i18n="app.settings.connectedDevice">Dieses Gerät</h3>
-            <p data-i18n="app.settings.accessDescription">Dieser Browser bleibt mit dem aktuellen Arbeitsbereich verbunden, bis du ihn trennst.</p>
-            <button class="secondary-button settings-disconnect-button" type="button" id="settingsDisconnectButton" data-i18n="app.settings.disconnect">Dieses Gerät trennen</button>
           </section>
         </div>
       </section>
@@ -493,7 +460,7 @@
       <section class="pass-modal" role="dialog" aria-modal="true" aria-labelledby="passModalTitle">
         <header class="pass-modal-header">
           <div>
-            <p class="eyebrow" data-i18n="passUi.modal.eyebrow">Gemeinsamer Arbeitsbereich</p>
+            <p class="eyebrow" id="passModalEyebrow" data-i18n="passUi.modal.eyebrow">Gemeinsamer Arbeitsbereich</p>
             <h2 id="passModalTitle" data-i18n="passUi.modal.title">Mein SheetifyIMG Pass</h2>
           </div>
           <button class="icon-button icon-button-plain" type="button" data-pass-close aria-label="Schließen" data-i18n-aria-label="common.close">
@@ -519,8 +486,8 @@
       }), { persistLocal: false });
       window.sheetifyLocale.apply(document);
     </script>
-    <script src="/app.js?v=188"></script>
-    <script src="/pass-ui.js?v=5"></script>
+    <script src="/app.js?v=189"></script>
+    <script src="/pass-ui.js?v=6"></script>
     <script src="/beta-experience.js?v=5"></script>
   </body>
 </html>

@@ -2006,20 +2006,10 @@ button {
   line-height: 1.5;
 }
 
-.settings-access-section {
+.settings-section + .settings-section {
   margin-top: 22px;
   border-top: 1px solid var(--line-soft);
   padding-top: 20px;
-}
-
-.settings-disconnect-button {
-  border-color: rgba(180, 35, 24, 0.28);
-  color: var(--danger);
-}
-
-.settings-disconnect-button:hover {
-  border-color: rgba(180, 35, 24, 0.48);
-  background: var(--danger-soft);
 }
 
 .image-generation-settings {
@@ -3087,154 +3077,6 @@ button {
   height: calc(100vh - 64px);
   min-height: 0;
   overflow: hidden;
-}
-
-.share-popover {
-  position: fixed;
-  top: 74px;
-  right: 22px;
-  z-index: 86;
-  width: min(356px, calc(100vw - 32px));
-}
-
-.share-card {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 22px 54px rgba(16, 24, 39, 0.18);
-  padding: 15px;
-}
-
-.share-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.share-header h2 {
-  margin: 0;
-  font-size: 17px;
-  line-height: 1.25;
-}
-
-.share-header p:not(.eyebrow) {
-  margin: 4px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.share-close-button {
-  width: 32px;
-  height: 32px;
-  justify-content: center;
-}
-
-.share-qr-frame {
-  display: flex;
-  width: 100%;
-  aspect-ratio: 1;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--line-soft);
-  border-radius: 7px;
-  background: #ffffff;
-  color: var(--muted);
-  overflow: hidden;
-}
-
-.share-qr-frame svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.share-qr-frame span:not(.mini-spinner) {
-  font-size: 13px;
-  font-weight: 680;
-}
-
-.share-url-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 36px;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-  border: 1px solid var(--line-soft);
-  border-radius: 7px;
-  background: var(--panel-soft);
-  padding: 8px 8px 8px 10px;
-}
-
-.share-url-row span {
-  overflow: hidden;
-  color: #344054;
-  font-size: 12px;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
-}
-
-.share-copy-button {
-  width: 32px;
-  height: 32px;
-  justify-content: center;
-  border-radius: 7px;
-  background: #ffffff;
-}
-
-.share-target-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
-  margin-top: 10px;
-}
-
-.share-target-button {
-  min-width: 0;
-  min-height: 44px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: #ffffff;
-  color: var(--text);
-  cursor: pointer;
-  text-align: left;
-  padding: 7px 9px;
-}
-
-.share-target-button.active {
-  border-color: #b8cdf4;
-  background: var(--blue-soft);
-  color: #0f4da2;
-}
-
-.share-target-button span,
-.share-target-button small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.share-target-button span {
-  font-size: 12px;
-  font-weight: 760;
-}
-
-.share-target-button small {
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 650;
-}
-
-.share-hint {
-  min-height: 18px;
-  margin: 10px 1px 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.4;
 }
 
 .production-sidebar {
@@ -6479,19 +6321,6 @@ button {
 
   .library-view-tab {
     min-height: 40px;
-  }
-
-  .share-popover {
-    top: calc(74px + env(safe-area-inset-top));
-    right: 12px;
-    left: 12px;
-    width: auto;
-    z-index: 96;
-  }
-
-  .share-card {
-    max-height: calc(100dvh - 92px);
-    overflow: auto;
   }
 
   .workspace {

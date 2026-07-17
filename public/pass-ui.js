@@ -3,11 +3,19 @@
 (() => {
   const modal = document.querySelector("#passModal");
   const content = document.querySelector("#passModalContent");
-  const openButton = document.querySelector("#passButton");
-  if (!modal || !content || !openButton) return;
+  const modalEyebrow = document.querySelector("#passModalEyebrow");
+  const modalTitle = document.querySelector("#passModalTitle");
+  const settingsLanguageOptions = document.querySelector("#settingsLanguageOptions");
+  const openButtons = {
+    pass: document.querySelector("#passButton"),
+    connections: document.querySelector("#connectionsButton")
+  };
+  if (!modal || !content || !openButtons.pass || !openButtons.connections) return;
   const locale = window.sheetifyLocale;
 
   let summary = null;
+  let activeView = "pass";
+  let activeOpenButton = openButtons.pass;
 
   function escapeHtml(value) {
     return String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
@@ -44,44 +52,70 @@
     return new Intl.DateTimeFormat(locale?.current() === "en" ? "en-GB" : "de-DE", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
   }
 
+  function renderLanguageOptions() {
+    if (!settingsLanguageOptions) return;
+    settingsLanguageOptions.innerHTML = locale.SUPPORTED_LOCALES.map((language) => `
+      <button class="pass-ui-language-option" type="button" data-settings-locale="${language}" aria-pressed="${locale.current() === language ? "true" : "false"}" aria-label="${escapeHtml(t(`language.${language}`))}" title="${escapeHtml(t(`language.${language}`))}">
+        <img src="${languageFlag(language)}" alt="">
+      </button>`).join("");
+  }
+
+  function applyModalHeader() {
+    const eyebrowKey = activeView === "connections" ? "app.settings.access" : "passUi.modal.eyebrow";
+    const titleKey = activeView === "connections" ? "passUi.devices.title" : "passUi.modal.title";
+    if (modalEyebrow) {
+      modalEyebrow.dataset.i18n = eyebrowKey;
+      modalEyebrow.textContent = t(eyebrowKey);
+    }
+    if (modalTitle) {
+      modalTitle.dataset.i18n = titleKey;
+      modalTitle.textContent = t(titleKey);
+    }
+  }
+
   function render(message = "", error = false) {
     const pass = summary?.pass;
     if (!pass) {
       content.innerHTML = `<p class="pass-ui-message ${error ? "error" : ""}">${escapeHtml(message || t("passUi.loading"))}</p>`;
       return;
     }
+
+    const notice = message ? `<p class="pass-ui-message ${error ? "error" : ""}">${escapeHtml(message)}</p>` : "";
+    const help = `<p>${escapeHtml(t("passUi.help"))} <a href="mailto:sheetify@jujies.app">sheetify@jujies.app</a></p>`;
+
+    if (activeView === "connections") {
+      content.innerHTML = `
+        ${notice}
+        <section class="pass-ui-section pass-ui-section-first">
+          <div class="pass-ui-section-head"><div><h3>${escapeHtml(t("passUi.pair.title"))}</h3><p class="pass-ui-help">${escapeHtml(t("passUi.pair.help"))}</p></div><button class="pass-ui-button primary" type="button" data-create-pair>${escapeHtml(t("passUi.pair.start"))}</button></div>
+          <div id="pairingResult"></div>
+        </section>
+        <section class="pass-ui-section">
+          <div class="pass-ui-section-head"><h3>${escapeHtml(t("passUi.devices.title"))}</h3><span class="pass-ui-help">${escapeHtml(t("passUi.devices.connected", { count: summary.devices.length }))}</span></div>
+          <div class="device-list">${summary.devices.map((device) => `
+            <div class="device-row" data-device-id="${escapeHtml(device.id)}">
+              <div><strong>${escapeHtml(device.deviceName)}</strong><span class="${device.current ? "device-current" : ""}">${device.current ? escapeHtml(t("passUi.devices.current")) : escapeHtml(t("passUi.devices.last", { date: shortDate(device.lastSeenAt) }))}</span></div>
+              <button class="pass-ui-button ${device.current ? "danger" : ""}" type="button" data-revoke-device>${escapeHtml(t(device.current ? "passUi.devices.logout" : "passUi.devices.remove"))}</button>
+            </div>`).join("")}</div>
+        </section>
+        <footer class="pass-ui-footer">
+          ${help}
+          <button class="pass-ui-button danger" type="button" data-logout>${escapeHtml(t("passUi.logout"))}</button>
+        </footer>`;
+      return;
+    }
+
     content.innerHTML = `
-      ${message ? `<p class="pass-ui-message ${error ? "error" : ""}">${escapeHtml(message)}</p>` : ""}
+      ${notice}
       <article class="pass-overview-card">
         <div><h3>${escapeHtml(t("passUi.overview.title"))}</h3><p>${escapeHtml(t("passUi.workspace", { hint: pass.codeHint || "" }))}</p></div>
         <div class="pass-balance-badge"><strong>${pass.balance}</strong><span>${escapeHtml(t("passUi.draftPages"))}</span></div>
       </article>
       <section class="pass-ui-section">
-        <div class="pass-ui-section-head"><div><h3>${escapeHtml(t("passUi.pair.title"))}</h3><p class="pass-ui-help">${escapeHtml(t("passUi.pair.help"))}</p></div><button class="pass-ui-button primary" type="button" data-create-pair>${escapeHtml(t("passUi.pair.start"))}</button></div>
-        <div id="pairingResult"></div>
-      </section>
-      <section class="pass-ui-section">
         <div class="pass-ui-section-head"><div><h3>${escapeHtml(t("passUi.topup.title"))}</h3><p class="pass-ui-help">${escapeHtml(t("passUi.topup.help"))}</p></div></div>
         <form class="topup-form" id="passTopupForm"><input name="code" autocomplete="one-time-code" placeholder="PLUS-••••-••••-••••" required><button class="pass-ui-button" type="submit">${escapeHtml(t("passUi.topup.redeem"))}</button></form>
       </section>
-      <section class="pass-ui-section">
-        <div class="pass-ui-section-head"><h3>${escapeHtml(t("passUi.devices.title"))}</h3><span class="pass-ui-help">${escapeHtml(t("passUi.devices.connected", { count: summary.devices.length }))}</span></div>
-        <div class="device-list">${summary.devices.map((device) => `
-          <div class="device-row" data-device-id="${escapeHtml(device.id)}">
-            <div><strong>${escapeHtml(device.deviceName)}</strong><span class="${device.current ? "device-current" : ""}">${device.current ? escapeHtml(t("passUi.devices.current")) : escapeHtml(t("passUi.devices.last", { date: shortDate(device.lastSeenAt) }))}</span></div>
-            <button class="pass-ui-button ${device.current ? "danger" : ""}" type="button" data-revoke-device>${escapeHtml(t(device.current ? "passUi.devices.logout" : "passUi.devices.remove"))}</button>
-          </div>`).join("")}</div>
-      </section>
-      <section class="pass-ui-section">
-        <div class="pass-ui-section-head"><div><h3>${escapeHtml(t("passUi.language.title"))}</h3><p class="pass-ui-help">${escapeHtml(t("passUi.language.help"))}</p></div></div>
-        <div class="pass-ui-language" role="group" aria-label="${escapeHtml(t("pass.languageLabel"))}">
-          ${locale.SUPPORTED_LOCALES.map((language) => `<button class="pass-ui-language-option" type="button" data-pass-ui-locale="${language}" aria-pressed="${locale.current() === language ? "true" : "false"}" aria-label="${escapeHtml(t(`language.${language}`))}" title="${escapeHtml(t(`language.${language}`))}"><img src="${languageFlag(language)}" alt=""></button>`).join("")}
-        </div>
-      </section>
-      <footer class="pass-ui-footer">
-        <p>${escapeHtml(t("passUi.help"))} <a href="mailto:sheetify@jujies.app">sheetify@jujies.app</a></p>
-        <button class="pass-ui-button danger" type="button" data-logout>${escapeHtml(t("passUi.logout"))}</button>
-      </footer>`;
+      <footer class="pass-ui-footer">${help}</footer>`;
   }
 
   async function load(message = "") {
@@ -97,7 +131,11 @@
     if (value) value.textContent = String(next.pass.balance);
   }
 
-  async function open() {
+  async function open(view = "pass", button = openButtons.pass) {
+    activeView = view === "connections" ? "connections" : "pass";
+    activeOpenButton = button;
+    applyModalHeader();
+    Object.entries(openButtons).forEach(([name, target]) => target.classList.toggle("active", name === activeView));
     modal.classList.remove("hidden");
     modal.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
@@ -109,31 +147,14 @@
     modal.classList.add("hidden");
     modal.setAttribute("aria-hidden", "true");
     document.body.style.overflow = "";
-    openButton.focus();
+    Object.values(openButtons).forEach((button) => button.classList.remove("active"));
+    activeOpenButton?.focus();
   }
 
-  openButton.addEventListener("click", open);
+  openButtons.pass.addEventListener("click", () => open("pass", openButtons.pass));
+  openButtons.connections.addEventListener("click", () => open("connections", openButtons.connections));
   modal.querySelectorAll("[data-pass-close]").forEach((button) => button.addEventListener("click", close));
   modal.addEventListener("click", async (event) => {
-    const languageButton = event.target.closest("[data-pass-ui-locale]");
-    if (languageButton) {
-      const nextLocale = locale.normalize(languageButton.dataset.passUiLocale);
-      if (nextLocale === locale.current()) return;
-      locale.set(nextLocale);
-      try {
-        await api("/api/auth/session", {
-          method: "PATCH",
-          body: JSON.stringify({ uiLocale: nextLocale })
-        });
-      } catch (error) {
-        render(error.message, true);
-        return;
-      }
-      locale.apply(document);
-      window.dispatchEvent(new CustomEvent("sheetify:localechange", { detail: { locale: nextLocale } }));
-      render();
-      return;
-    }
     if (event.target.closest("[data-create-pair]")) {
       try {
         const result = await api("/api/pass/pairings", { method: "POST", body: "{}" });
@@ -167,6 +188,28 @@
     } catch (error) { render(error.message, true); }
   });
 
+  settingsLanguageOptions?.addEventListener("click", async (event) => {
+    const languageButton = event.target.closest("[data-settings-locale]");
+    if (!languageButton) return;
+    const nextLocale = locale.normalize(languageButton.dataset.settingsLocale);
+    if (nextLocale === locale.current()) return;
+    locale.set(nextLocale);
+    try {
+      await api("/api/auth/session", {
+        method: "PATCH",
+        body: JSON.stringify({ uiLocale: nextLocale })
+      });
+    } catch (error) {
+      renderLanguageOptions();
+      return;
+    }
+    locale.apply(document);
+    renderLanguageOptions();
+    applyModalHeader();
+    window.dispatchEvent(new CustomEvent("sheetify:localechange", { detail: { locale: nextLocale } }));
+    if (!modal.classList.contains("hidden")) render();
+  });
+
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !modal.classList.contains("hidden")) close();
   });
@@ -183,11 +226,14 @@
   });
   setInterval(() => refreshBalance().catch(() => {}), 12000);
 
+  renderLanguageOptions();
+  window.addEventListener("sheetify:localechange", renderLanguageOptions);
+
   api("/api/auth/session")
     .then((session) => {
-      if (!session.authenticated) openButton.hidden = true;
+      if (!session.authenticated) Object.values(openButtons).forEach((button) => { button.hidden = true; });
     })
     .catch(() => {
-      openButton.hidden = true;
+      Object.values(openButtons).forEach((button) => { button.hidden = true; });
     });
 })();

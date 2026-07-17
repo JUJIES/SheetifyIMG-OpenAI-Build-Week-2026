@@ -298,14 +298,16 @@ async function main() {
     assert.equal(beforeSwitch.ok, true);
     const beforeDocuments = JSON.stringify(beforeSwitch.body.workspace.documents);
 
-    await englishPage.getByRole("button", { name: "My SheetifyIMG Pass" }).click();
-    await englishPage.getByRole("heading", { name: "My SheetifyIMG Pass" }).waitFor();
-    const passLanguageOptions = englishPage.locator(".pass-ui-language-option");
+    await englishPage.getByRole("button", { name: "Settings" }).click();
+    const passLanguageOptions = englishPage.locator("#settingsLanguageOptions .pass-ui-language-option");
     assert.equal(await passLanguageOptions.count(), 2);
     assert.deepEqual(
       await passLanguageOptions.locator("img").evaluateAll((images) => images.map((image) => image.getAttribute("src"))),
       ["/icons/flags/de.svg", "/icons/flags/gb.svg"]
     );
+    await englishPage.locator("#settingsCloseButton").click();
+    await englishPage.getByRole("button", { name: "My SheetifyIMG Pass" }).click();
+    await englishPage.getByRole("heading", { name: "My SheetifyIMG Pass" }).waitFor();
     const grantResponse = await fetch(`${baseUrl}/api/admin/passes/${createdPass.pass.id}/grant`, {
       method: "POST",
       headers: {
@@ -341,11 +343,14 @@ async function main() {
     await germanPage.waitForURL(`${baseUrl}/app`, { timeout: 30000 });
     await germanPage.getByRole("button", { name: "Agree and start the beta" }).click();
     await germanPage.locator("#betaConsentLayer").waitFor({ state: "hidden" });
-    await germanPage.getByRole("button", { name: "My SheetifyIMG Pass" }).click();
+    await germanPage.getByRole("button", { name: "Settings" }).click();
     await germanPage.getByRole("button", { name: "German" }).click();
-    await germanPage.getByRole("heading", { name: "Mein SheetifyIMG Pass" }).waitFor();
+    await germanPage.locator("#settingsTitle").filter({ hasText: "SheetifyIMG" }).waitFor();
     assert.equal(await germanPage.locator("html").getAttribute("lang"), "de");
     assert.equal(await englishPage.locator("html").getAttribute("lang"), "en");
+    await germanPage.locator("#settingsCloseButton").click();
+    await germanPage.getByRole("button", { name: "Mein SheetifyIMG Pass" }).click();
+    await germanPage.getByRole("heading", { name: "Mein SheetifyIMG Pass" }).waitFor();
     const germanGrantResponse = await fetch(`${baseUrl}/api/admin/passes/${createdPass.pass.id}/grant`, {
       method: "POST",
       headers: {

@@ -1,17 +1,17 @@
 "use strict";
 
-const CACHE_NAME = "sheetifyimg-static-v73";
+const CACHE_NAME = "sheetifyimg-static-v74";
 const APP_SHELL_URLS = [
   "/vendor/simplebar/simplebar.min.css?v=1",
   "/brand.css?v=3",
-  "/styles.css?v=115",
-  "/pass-ui.css?v=3",
+  "/styles.css?v=116",
+  "/pass-ui.css?v=4",
   "/beta-experience.css?v=3",
   "/pass.css?v=5",
   "/admin.css?v=8",
   "/vendor/simplebar/simplebar.min.js?v=1",
-  "/app.js?v=188",
-  "/pass-ui.js?v=5",
+  "/app.js?v=189",
+  "/pass-ui.js?v=6",
   "/locale.js?v=8",
   "/pass.js?v=5",
   "/admin.js?v=8",
@@ -30,7 +30,7 @@ const APP_SHELL_URLS = [
   "/icons/app-icon-192.png",
   "/icons/app-icon-512.png",
   "/icons/app-icon-maskable-512.png",
-  "/icons/lucide-sprite.svg?v=16"
+  "/icons/lucide-sprite.svg?v=17"
 ];
 
 self.addEventListener("install", (event) => {

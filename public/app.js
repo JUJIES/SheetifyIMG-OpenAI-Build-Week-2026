@@ -136,18 +136,6 @@ const state = {
     billingLoading: false,
     billingError: null
   },
-  sharePanel: {
-    open: false,
-    pinned: false,
-    loading: false,
-    error: null,
-    data: null,
-    requestKey: "",
-    selectedTargetId: null,
-    lastFocusedElement: null,
-    closeTimer: null,
-    suppressFocusOpen: false
-  },
   activeStatusStep: null,
   activeLibraryConceptId: null,
   activeCanvasMode: "content",
@@ -250,14 +238,13 @@ const state = {
   }
 };
 
-const spriteHref = "/icons/lucide-sprite.svg?v=16";
+const spriteHref = "/icons/lucide-sprite.svg?v=17";
 const worksheetShareFileCache = new Map();
 let pendingInitialRoute = initialRoute;
 let backgroundRefreshTimer = null;
 let backgroundRefreshInFlight = false;
 let selectedItemRefreshId = 0;
 let workspaceRefreshId = 0;
-let shareRefreshId = 0;
 let voiceStartRequestId = 0;
 let voiceTranscriptionRequestId = 0;
 let nextConceptCopyId = 1;
@@ -270,17 +257,7 @@ const elements = {
   workspaceMobileProjectTitle: document.querySelector("#workspaceMobileProjectTitle"),
   workspaceLibraryButton: document.querySelector("#workspaceLibraryButton"),
   workspaceMobileLibraryButton: document.querySelector("#workspaceMobileLibraryButton"),
-  shareButton: document.querySelector("#shareButton"),
-  workspaceMobileShareButton: document.querySelector("#workspaceMobileShareButton"),
   workspaceMobileSettingsButton: document.querySelector("#workspaceMobileSettingsButton"),
-  sharePopover: document.querySelector("#sharePopover"),
-  shareCloseButton: document.querySelector("#shareCloseButton"),
-  shareQrCode: document.querySelector("#shareQrCode"),
-  shareStatus: document.querySelector("#shareStatus"),
-  shareUrlText: document.querySelector("#shareUrlText"),
-  shareTargetList: document.querySelector("#shareTargetList"),
-  shareHint: document.querySelector("#shareHint"),
-  shareCopyLinkButton: document.querySelector("#shareCopyLinkButton"),
   backToLibraryButton: document.querySelector("#backToLibraryButton"),
   librarySidebar: document.querySelector("#librarySidebar"),
   sidebarEyebrow: document.querySelector("#sidebarEyebrow"),
@@ -324,7 +301,6 @@ const elements = {
   settingsButton: document.querySelector("#settingsButton"),
   settingsModal: document.querySelector("#settingsModal"),
   settingsCloseButton: document.querySelector("#settingsCloseButton"),
-  settingsDisconnectButton: document.querySelector("#settingsDisconnectButton"),
   imageProviderSettings: document.querySelector("#imageProviderSettings"),
   billingStatusPanel: document.querySelector("#billingStatusPanel"),
   newWorksheetButton: document.querySelector("#newWorksheetButton"),
@@ -1732,267 +1708,6 @@ function saveVoiceTranscriptReview() {
   closeVoiceTranscriptReview({ restoreFocus: false });
   elements.chatInput?.focus();
   updateComposerState();
-}
-
-function shareButtons() {
-  return [elements.shareButton, elements.workspaceMobileShareButton].filter(Boolean);
-}
-
-function currentWorksheetId() {
-  return state.selectedItem?.worksheet?.worksheetId
-    || (isTreeWorksheetItemId(state.selectedId) ? worksheetIdFromItemId(state.selectedId) : "");
-}
-
-function currentShareRoute() {
-  if (state.mode === "workspace") {
-    return {
-      view: "projects",
-      projectId: "",
-      worksheetId: ""
-    };
-  }
-
-  if (!isProjectsLibraryView()) {
-    return {
-      view: "worksheets",
-      projectId: currentProjectId(),
-      worksheetId: currentWorksheetId()
-    };
-  }
-
-  return {
-    view: "projects",
-    projectId: "",
-    worksheetId: ""
-  };
-}
-
-function shareUrlFromLocation() {
-  const url = new URL(window.location.href);
-  url.hash = "";
-  url.search = "";
-  const route = currentShareRoute();
-  if (route.view) {
-    url.searchParams.set("view", route.view);
-  }
-  if (route.projectId) {
-    url.searchParams.set("project", route.projectId);
-  }
-  if (route.worksheetId) {
-    url.searchParams.set("worksheet", route.worksheetId);
-  }
-  return url.toString();
-}
-
-function shareRequestKey() {
-  const route = currentShareRoute();
-  return [shareUrlFromLocation(), route.projectId || "", route.worksheetId || ""].join("|");
-}
-
-function selectedShareTarget() {
-  const share = state.sharePanel.data || {};
-  const targets = share.targets || [];
-  return targets.find((target) => target.id === state.sharePanel.selectedTargetId)
-    || targets.find((target) => target.id === share.primaryTargetId)
-    || targets[0]
-    || null;
-}
-
-function syncShareButtons() {
-  for (const button of shareButtons()) {
-    button.classList.toggle("active", state.sharePanel.open);
-    button.setAttribute("aria-expanded", state.sharePanel.open ? "true" : "false");
-  }
-}
-
-function allowShareFocusOpenSoon() {
-  window.setTimeout(() => {
-    state.sharePanel.suppressFocusOpen = false;
-  }, 0);
-}
-
-function clearShareCloseTimer() {
-  if (state.sharePanel.closeTimer) {
-    window.clearTimeout(state.sharePanel.closeTimer);
-    state.sharePanel.closeTimer = null;
-  }
-}
-
-function isSharePanelOpen() {
-  return Boolean(elements.sharePopover && state.sharePanel.open && !elements.sharePopover.classList.contains("hidden"));
-}
-
-function renderSharePanel() {
-  if (!elements.sharePopover) {
-    return;
-  }
-
-  const panel = state.sharePanel;
-  const target = selectedShareTarget();
-  const loading = panel.loading && !target;
-  elements.sharePopover.classList.toggle("loading", loading);
-
-  if (elements.shareStatus) {
-    elements.shareStatus.textContent = panel.error
-      ? "Nicht verbunden"
-      : target ? `${target.label}${target.detail ? ` · ${target.detail}` : ""}` : "Adresse wird geladen...";
-  }
-
-  if (elements.shareQrCode) {
-    if (target?.qrSvg) {
-      elements.shareQrCode.innerHTML = target.qrSvg;
-    } else if (panel.error) {
-      elements.shareQrCode.innerHTML = `<span>${escapeHtml(panel.error)}</span>`;
-    } else {
-      elements.shareQrCode.innerHTML = '<span class="mini-spinner" aria-hidden="true"></span>';
-    }
-  }
-
-  if (elements.shareUrlText) {
-    elements.shareUrlText.textContent = target?.url || shareUrlFromLocation();
-  }
-
-  if (elements.shareHint) {
-    elements.shareHint.textContent = panel.error
-      ? "Die aktuelle Adresse kann trotzdem kopiert werden."
-      : panel.data?.message || "";
-  }
-
-  const targets = panel.data?.targets || [];
-  if (elements.shareTargetList) {
-    elements.shareTargetList.innerHTML = targets.length > 1
-      ? targets.map((entry) => `
-        <button class="share-target-button${entry.id === target?.id ? " active" : ""}" type="button" data-share-target-id="${escapeHtml(entry.id)}">
-          <span>${escapeHtml(entry.label)}</span>
-          <small>${escapeHtml(entry.detail || "")}</small>
-        </button>
-      `).join("")
-      : "";
-    elements.shareTargetList.classList.toggle("hidden", targets.length <= 1);
-    elements.shareTargetList.querySelectorAll("[data-share-target-id]").forEach((button) => {
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        clearShareCloseTimer();
-        state.sharePanel.selectedTargetId = button.dataset.shareTargetId || null;
-        state.sharePanel.pinned = true;
-        renderSharePanel();
-        syncShareButtons();
-      });
-    });
-  }
-}
-
-async function refreshShareTargets() {
-  const key = shareRequestKey();
-  if (state.sharePanel.loading) {
-    renderSharePanel();
-    return;
-  }
-
-  const refreshId = ++shareRefreshId;
-  state.sharePanel.loading = true;
-  state.sharePanel.error = null;
-  state.sharePanel.requestKey = key;
-  renderSharePanel();
-
-  try {
-    const route = currentShareRoute();
-    const params = new URLSearchParams({
-      currentUrl: shareUrlFromLocation()
-    });
-    if (route.projectId) {
-      params.set("projectId", route.projectId);
-    }
-    const payload = await fetchJson(`/api/share/targets?${params}`);
-    if (refreshId !== shareRefreshId) {
-      return;
-    }
-    state.sharePanel.data = payload.share;
-    const targetStillExists = payload.share?.targets?.some((target) => target.id === state.sharePanel.selectedTargetId);
-    if (!targetStillExists) {
-      state.sharePanel.selectedTargetId = payload.share?.primaryTargetId || payload.share?.targets?.[0]?.id || null;
-    }
-  } catch (error) {
-    if (refreshId !== shareRefreshId) {
-      return;
-    }
-    state.sharePanel.error = "QR nicht verfügbar";
-    state.sharePanel.data = null;
-  } finally {
-    if (refreshId === shareRefreshId) {
-      state.sharePanel.loading = false;
-      renderSharePanel();
-    }
-  }
-}
-
-function openSharePanel(options = {}) {
-  if (!elements.sharePopover) {
-    return;
-  }
-  clearShareCloseTimer();
-  state.sharePanel.open = true;
-  state.sharePanel.pinned = Boolean(options.pinned || state.sharePanel.pinned);
-  if (state.sharePanel.pinned && !state.sharePanel.lastFocusedElement) {
-    state.sharePanel.lastFocusedElement = document.activeElement;
-  }
-  elements.sharePopover.classList.remove("hidden");
-  elements.sharePopover.setAttribute("aria-hidden", "false");
-  syncShareButtons();
-  renderSharePanel();
-  refreshShareTargets();
-}
-
-function closeSharePanel(options = {}) {
-  if (!elements.sharePopover) {
-    return;
-  }
-  clearShareCloseTimer();
-  state.sharePanel.open = false;
-  state.sharePanel.pinned = false;
-  state.sharePanel.suppressFocusOpen = true;
-  elements.sharePopover.classList.add("hidden");
-  elements.sharePopover.setAttribute("aria-hidden", "true");
-  syncShareButtons();
-  if (options.restoreFocus) {
-    const lastFocusedElement = state.sharePanel.lastFocusedElement;
-    state.sharePanel.lastFocusedElement = null;
-    lastFocusedElement?.focus?.();
-  } else {
-    state.sharePanel.lastFocusedElement = null;
-  }
-  allowShareFocusOpenSoon();
-}
-
-function scheduleSharePanelClose() {
-  clearShareCloseTimer();
-  if (state.sharePanel.pinned) {
-    return;
-  }
-  state.sharePanel.closeTimer = window.setTimeout(() => {
-    closeSharePanel();
-  }, 280);
-}
-
-function togglePinnedSharePanel() {
-  if (isSharePanelOpen() && state.sharePanel.pinned) {
-    closeSharePanel({ restoreFocus: true });
-    return;
-  }
-  state.sharePanel.pinned = false;
-  openSharePanel({ pinned: true });
-}
-
-async function copySelectedShareUrl() {
-  const target = selectedShareTarget();
-  const url = target?.url || shareUrlFromLocation();
-  try {
-    await writeClipboardText(url);
-    showToast("Link kopiert", "success");
-  } catch (error) {
-    showToast(error.message || "Link konnte nicht kopiert werden.", "error");
-  }
 }
 
 function imageFromUrl(url) {
@@ -7785,6 +7500,8 @@ function openSettings() {
     return;
   }
   state.settingsModal.lastFocusedElement = document.activeElement;
+  elements.settingsButton?.classList.add("active");
+  elements.workspaceMobileSettingsButton?.classList.add("active");
   renderSettings();
   elements.settingsModal.classList.remove("hidden");
   elements.settingsModal.setAttribute("aria-hidden", "false");
@@ -7801,31 +7518,10 @@ function closeSettings() {
   }
   elements.settingsModal.classList.add("hidden");
   elements.settingsModal.setAttribute("aria-hidden", "true");
+  elements.settingsButton?.classList.remove("active");
+  elements.workspaceMobileSettingsButton?.classList.remove("active");
   state.settingsModal.lastFocusedElement?.focus?.();
   state.settingsModal.lastFocusedElement = null;
-}
-
-async function disconnectCurrentDevice() {
-  closeSettings();
-  const confirmed = await requestConfirmation({
-    eyebrow: t("app.settings.disconnectEyebrow"),
-    title: t("app.settings.disconnectTitle"),
-    message: t("app.settings.disconnectMessage"),
-    acceptLabel: t("app.settings.disconnectConfirm"),
-    cancelLabel: t("common.cancel"),
-    danger: true
-  });
-  if (!confirmed) {
-    openSettings();
-    return;
-  }
-  try {
-    await fetchJson("/api/auth/logout", { method: "POST", body: "{}" });
-    window.location.replace("/");
-  } catch (error) {
-    openSettings();
-    showToast(error.message || t("app.settings.disconnectError"), "error");
-  }
 }
 
 function runReferenceRoleOptions() {
@@ -11263,7 +10959,6 @@ elements.refreshButton.addEventListener("click", () => {
 elements.settingsButton?.addEventListener("click", openSettings);
 elements.workspaceMobileSettingsButton?.addEventListener("click", openSettings);
 elements.settingsCloseButton?.addEventListener("click", closeSettings);
-elements.settingsDisconnectButton?.addEventListener("click", disconnectCurrentDevice);
 elements.settingsModal?.addEventListener("click", (event) => {
   if (event.target === elements.settingsModal) {
     closeSettings();
@@ -11301,24 +10996,6 @@ elements.downloadButton.addEventListener("click", () => {
 elements.backToLibraryButton.addEventListener("click", closeWorkspace);
 elements.workspaceLibraryButton.addEventListener("click", closeWorkspace);
 elements.workspaceMobileLibraryButton?.addEventListener("click", closeWorkspace);
-for (const button of shareButtons()) {
-  button.addEventListener("click", (event) => {
-    event.preventDefault();
-    togglePinnedSharePanel();
-  });
-  button.addEventListener("mouseenter", () => openSharePanel({ pinned: false }));
-  button.addEventListener("focus", () => {
-    if (state.sharePanel.suppressFocusOpen) {
-      return;
-    }
-    openSharePanel({ pinned: false });
-  });
-  button.addEventListener("mouseleave", scheduleSharePanelClose);
-}
-elements.sharePopover?.addEventListener("mouseenter", clearShareCloseTimer);
-elements.sharePopover?.addEventListener("mouseleave", scheduleSharePanelClose);
-elements.shareCloseButton?.addEventListener("click", () => closeSharePanel({ restoreFocus: true }));
-elements.shareCopyLinkButton?.addEventListener("click", copySelectedShareUrl);
 elements.refreshChatButton.addEventListener("click", () => openWorkspace(currentProjectId()));
 elements.chatComposer.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -11461,18 +11138,8 @@ document.addEventListener("click", (event) => {
   if (!event.target.closest(".tree-context-menu")) {
     closeTreeContextMenu();
   }
-  if (isSharePanelOpen()
-    && !event.target.closest(".share-popover")
-    && !event.target.closest("[data-share-button]")) {
-    closeSharePanel();
-  }
 });
 document.addEventListener("keydown", (event) => {
-  if (isSharePanelOpen() && event.key === "Escape") {
-    event.preventDefault();
-    closeSharePanel({ restoreFocus: true });
-    return;
-  }
   if (isSettingsOpen()) {
     if (event.key === "Escape") {
       event.preventDefault();

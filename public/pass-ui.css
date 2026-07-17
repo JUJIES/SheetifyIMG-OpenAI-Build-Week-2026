@@ -12,6 +12,7 @@
 .pass-balance-badge strong { display: block; font-size: 28px; }
 .pass-balance-badge span { font-size: 10px; }
 .pass-ui-section { margin-top: 25px; }
+.pass-ui-section-first { margin-top: 0; }
 .pass-ui-section-head { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 12px; }
 .pass-ui-section h3 { margin: 0; font-size: 15px; }
 .pass-ui-help { margin: 7px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
