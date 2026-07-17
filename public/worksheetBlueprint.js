@@ -240,10 +240,18 @@
       return rendered.join("");
     }
 
-    function renderPage(content, elements, thread, page) {
+    function renderPage(content, elements, thread, page, options = {}) {
       const pageElements = elements.filter((entry) => entry.page === page).sort((a, b) => a.order - b.order);
+      const showPageNavigation = options.pageCount > 1;
       return `
         <section class="worksheet-blueprint-page" data-blueprint-page="${page}" aria-label="${escapeHtml(label("app.blueprint.sheet", "Blatt"))} ${page}" ${page === 1 ? "" : "hidden"}>
+          ${showPageNavigation ? `
+            <nav class="worksheet-blueprint-page-nav" aria-label="${escapeHtml(label("app.blueprint.page", "Seite"))}">
+              <button class="previous" type="button" data-blueprint-page-previous aria-label="${escapeHtml(uiLabel("previousPage"))}">${lucide("chevron-right")}</button>
+              <span>${escapeHtml(label("app.blueprint.page", "Seite"))} <strong data-blueprint-page-position>${page}</strong> ${escapeHtml(label("app.blueprint.of", "von"))} ${options.pageCount}</span>
+              <button type="button" data-blueprint-page-next aria-label="${escapeHtml(uiLabel("nextPage"))}">${lucide("chevron-right")}</button>
+            </nav>
+          ` : ""}
           <div class="worksheet-blueprint-paper">
             <header>
               <span>${pageCount(content, elements) > 1
@@ -340,13 +348,8 @@
           </div>
           <div class="worksheet-blueprint-stage">
             <div class="worksheet-blueprint-overview" data-blueprint-view="concept">
-              <nav class="worksheet-blueprint-page-nav" aria-label="${escapeHtml(label("app.blueprint.page", "Seite"))}">
-                <button class="previous" type="button" data-blueprint-page-previous aria-label="${escapeHtml(uiLabel("previousPage"))}">${lucide("chevron-right")}</button>
-                <span>${escapeHtml(label("app.blueprint.page", "Seite"))} <strong data-blueprint-page-position>1</strong> ${escapeHtml(label("app.blueprint.of", "von"))} ${pages.length}</span>
-                <button type="button" data-blueprint-page-next aria-label="${escapeHtml(uiLabel("nextPage"))}">${lucide("chevron-right")}</button>
-              </nav>
               <div class="worksheet-blueprint-pages">
-                ${pages.map((page) => renderPage(content, elements, thread, page)).join("")}
+                ${pages.map((page) => renderPage(content, elements, thread, page, { pageCount: pages.length })).join("")}
               </div>
             </div>
             <aside class="worksheet-blueprint-inspector" data-blueprint-view="details" aria-live="polite" aria-hidden="true" inert>
@@ -374,10 +377,10 @@
         const nodes = Array.from(root.querySelectorAll("[data-blueprint-node]"));
         const panels = Array.from(root.querySelectorAll("[data-blueprint-panel]"));
         const position = root.querySelector("[data-blueprint-position]");
-        const pagePosition = root.querySelector("[data-blueprint-page-position]");
+        const pagePositions = Array.from(root.querySelectorAll("[data-blueprint-page-position]"));
         const pages = Array.from(root.querySelectorAll("[data-blueprint-page]"));
-        const previousPageButton = root.querySelector("[data-blueprint-page-previous]");
-        const nextPageButton = root.querySelector("[data-blueprint-page-next]");
+        const previousPageButtons = Array.from(root.querySelectorAll("[data-blueprint-page-previous]"));
+        const nextPageButtons = Array.from(root.querySelectorAll("[data-blueprint-page-next]"));
         const overview = root.querySelector("[data-blueprint-view='concept']");
         const inspector = root.querySelector("[data-blueprint-view='details']");
         const conceptModeButton = root.querySelector("[data-blueprint-mode='concept']");
@@ -420,15 +423,15 @@
             const active = Number(pageElement.dataset.blueprintPage || 1) === normalizedPage;
             pageElement.hidden = !active;
           });
-          if (pagePosition) {
+          pagePositions.forEach((pagePosition) => {
             pagePosition.textContent = String(normalizedPage);
-          }
-          if (previousPageButton) {
+          });
+          previousPageButtons.forEach((previousPageButton) => {
             previousPageButton.disabled = normalizedPage === 1;
-          }
-          if (nextPageButton) {
+          });
+          nextPageButtons.forEach((nextPageButton) => {
             nextPageButton.disabled = normalizedPage === pages.length;
-          }
+          });
           if (changed && clearCurrentSelection) {
             clearSelection();
           }
@@ -517,8 +520,12 @@
         nodes.forEach((node, index) => node.addEventListener("click", () => select(index, { focus: true })));
         conceptModeButton?.addEventListener("click", () => setMode("concept", { focus: true, restoreScroll: true }));
         detailsModeButton?.addEventListener("click", () => setMode("details", { focus: true }));
-        previousPageButton?.addEventListener("click", () => setPage(currentPage - 1, { clearCurrentSelection: true }));
-        nextPageButton?.addEventListener("click", () => setPage(currentPage + 1, { clearCurrentSelection: true }));
+        previousPageButtons.forEach((button) => {
+          button.addEventListener("click", () => setPage(currentPage - 1, { clearCurrentSelection: true }));
+        });
+        nextPageButtons.forEach((button) => {
+          button.addEventListener("click", () => setPage(currentPage + 1, { clearCurrentSelection: true }));
+        });
         root.querySelectorAll("[data-blueprint-revise]").forEach((button) => {
           button.addEventListener("click", () => {
             const index = nodes.findIndex((node) => node.dataset.blueprintNode === button.dataset.blueprintRevise);

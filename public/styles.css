@@ -7967,12 +7967,23 @@ button {
 }
 
 .worksheet-blueprint-page-nav {
+  position: absolute;
+  z-index: 2;
+  top: clamp(4px, 2vw, 12px);
+  left: 50%;
   display: grid;
   width: max-content;
   grid-template-columns: 26px auto 26px;
   align-items: center;
   gap: 2px;
-  margin: 0 auto 4px;
+  margin: 0;
+  padding: 2px 4px;
+  border: 1px solid rgb(220 226 235 / 84%);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 88%);
+  box-shadow: 0 3px 10px rgb(39 49 75 / 7%);
+  backdrop-filter: blur(8px);
+  transform: translateX(-50%);
 }
 
 .worksheet-blueprint-inspector-nav button {
@@ -8053,6 +8064,7 @@ button {
 }
 
 .worksheet-blueprint-page {
+  position: relative;
   width: min(100%, 560px);
   min-width: 0;
   animation: worksheet-blueprint-page-in 160ms ease both;
