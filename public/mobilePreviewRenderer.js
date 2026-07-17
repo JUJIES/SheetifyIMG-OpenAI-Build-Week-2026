@@ -129,8 +129,9 @@
       if (!concept) {
         return mobilePreviewStatusLabel(workspace, mode);
       }
+      const rawStatus = concept.status || workspace.documents?.content?.status;
       const parts = [
-        statusWord(concept.status || workspace.documents?.content?.status),
+        rawStatus === "adopted" ? null : statusWord(rawStatus),
         concept.current ? t("app.work.label") : null
       ].filter(Boolean);
       return parts.join(" · ") || mobilePreviewStatusLabel(workspace, mode);
@@ -157,8 +158,9 @@
               const selectedClass = concept.id === selectedId ? "selected" : "";
               const currentClass = concept.current ? "current" : "";
               const label = concept.version ? `V${concept.version}` : t("common.current");
+              const visibleStatus = concept.status === "adopted" ? null : statusWord(concept.status);
               const meta = [
-                concept.current ? t("app.work.label") : statusWord(concept.status),
+                concept.current ? t("app.work.label") : visibleStatus,
                 concept.taskCount ? `${concept.taskCount} ${isEnglish() ? "tasks" : "Aufgaben"}` : null
               ].filter(Boolean).join(" · ") || conceptArtifactMeta(concept) || (isEnglish() ? "Concept" : "Konzept");
               return `
@@ -188,7 +190,7 @@
         return {
           brief: workspace.documents?.brief?.data || workspace.proposals?.latestLessonBrief?.data || {},
           content: proposal?.data || workspace.proposals?.latestContentMirror?.data || {},
-          status: proposal?.status === "adopted" ? "übernommen" : "bereit",
+          status: isEnglish() ? "ready" : "bereit",
           eyebrow: t("app.concept.title")
         };
       }
