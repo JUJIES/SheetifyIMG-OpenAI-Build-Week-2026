@@ -186,6 +186,7 @@ function resolveServerConfig(options = {}) {
   const inboundMailEnabled = booleanValue(env.SHEETIFYIMG_MAIL_INBOUND_WEBHOOK_ENABLED, false);
   const inboundMailAllowLoopback = booleanValue(env.SHEETIFYIMG_MAIL_INBOUND_ALLOW_LOOPBACK, false);
   const contactEmail = emailValue(env.SHEETIFYIMG_CONTACT_EMAIL, "sheetify@jujies.app", "SHEETIFYIMG_CONTACT_EMAIL");
+  const firstWorksheetYoutubeUrl = nonEmpty(env.SHEETIFYIMG_TUTORIAL_FIRST_WORKSHEET_URL);
   const inboundMailAllowedHosts = hostnameList(
     env.SHEETIFYIMG_MAIL_INBOUND_ALLOWED_HOSTS,
     "mx1.forwardemail.net,mx2.forwardemail.net",
@@ -236,6 +237,11 @@ function resolveServerConfig(options = {}) {
     host,
     port: portNumber(env.PORT, 4173),
     publicUrl,
+    tutorials: Object.freeze({
+      youtubeUrls: Object.freeze({
+        "first-worksheet": firstWorksheetYoutubeUrl
+      })
+    }),
     ownerAuth: Object.freeze({
       enabled: ownerAuthEnabled,
       username: ownerAuthUsername,

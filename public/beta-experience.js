@@ -350,6 +350,15 @@
     elements.creditAccept.focus();
   }
 
+  function announceExperience() {
+    window.dispatchEvent(new CustomEvent("sheetify:betaexperience", {
+      detail: {
+        enabled: Boolean(experience?.enabled),
+        consent: experience?.consent || null
+      }
+    }));
+  }
+
   async function pollCreditNotice() {
     if (creditPollRunning) return;
     creditPollRunning = true;
@@ -558,6 +567,7 @@
         elements.consentLayer.classList.remove("hidden");
         elements.consentAccept.focus();
       }
+      announceExperience();
     } catch (error) {
       elements.consentLayer.classList.remove("hidden");
       setError(elements.consentError, `${error.message} ${t("beta.error.retrySuffix")}`);
@@ -583,6 +593,7 @@
       showFeedbackTrigger();
       observeFeedbackMoments();
       maybeShowCreditNotice();
+      announceExperience();
     } catch (error) {
       setError(elements.consentError, error.message);
     } finally {
@@ -605,6 +616,7 @@
       document.body.classList.remove("beta-credit-open");
       window.dispatchEvent(new CustomEvent("sheetify:balancechange", { detail: { balance: payload.balance } }));
       if (pendingCreditNotice) setTimeout(maybeShowCreditNotice, 0);
+      window.dispatchEvent(new CustomEvent("sheetify:creditnoticeclosed"));
     } catch (error) {
       setError(elements.creditError, error.message);
     } finally {

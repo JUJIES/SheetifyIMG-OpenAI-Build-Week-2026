@@ -31,6 +31,7 @@ const {
   renameProject
 } = require("../core/projectManager");
 const { createQrSvg } = require("../core/qrCodeManager");
+const { buildTutorialCatalog, tutorialDefinition } = require("../core/tutorialManager");
 const { runWorkspaceCommand } = require("../core/workspaceCommandManager");
 const { buildWorkspace } = require("../core/workspaceManager");
 const {
@@ -1007,6 +1008,34 @@ async function handlePassApi(request, response, context) {
         context.sessionId,
         await readJsonBody(request)
       )
+    });
+    return true;
+  }
+  if (request.method === "GET" && pathname === "/api/tutorials") {
+    const experience = await betaAccessManager.betaExperience(context.passId, context.sessionId);
+    const catalogue = await buildTutorialCatalog({
+      locale: experience.uiLocale,
+      progress: experience.tutorials,
+      sourceOverrides: serverConfig.tutorials.youtubeUrls
+    });
+    sendJson(response, 200, {
+      ...catalogue,
+      autoShowId: experience.consent.accepted ? catalogue.autoShowId : null
+    });
+    return true;
+  }
+  const tutorialEventMatch = pathname.match(/^\/api\/tutorials\/([a-z0-9-]+)\/events$/);
+  if (request.method === "POST" && tutorialEventMatch) {
+    const tutorialId = tutorialEventMatch[1];
+    if (!tutorialDefinition(tutorialId)) {
+      throw requestError(404, "Anleitung wurde nicht gefunden.");
+    }
+    const body = await readJsonBody(request);
+    sendJson(response, 200, {
+      progress: await betaAccessManager.recordTutorialEvent(context.passId, context.sessionId, {
+        tutorialId,
+        event: body.event
+      })
     });
     return true;
   }

@@ -20,6 +20,7 @@
     <link rel="stylesheet" href="/styles.css?v=126">
     <link rel="stylesheet" href="/pass-ui.css?v=4">
     <link rel="stylesheet" href="/beta-experience.css?v=5">
+    <link rel="stylesheet" href="/tutorial-center.css?v=2">
   </head>
   <body>
     <div class="app-shell">
@@ -56,6 +57,11 @@
           <button class="icon-button icon-button-plain" type="button" id="connectionsButton" aria-label="Verbundene Geräte" title="Verbundene Geräte" aria-haspopup="dialog" data-i18n-title="passUi.devices.title" data-i18n-aria-label="passUi.devices.title">
             <svg class="icon icon-small" aria-hidden="true">
               <use href="/icons/lucide-sprite.svg?v=17#monitor-smartphone"></use>
+            </svg>
+          </button>
+          <button class="icon-button icon-button-plain hidden" type="button" id="tutorialsButton" aria-label="Anleitungen" title="Anleitungen" aria-haspopup="menu" aria-expanded="false" data-i18n-title="app.nav.tutorials" data-i18n-aria-label="app.nav.tutorials">
+            <svg class="icon icon-small" aria-hidden="true">
+              <use href="/icons/lucide-sprite.svg?v=19#notebook-text"></use>
             </svg>
           </button>
           <button class="icon-button icon-button-plain" type="button" id="settingsButton" aria-label="Einstellungen" title="Einstellungen" data-i18n-title="app.nav.settings" data-i18n-aria-label="app.nav.settings">
@@ -219,6 +225,11 @@
                   <button class="icon-button icon-button-plain workspace-mobile-action" type="button" id="workspaceMobileLibraryButton" aria-label="Zur Projektübersicht" title="Zur Projektübersicht" data-i18n-title="app.nav.back" data-i18n-aria-label="app.nav.back">
                     <svg class="icon icon-small" aria-hidden="true">
                       <use href="/icons/lucide-sprite.svg?v=7#folder-open"></use>
+                    </svg>
+                  </button>
+                  <button class="icon-button icon-button-plain workspace-mobile-action hidden" type="button" id="workspaceMobileTutorialsButton" aria-label="Anleitungen" title="Anleitungen" aria-haspopup="menu" aria-expanded="false" data-i18n-title="app.nav.tutorials" data-i18n-aria-label="app.nav.tutorials">
+                    <svg class="icon icon-small" aria-hidden="true">
+                      <use href="/icons/lucide-sprite.svg?v=19#notebook-text"></use>
                     </svg>
                   </button>
                   <button class="icon-button icon-button-plain workspace-mobile-action" type="button" id="workspaceMobileSettingsButton" aria-label="Einstellungen" title="Einstellungen" data-i18n-title="app.nav.settings" data-i18n-aria-label="app.nav.settings">
@@ -459,7 +470,7 @@
     <script src="/mobilePreviewRenderer.js?v=11"></script>
     <script src="/canvasRenderer.js?v=2"></script>
     <script src="/vendor/simplebar/simplebar.min.js?v=1"></script>
-    <script src="/locale.js?v=9"></script>
+    <script src="/locale.js?v=11"></script>
     <script>
       window.sheetifyLocale.set(window.sheetifyLocale.resolve({
         query: new URLSearchParams(window.location.search),
@@ -470,6 +481,7 @@
     </script>
     <script src="/app.js?v=201"></script>
     <script src="/pass-ui.js?v=7"></script>
-    <script src="/beta-experience.js?v=9"></script>
+    <script src="/tutorial-center.js?v=2"></script>
+    <script src="/beta-experience.js?v=10"></script>
   </body>
 </html>
