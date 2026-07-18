@@ -8,7 +8,7 @@ const TUTORIALS = Object.freeze([
     id: "first-worksheet",
     order: 1,
     intro: true,
-    youtubeUrl: "https://youtu.be/RKexsXUihzg",
+    youtubeUrl: "https://youtu.be/u17NZzax0l4",
     eyebrow: Object.freeze({ de: "Erste Schritte", en: "Getting started" }),
     title: Object.freeze({ de: "Mein erstes Arbeitsblatt", en: "My first worksheet" }),
     description: Object.freeze({
