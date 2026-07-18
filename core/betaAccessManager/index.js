@@ -17,6 +17,7 @@ const REQUEST_STATUSES = new Set(["open", "resolved"]);
 const FEEDBACK_CATEGORIES = new Set(["result", "usability", "problem", "idea", "general"]);
 const FEEDBACK_STATUSES = new Set(["new", "reviewed", "resolved"]);
 const FEEDBACK_TAGS = new Set(["helpful", "unclear", "incorrect", "design", "technical"]);
+const TUTORIAL_EVENTS = new Set(["auto_shown", "completed"]);
 
 function nowIso(options = {}) {
   return options.now || new Date().toISOString();
@@ -112,6 +113,10 @@ function optionalStoredLocale(value) {
     : normalizeLocale(value);
 }
 
+function storedTutorialIds(value) {
+  return [...new Set(Array.isArray(value) ? value.map(String).filter((id) => /^[a-z0-9-]{1,80}$/.test(id)) : [])].slice(-50);
+}
+
 function emptyState(now) {
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -142,6 +147,8 @@ function normalizeState(raw, now) {
     ...session,
     uiLocale: normalizeLocale(session.uiLocale),
     consentLocale: optionalStoredLocale(session.consentLocale),
+    tutorialAutoShownIds: storedTutorialIds(session.tutorialAutoShownIds),
+    tutorialCompletedIds: storedTutorialIds(session.tutorialCompletedIds),
     creditNoticeStartedAt: session.creditNoticeStartedAt || session.creditNoticeSeenAt || session.lastSeenAt || session.createdAt || now,
     creditNoticeAcknowledgedGrantIds: Array.isArray(session.creditNoticeAcknowledgedGrantIds)
       ? session.creditNoticeAcknowledgedGrantIds.slice(-200)
@@ -570,6 +577,10 @@ function createBetaAccessManager(config = {}) {
       feedback: {
         count: ownFeedback.length,
         lastSubmittedAt: ownFeedback.map((entry) => entry.createdAt).sort().at(-1) || null
+      },
+      tutorials: {
+        autoShownIds: storedTutorialIds(session.tutorialAutoShownIds),
+        completedIds: storedTutorialIds(session.tutorialCompletedIds)
       }
     };
   }
@@ -601,6 +612,38 @@ function createBetaAccessManager(config = {}) {
         accepted: true,
         acceptedAt: now,
         consentLocale
+      };
+    }, options);
+  }
+
+  async function recordTutorialEvent(passId, sessionId, input = {}, options = {}) {
+    const tutorialId = cleanText(input.tutorialId, 80);
+    const event = String(input.event || "");
+    if (!/^[a-z0-9-]{1,80}$/.test(tutorialId)) {
+      throw Object.assign(new Error("Unbekannte Anleitung."), { statusCode: 400 });
+    }
+    if (!TUTORIAL_EVENTS.has(event)) {
+      throw Object.assign(new Error("Unbekanntes Anleitungsereignis."), { statusCode: 400 });
+    }
+    return transact((state, now) => {
+      const session = state.sessions.find((entry) => entry.id === sessionId && entry.passId === passId) || null;
+      if (!session || session.revokedAt || session.expiresAt <= now) {
+        throw Object.assign(new Error("Die aktuelle Gerätesitzung ist nicht mehr gültig."), { statusCode: 401 });
+      }
+      if (session.consentVersion !== CONSENT_VERSION) {
+        throw Object.assign(new Error("Bitte zuerst der Beta-Auswertung zustimmen."), { statusCode: 403 });
+      }
+      const field = event === "completed" ? "tutorialCompletedIds" : "tutorialAutoShownIds";
+      const ids = storedTutorialIds(session[field]);
+      if (!ids.includes(tutorialId)) {
+        ids.push(tutorialId);
+      }
+      session[field] = ids.slice(-50);
+      session.lastSeenAt = now;
+      addAudit(state, `tutorial_${event}`, now, { passId, sessionId, tutorialId });
+      return {
+        autoShownIds: storedTutorialIds(session.tutorialAutoShownIds),
+        completedIds: storedTutorialIds(session.tutorialCompletedIds)
       };
     }, options);
   }
@@ -890,6 +933,8 @@ function createBetaAccessManager(config = {}) {
         tokenDigest: digestToken(token, pepper),
         uiLocale: normalizeLocale(uiLocale, pass.invitationLocale),
         consentLocale: null,
+        tutorialAutoShownIds: [],
+        tutorialCompletedIds: [],
         deviceName: cleanLabel(deviceName, "Verbundenes Gerät"),
         createdAt: now,
         lastSeenAt: now,
@@ -1363,6 +1408,7 @@ function createBetaAccessManager(config = {}) {
     redeemRecovery,
     redeemTopup,
     refundGeneration,
+    recordTutorialEvent,
     reserveGeneration,
     revokeDevice,
     revokeTopupCard,
