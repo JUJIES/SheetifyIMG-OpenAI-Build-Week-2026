@@ -3645,9 +3645,19 @@ async function handleTreeItemClick(itemId, event) {
 }
 
 function bindTreeOrganizationEvents() {
+  elements.tree.oncontextmenu = null;
   if (!treeInteractionsEnabled()) {
     return;
   }
+
+  elements.tree.oncontextmenu = (event) => {
+    if (event.target.closest?.("[data-tree-node-id]")) {
+      return;
+    }
+    event.preventDefault();
+    const folderSurface = event.target.closest?.("[data-drop-folder-id]");
+    openTreeContextMenu(folderSurface?.dataset.dropFolderId || null, event.clientX, event.clientY);
+  };
 
   elements.tree.querySelectorAll("[data-tree-node-id]").forEach((node) => {
     node.addEventListener("contextmenu", (event) => {
@@ -3736,12 +3746,12 @@ function closeTreeContextMenu() {
 }
 
 function openTreeContextMenu(nodeId, clientX, clientY) {
-  const found = findTreeNodeById(state.tree, nodeId);
-  if (!found) {
+  const found = nodeId ? findTreeNodeById(state.tree, nodeId) : null;
+  if (nodeId && !found) {
     return;
   }
   closeTreeContextMenu();
-  const { node } = found;
+  const node = found?.node || { id: "", type: "tree_root" };
   const menu = document.createElement("div");
   menu.className = "tree-context-menu";
   menu.setAttribute("role", "menu");
@@ -3800,6 +3810,9 @@ function renderTreeContextAction(action, node = {}) {
 }
 
 function treeContextMenuActions(node) {
+  if (node.type === "tree_root") {
+    return [{ id: "new_folder", label: "Neuer Ordner" }];
+  }
   if (node.type === "folder") {
     const actions = [
       { id: "new_folder", label: "Neuer Ordner" },
@@ -3815,6 +3828,7 @@ function treeContextMenuActions(node) {
   }
   if (isTreeWorksheetItemId(node.id)) {
     return [
+      { id: "new_folder", label: "Neuer Ordner" },
       { id: "rename_worksheet", label: "Umbenennen" },
       { id: "open_source_project", label: "Zum Projekt" },
       { id: "delete_worksheet", label: "Arbeitsblatt löschen", danger: true }
@@ -3822,6 +3836,7 @@ function treeContextMenuActions(node) {
   }
   if (treeSelectionCount() > 1 && isTreeItemSelected(node.id)) {
     return [
+      { id: "new_folder", label: "Neuer Ordner" },
       {
         id: "delete_selected_projects",
         label: `${treeSelectionCount()} Projekte löschen`,
@@ -3830,6 +3845,7 @@ function treeContextMenuActions(node) {
     ];
   }
   return [
+    { id: "new_folder", label: "Neuer Ordner" },
     { id: "rename_project", label: "Umbenennen" },
     { id: "delete_project", label: "Projekt löschen", danger: true }
   ];
@@ -3881,10 +3897,7 @@ async function moveTreeItem(itemId, targetFolderId, beforeId) {
     return;
   }
   try {
-    await fetchJson(isProjectsLibraryView() ? "/api/library/move" : "/api/worksheets/move", {
-      method: "POST",
-      body: JSON.stringify({ itemId, targetFolderId, beforeId })
-    });
+    await persistTreeMove(itemId, targetFolderId, beforeId);
     state.collapsedFolders.delete(targetFolderId);
     await loadTree({ keepSelection: true, selectAfterLoad: false });
   } catch (error) {
@@ -3892,17 +3905,57 @@ async function moveTreeItem(itemId, targetFolderId, beforeId) {
   }
 }
 
-async function createLibraryFolder(parentId) {
+function rootTreeFolderId() {
+  return (state.tree?.children || []).find((node) => node.type === "folder" && node.locked)?.id || "";
+}
+
+function folderCreationTarget(nodeId) {
+  const rootFolderId = rootTreeFolderId();
+  if (!nodeId) {
+    return rootFolderId ? { parentId: rootFolderId, itemId: null } : null;
+  }
+  const found = findTreeNodeById(state.tree, nodeId);
+  if (!found) {
+    return null;
+  }
+  if (found.node.type === "folder") {
+    return { parentId: found.node.id, itemId: null };
+  }
+  const parentId = found.parentId || rootFolderId;
+  return parentId ? { parentId, itemId: found.node.id } : null;
+}
+
+function persistTreeMove(itemId, targetFolderId, beforeId = null) {
+  return fetchJson(isProjectsLibraryView() ? "/api/library/move" : "/api/worksheets/move", {
+    method: "POST",
+    body: JSON.stringify({ itemId, targetFolderId, beforeId })
+  });
+}
+
+async function createLibraryFolder(contextNodeId) {
+  const target = folderCreationTarget(contextNodeId);
+  if (!target) {
+    showToast("Der Zielbereich wurde nicht gefunden.", "error");
+    return;
+  }
   const label = window.prompt("Name für den neuen Ordner");
   if (!label?.trim()) {
     return;
   }
   try {
-    await fetchJson(isProjectsLibraryView() ? "/api/library/folders" : "/api/worksheets/folders", {
+    const result = await fetchJson(isProjectsLibraryView() ? "/api/library/folders" : "/api/worksheets/folders", {
       method: "POST",
-      body: JSON.stringify({ parentId, label: label.trim() })
+      body: JSON.stringify({ parentId: target.parentId, label: label.trim() })
     });
-    state.collapsedFolders.delete(parentId);
+    const folderId = result?.folder?.id;
+    if (!folderId) {
+      throw new Error("Der neue Ordner konnte nicht geöffnet werden.");
+    }
+    if (target.itemId) {
+      await persistTreeMove(target.itemId, folderId);
+    }
+    state.collapsedFolders.delete(target.parentId);
+    state.collapsedFolders.delete(folderId);
     await loadTree({ keepSelection: true, selectAfterLoad: false });
   } catch (error) {
     showToast(error.message, "error");
