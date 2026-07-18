@@ -139,8 +139,92 @@ function normalizedTarget(turn = {}) {
   };
 }
 
-function intentFromPlanningTurn(turn = {}, message = "") {
+function explicitRevisionTargetForAction(turn = {}, revisionTarget = null) {
+  if (
+    !revisionTarget
+    || typeof revisionTarget !== "object"
+    || revisionTarget.source !== "explicit"
+    || !["concept", "draft"].includes(revisionTarget.kind)
+  ) {
+    return null;
+  }
+  if (![
+    REQUESTED_ACTIONS.REVISE_CONCEPT,
+    REQUESTED_ACTIONS.REVISE_CONCEPT_THEN_DRAFT,
+    REQUESTED_ACTIONS.PREPARE_DRAFT
+  ].includes(turn.requestedAction)) {
+    return null;
+  }
+  const modelTarget = normalizedTarget(turn);
+  if (modelTarget.kind === TARGET_KINDS.CONCEPT_VERSION && modelTarget.conceptVersion) {
+    return null;
+  }
+  if (
+    modelTarget.kind === TARGET_KINDS.DRAFT
+    && modelTarget.candidateId
+    && (
+      revisionTarget.kind !== "draft"
+      || (revisionTarget.candidateId && revisionTarget.candidateId !== modelTarget.candidateId)
+    )
+  ) {
+    return null;
+  }
+  if (
+    modelTarget.kind === TARGET_KINDS.CONTENT_PROPOSAL
+    && modelTarget.proposalId
+    && (
+      revisionTarget.kind !== "concept"
+      || (revisionTarget.proposalId && revisionTarget.proposalId !== modelTarget.proposalId)
+    )
+  ) {
+    return null;
+  }
+  if (
+    modelTarget.kind === TARGET_KINDS.CURRENT_CONCEPT
+    && modelTarget.contentMirrorId
+    && (
+      revisionTarget.kind !== "concept"
+      || (revisionTarget.contentMirrorId && revisionTarget.contentMirrorId !== modelTarget.contentMirrorId)
+    )
+  ) {
+    return null;
+  }
+  return revisionTarget;
+}
+
+function targetFromRevisionTarget(revisionTarget = null, fallback = {}) {
+  if (revisionTarget?.kind === "concept") {
+    const proposalId = revisionTarget.proposalId || fallback.proposalId || null;
+    const contentMirrorId = revisionTarget.contentMirrorId || fallback.contentMirrorId || null;
+    return {
+      kind: proposalId ? TARGET_KINDS.CONTENT_PROPOSAL : TARGET_KINDS.CURRENT_CONCEPT,
+      conceptVersion: revisionTarget.conceptVersion || fallback.conceptVersion || null,
+      proposalId,
+      contentMirrorId,
+      runId: null,
+      candidateId: null,
+      commandId: null,
+      page: null
+    };
+  }
+  if (revisionTarget?.kind === "draft") {
+    return {
+      kind: TARGET_KINDS.DRAFT,
+      conceptVersion: null,
+      proposalId: null,
+      contentMirrorId: null,
+      runId: revisionTarget.runId || fallback.runId || null,
+      candidateId: revisionTarget.candidateId || fallback.candidateId || null,
+      commandId: null,
+      page: revisionTarget.page || fallback.page || null
+    };
+  }
+  return fallback;
+}
+
+function intentFromPlanningTurn(turn = {}, message = "", options = {}) {
   const action = turn.requestedAction || REQUESTED_ACTIONS.NONE;
+  const revisionTarget = explicitRevisionTargetForAction(turn, options.revisionTarget);
   const intentName = ACTION_TO_INTENT[action] || noActionIntentForGoal(turn.responseGoal);
   const compoundDraftActions = new Set([
     REQUESTED_ACTIONS.CREATE_CONCEPT_THEN_DRAFT,
@@ -162,7 +246,8 @@ function intentFromPlanningTurn(turn = {}, message = "") {
   const intent = normalizeChatIntent({
     intent: intentName,
     confidence: turn.confidence || "low",
-    target: normalizedTarget(turn),
+    target: targetFromRevisionTarget(revisionTarget, normalizedTarget(turn)),
+    revisionTarget,
     wantsCandidate,
     wantsAdoption,
     wantsContentChange: [REQUESTED_ACTIONS.REVISE_CONCEPT, REQUESTED_ACTIONS.REVISE_CONCEPT_THEN_DRAFT].includes(action),
@@ -185,7 +270,7 @@ function intentFromPlanningTurn(turn = {}, message = "") {
   };
 }
 
-function planningTurnDecision(turn = {}, message = "") {
+function planningTurnDecision(turn = {}, message = "", options = {}) {
   const authorizationError = actionAuthorizationError(turn, message);
   if (authorizationError) {
     return {
@@ -194,7 +279,11 @@ function planningTurnDecision(turn = {}, message = "") {
       turn
     };
   }
-  const intent = intentFromPlanningTurn(turn, message);
+  const modelIntent = intentFromPlanningTurn(turn, message);
+  const intent = intentFromPlanningTurn(turn, message, {
+    revisionTarget: options.revisionTarget || null
+  });
+  const explicitTargetBound = Boolean(intent.revisionTarget);
   return {
     ok: true,
     intent,
@@ -203,14 +292,16 @@ function planningTurnDecision(turn = {}, message = "") {
       intent,
       semanticSource: "planning_turn",
       finalSource: "model",
-      guardApplied: false,
-      guardCategory: "semantic_hint",
-      deterministicGuardCategory: "hard_guard",
-      reason: turn.requestedAction === REQUESTED_ACTIONS.NONE
-        ? "planning_turn_chat_only"
-        : "planning_turn_action_authorized",
-      deterministicGuard: null,
-      modelIntent: intent,
+      guardApplied: explicitTargetBound,
+      guardCategory: explicitTargetBound ? "state_guard" : "semantic_hint",
+      deterministicGuardCategory: explicitTargetBound ? "state_guard" : "hard_guard",
+      reason: explicitTargetBound
+        ? "planning_turn_explicit_revision_target_bound"
+        : turn.requestedAction === REQUESTED_ACTIONS.NONE
+          ? "planning_turn_chat_only"
+          : "planning_turn_action_authorized",
+      deterministicGuard: explicitTargetBound ? intent : null,
+      modelIntent,
       planningTurn: turn
     }
   };

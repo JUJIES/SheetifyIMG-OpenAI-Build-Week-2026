@@ -758,8 +758,8 @@ function buildWorksheetCommands({
     ),
     commandState(
       "generate_content_mirror_proposal",
-      hasContent ? "Konzept überarbeiten" : "Konzept ausformulieren",
-      hasBrief,
+      hasContent || latestContentMirrorProposal ? "Konzept überarbeiten" : "Konzept ausformulieren",
+      hasBrief || Boolean(latestContentMirrorProposal?.data),
       "Es gibt noch kein Arbeitsblatt-Konzept als Planungsgrundlage.",
       latestContentMirrorProposal ? {
         defaultPayload: {

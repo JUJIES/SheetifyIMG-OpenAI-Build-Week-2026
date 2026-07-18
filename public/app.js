@@ -2349,7 +2349,10 @@ function revisionTargetDisplayLabel(target = null) {
   if (target.kind === "concept") {
     const label = String(target.label || "").trim();
     if (/offener\s+konzeptvorschlag/i.test(label)) {
-      return "Offener Konzeptvorschlag";
+      const elementLabel = textTargetValue(target.elementLabel, 120);
+      return elementLabel
+        ? `${elementLabel} · Offener Konzeptvorschlag`
+        : "Offener Konzeptvorschlag";
     }
     const labelVersion = label.match(/\b(?:AB-Konzept|Arbeitsblatt-Konzept|Konzept|Version|v)\s*v?(\d+)\b/i);
     const version = numberTargetValue(target.conceptVersion || labelVersion?.[1]);
@@ -2469,7 +2472,11 @@ function startConceptRevisionFromButton(button = null) {
         elementPage: selectedElement.page
       }
     : {};
-  const proposalId = textTargetValue(button?.dataset.proposalId, 160);
+  const activeProposal = state.activeCanvasMode === "content_proposal"
+    || state.mobilePreview.mode === "content_proposal"
+    ? proposalForMode(state.workspace || {}, "content_proposal")
+    : null;
+  const proposalId = textTargetValue(button?.dataset.proposalId || activeProposal?.proposalId, 160);
   if (proposalId) {
     return setRevisionTarget({
       source: "explicit",

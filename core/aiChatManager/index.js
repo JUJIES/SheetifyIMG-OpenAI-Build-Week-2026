@@ -399,7 +399,9 @@ async function prepareChatContext(projectId, projectDir, input = {}, options = {
         planningTurnInterpreter: options.planningTurnInterpreter,
         usageAttribution: options.usageAttribution
       });
-      const decisionResult = planningTurnDecision(planningTurn, message);
+      const decisionResult = planningTurnDecision(planningTurn, message, {
+        revisionTarget
+      });
       const authorizedTeachingContextPatch = {
         ...planningTurn.teachingContextPatch,
         forceWithAssumptions: planningTurn.teachingContextPatch?.forceWithAssumptions === true
