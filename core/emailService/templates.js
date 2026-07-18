@@ -18,14 +18,31 @@ const EMAIL_MESSAGES = Object.freeze({
     signoff: "Viele Grüße",
     invitation: Object.freeze({
       workspaceFallback: "dein SheetifyIMG-Arbeitsbereich",
-      subject: "Dein Zugang zur SheetifyIMG Beta",
-      preheader: "Dein SheetifyIMG Pass ist bereit.",
-      title: "Willkommen in der SheetifyIMG Beta",
-      ready: (workspace) => `dein Zugang für ${workspace} ist bereit.`,
+      subject: "Willkommen zur Closed Beta von SheetifyIMG",
+      preheader: "Dein persönlicher SheetifyIMG Beta-Pass und deine erste Beta-Aufgabe.",
+      title: "Willkommen zur Closed Beta von SheetifyIMG",
+      welcome: "herzlich willkommen zur Closed Beta von SheetifyIMG – und danke, dass du dabei bist.",
+      modelNote: "SheetifyIMG nutzt ein KI-Bildmodell. Die Ergebnisse entstehen daher auf Basis von Wahrscheinlichkeiten und sind nicht vollständig vorhersehbar.",
+      experiment: "Man kann SheetifyIMG als Experiment verstehen: Lässt sich die didaktische Kontrolle behalten und gleichzeitig ausreichend Stabilität von einem Bildmodell erwarten?",
+      liveTest: "Diese Closed Beta ist der erste Live-Test dieser Idee.",
+      passHeading: "Dein persönlicher Beta-Pass",
+      passIntro: (workspace) => `Mit diesem Pass öffnest du ${workspace}:`,
       passLabel: "SheetifyIMG Pass",
       open: "SheetifyIMG öffnen",
       keepSafe: "Bewahre den Pass gut auf. Er verbindet Geräte mit demselben Arbeitsbereich.",
-      cardAlt: "Dein SheetifyIMG Beta Pass"
+      taskHeading: "Deine Beta-Aufgabe",
+      taskIntro: "Bitte erstelle zunächst ein Arbeitsblatt zum Thema:",
+      taskTitle: "Der Wasserkreislauf – Klasse 5",
+      taskGoal: "Ziel ist ein einseitiges Arbeitsblatt, mit dem Schülerinnen und Schüler die Begriffe Verdunstung, Kondensation, Niederschlag und Versickerung verstehen und den Wasserkreislauf anschließend in eigenen Worten erklären können.",
+      revision: "Bleib möglichst nicht beim ersten Entwurf. Überarbeite das Arbeitsblatt gezielt und entwickle es so weit weiter, bis es deinen Vorstellungen möglichst nahekommt. Du kannst dabei mit Text, Audio, Bildern sowie früheren Entwürfen oder Bildern als Referenz experimentieren.",
+      ownTopic: "Besonders freuen würde ich mich, wenn du anschließend noch ein weiteres Arbeitsblatt zu einem eigenen Thema gestaltest. Verbindlich ist aber zunächst nur das gemeinsame Arbeitsblatt zum Wasserkreislauf.",
+      betaNote: "Noch wird sicher nicht alles perfekt funktionieren – genau das ist der Sinn dieser kleinen Closed Beta. Ein begrenzter Personenkreis testet die Grundfunktionen und berichtet über Fehler, Unklarheiten und andere Auffälligkeiten.",
+      evaluation: "Ich werde die entstandenen Arbeitsblätter, die unterschiedlichen Vorgehensweisen und eure Rückmeldungen anschließend auswerten.",
+      buildWeek: "Die gesamte Beta-Version von SheetifyIMG reiche ich außerdem im Rahmen der OpenAI Build Week ein – einem Hackathon, der noch bis Dienstag läuft.",
+      feedback: "Wenn dir etwas auffällt, antworte einfach kurz auf diese Mail. Auch kleine Beobachtungen helfen sehr.",
+      thanks: "Vielen Dank fürs Testen und viel Spaß beim Ausprobieren!",
+      cardAlt: "Dein SheetifyIMG Beta Pass",
+      signoffName: "Ju"
     }),
     topup: Object.freeze({
       subject: (amount) => `Deine SheetifyIMG Guthabenkarte: ${amount} Entwurfsseiten`,
@@ -81,14 +98,31 @@ const EMAIL_MESSAGES = Object.freeze({
     signoff: "Best wishes",
     invitation: Object.freeze({
       workspaceFallback: "your SheetifyIMG workspace",
-      subject: "Your access to the SheetifyIMG Beta",
-      preheader: "Your SheetifyIMG Pass is ready.",
-      title: "Welcome to the SheetifyIMG Beta",
-      ready: (workspace) => `your access to ${workspace} is ready.`,
+      subject: "Welcome to the SheetifyIMG Closed Beta",
+      preheader: "Your personal SheetifyIMG Beta Pass and your first beta task.",
+      title: "Welcome to the SheetifyIMG Closed Beta",
+      welcome: "welcome to the SheetifyIMG Closed Beta – and thank you for taking part.",
+      modelNote: "SheetifyIMG uses an AI image model. Its results are based on probabilities and are therefore not completely predictable.",
+      experiment: "You can think of SheetifyIMG as an experiment: Can teachers retain didactic control while an image model delivers enough stability for real classroom materials?",
+      liveTest: "This Closed Beta is the first live test of that idea.",
+      passHeading: "Your personal Beta Pass",
+      passIntro: (workspace) => `Use this pass to open ${workspace}:`,
       passLabel: "SheetifyIMG Pass",
       open: "Open SheetifyIMG",
       keepSafe: "Keep this pass safe. It connects devices to the same shared workspace.",
-      cardAlt: "Your SheetifyIMG Beta Pass"
+      taskHeading: "Your beta task",
+      taskIntro: "Please begin by creating a worksheet on:",
+      taskTitle: "The water cycle – Grade 5",
+      taskGoal: "The goal is a one-page worksheet that helps students understand evaporation, condensation, precipitation and infiltration, and then explain the water cycle in their own words.",
+      revision: "If possible, do not stop at the first draft. Revise the worksheet deliberately until it comes as close as possible to what you had in mind. You can experiment with text, audio, images, earlier drafts and images used as references.",
+      ownTopic: "I would be especially happy if you then created another worksheet on a topic of your own. Only the shared water-cycle worksheet is required for now.",
+      betaNote: "Not everything will work perfectly yet – that is the point of this small Closed Beta. A limited group is testing the core functions and reporting errors, uncertainties and anything else that stands out.",
+      evaluation: "I will review the resulting worksheets, the different approaches and your feedback afterwards.",
+      buildWeek: "I am also submitting the complete SheetifyIMG beta to the OpenAI Build Week, a hackathon that runs until Tuesday.",
+      feedback: "If you notice anything, simply reply to this email. Even small observations are very helpful.",
+      thanks: "Thank you for testing, and have fun exploring SheetifyIMG!",
+      cardAlt: "Your SheetifyIMG Beta Pass",
+      signoffName: "Ju"
     }),
     topup: Object.freeze({
       subject: (amount) => `Your SheetifyIMG credit voucher: ${amount} draft pages`,
@@ -188,7 +222,7 @@ function brandWordmark() {
   return `<span style="color:${BRAND.ink};font-size:18px;font-weight:800;letter-spacing:-.05em">Sheetify</span><span style="color:${BRAND.blue};font-size:20px;font-weight:850;letter-spacing:-.005em">IMG</span>`;
 }
 
-function layout({ locale, messages, preheader, title, bodyHtml }) {
+function layout({ locale, messages, preheader, title, bodyHtml, signoffName = "SheetifyIMG" }) {
   return `<!doctype html>
 <html lang="${locale}">
   <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -199,7 +233,7 @@ function layout({ locale, messages, preheader, title, bodyHtml }) {
         <div style="margin-bottom:24px">${brandWordmark()}</div>
         <h1 style="margin:0 0 20px;font-size:28px;line-height:1.2">${escapeHtml(title)}</h1>
         <div style="font-size:16px;line-height:1.65">${bodyHtml}</div>
-        <p style="margin:30px 0 0;color:${BRAND.muted};font-size:14px">${escapeHtml(messages.signoff)}<br>SheetifyIMG</p>
+        <p style="margin:30px 0 0;color:${BRAND.muted};font-size:14px">${escapeHtml(messages.signoff)}<br>${escapeHtml(signoffName)}</p>
       </main>
     </div>
   </body>
@@ -214,15 +248,55 @@ function betaInvitationTemplate(input = {}) {
   const passCode = cleanText(input.passCode);
   const appUrl = cleanText(input.appUrl);
   if (!passCode) throw new Error("passCode is required for a beta invitation.");
+  const textSections = [
+    greeting(name, messages),
+    copy.welcome,
+    copy.modelNote,
+    copy.experiment,
+    copy.liveTest,
+    `${copy.passHeading}\n${copy.passIntro(workspaceName)}\n\n${copy.passLabel}: ${passCode}${appUrl ? `\n${copy.open}: ${appUrl}` : ""}\n\n${copy.keepSafe}`,
+    `${copy.taskHeading}\n${copy.taskIntro}\n\n${copy.taskTitle}`,
+    copy.taskGoal,
+    copy.revision,
+    copy.ownTopic,
+    copy.betaNote,
+    copy.evaluation,
+    copy.buildWeek,
+    copy.feedback,
+    copy.thanks,
+    `${messages.signoff}\n${copy.signoffName}`
+  ];
   return {
     subject: copy.subject,
-    text: `${greeting(name, messages)}\n\n${copy.ready(workspaceName)}\n\n${copy.passLabel}: ${passCode}${appUrl ? `\n\n${copy.open}: ${appUrl}` : ""}\n\n${copy.keepSafe}\n\n${messages.signoff}\nSheetifyIMG`,
+    text: textSections.join("\n\n"),
     html: layout({
       locale,
       messages,
       preheader: copy.preheader,
       title: copy.title,
-      bodyHtml: `<p>${escapeHtml(greeting(name, messages))}</p><p>${escapeHtml(copy.ready(workspaceName))}</p>${cardImage(input.cardContentId, copy.cardAlt)}<p style="padding:16px;border-radius:12px;background:#f3eee6;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:18px;font-weight:800;letter-spacing:.04em">${escapeHtml(passCode)}</p>${button(copy.open, appUrl)}<p style="color:${BRAND.muted}">${escapeHtml(copy.keepSafe)}</p>`
+      signoffName: copy.signoffName,
+      bodyHtml: `<p>${escapeHtml(greeting(name, messages))}</p>
+        <p>${escapeHtml(copy.welcome)}</p>
+        <p>${escapeHtml(copy.modelNote)}</p>
+        <p><strong>${escapeHtml(copy.experiment)}</strong></p>
+        <p>${escapeHtml(copy.liveTest)}</p>
+        <h2 style="margin:30px 0 10px;font-size:21px;line-height:1.3">${escapeHtml(copy.passHeading)}</h2>
+        <p>${escapeHtml(copy.passIntro(workspaceName))}</p>
+        ${cardImage(input.cardContentId, copy.cardAlt)}
+        <p style="padding:16px;border-radius:12px;background:#f3eee6;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:18px;font-weight:800;letter-spacing:.04em">${escapeHtml(passCode)}</p>
+        ${button(copy.open, appUrl)}
+        <p style="color:${BRAND.muted}">${escapeHtml(copy.keepSafe)}</p>
+        <h2 style="margin:34px 0 10px;font-size:21px;line-height:1.3">${escapeHtml(copy.taskHeading)}</h2>
+        <p>${escapeHtml(copy.taskIntro)}</p>
+        <p style="padding:16px;border-left:4px solid ${BRAND.blue};border-radius:8px;background:#eef4ff"><strong>${escapeHtml(copy.taskTitle)}</strong></p>
+        <p>${escapeHtml(copy.taskGoal)}</p>
+        <p>${escapeHtml(copy.revision)}</p>
+        <p>${escapeHtml(copy.ownTopic)}</p>
+        <p>${escapeHtml(copy.betaNote)}</p>
+        <p>${escapeHtml(copy.evaluation)}</p>
+        <p>${escapeHtml(copy.buildWeek)}</p>
+        <p>${escapeHtml(copy.feedback)}</p>
+        <p><strong>${escapeHtml(copy.thanks)}</strong></p>`
     })
   };
 }
