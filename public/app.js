@@ -10872,11 +10872,30 @@ function renderImageSpecProposal(proposal) {
   `);
 }
 
+const activeCommandExecutions = new Map();
+
 async function executeCommand(commandId, payload = {}) {
-  if (!commandId) {
+  const projectId = currentProjectId();
+  if (!commandId || !projectId) {
     return;
   }
-  const projectId = currentProjectId();
+  if (activeCommandExecutions.has(projectId)) {
+    showToast(t("app.error.workspace_command_in_progress"), "info");
+    return;
+  }
+
+  const token = Symbol(projectId);
+  activeCommandExecutions.set(projectId, token);
+  try {
+    return await executeCommandOnce(commandId, payload, projectId);
+  } finally {
+    if (activeCommandExecutions.get(projectId) === token) {
+      activeCommandExecutions.delete(projectId);
+    }
+  }
+}
+
+async function executeCommandOnce(commandId, payload = {}, projectId) {
   const command = workspaceCommandById(commandId);
   if (!command || !command.enabled) {
     if (commandId === "generate_image_candidate" && isCandidateGenerationPendingForWorkspace(state.workspace)) {

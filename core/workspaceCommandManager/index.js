@@ -7,6 +7,7 @@ const { buildWorkspace } = require("../workspaceManager");
 const { validateWorkflowCommand } = require("../workflowState");
 const { refreshStatusSnapshot } = require("../statusSnapshot");
 const { runWorkspaceCommandHandler } = require("../workspaceCommandHandlers");
+const { runExclusiveWorkspaceCommand } = require("../workspaceCommandExecutionManager");
 const { DEFAULT_PLANNING_FLOW, resolvePlanningFlow } = require("../planningFlowConfig");
 const {
   createUsageAttribution,
@@ -102,7 +103,7 @@ async function appendWorkspaceCommandTrace(
   });
 }
 
-async function runWorkspaceCommand(projectId, input = {}, options = {}) {
+async function runWorkspaceCommandUnlocked(projectId, input = {}, options = {}) {
   const repoRoot = options.repoRoot || DEFAULT_REPO_ROOT;
   const promptRoot = options.promptRoot || repoRoot;
   const projectsDir = options.projectsDir || DEFAULT_PROJECTS_DIR;
@@ -177,6 +178,13 @@ async function runWorkspaceCommand(projectId, input = {}, options = {}) {
     result,
     workspace
   };
+}
+
+async function runWorkspaceCommand(projectId, input = {}, options = {}) {
+  const command = input.command || input.id;
+  return runExclusiveWorkspaceCommand(projectId, command, () => (
+    runWorkspaceCommandUnlocked(projectId, input, options)
+  ));
 }
 
 module.exports = {

@@ -1773,7 +1773,7 @@ async function handleRequest(request, response) {
 
     if (error.statusCode >= 400 && error.statusCode < 600) {
       sendJson(response, error.statusCode, {
-        error: publicBetaErrorCode(request, error) || (error.statusCode === 413
+        error: publicBetaErrorCode(request, error) || error.publicCode || (error.statusCode === 413
           ? "payload_too_large"
           : error.statusCode === 429
             ? "rate_limited"

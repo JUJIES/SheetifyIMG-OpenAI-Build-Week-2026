@@ -32,8 +32,18 @@
         return;
       }
       container.querySelectorAll("[data-command]").forEach((button) => {
-        button.addEventListener("click", () => {
-          executeCommand(button.dataset.command, parsePayload(button.dataset.payload));
+        button.addEventListener("click", async () => {
+          if (button.disabled) {
+            return;
+          }
+          button.disabled = true;
+          try {
+            await executeCommand(button.dataset.command, parsePayload(button.dataset.payload));
+          } finally {
+            if (button.isConnected !== false) {
+              button.disabled = false;
+            }
+          }
         });
       });
     }
