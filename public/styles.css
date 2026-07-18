@@ -7038,6 +7038,10 @@ button {
     will-change: transform, opacity;
   }
 
+  .mobile-preview-sheet.is-concept-preview {
+    height: min(82dvh, 720px);
+  }
+
   .mobile-preview-sheet.is-dragging {
     animation: none;
     transition: none;
@@ -7150,6 +7154,34 @@ button {
 
   .mobile-preview-footer.hidden {
     display: none;
+  }
+
+  .mobile-preview-sheet.is-concept-preview .mobile-preview-footer {
+    flex-wrap: nowrap;
+    gap: 8px;
+    overflow-x: visible;
+    padding-top: 9px;
+  }
+
+  .mobile-preview-sheet.is-concept-preview .mobile-footer-button,
+  .mobile-preview-sheet.is-concept-preview .mobile-footer-button.primary-button {
+    min-width: 0;
+    min-height: 40px;
+    flex: 1 1 0;
+    padding: 0 10px;
+    font-size: 12.5px;
+  }
+
+  .mobile-preview-sheet.is-concept-preview .mobile-revision-button {
+    border-color: #c7d4e8;
+    background: #ffffff;
+    color: #245aa9;
+  }
+
+  .mobile-preview-sheet.is-concept-preview .mobile-revision-button:hover,
+  .mobile-preview-sheet.is-concept-preview .mobile-revision-button:focus-visible {
+    border-color: #8eabd8;
+    background: #f6f9ff;
   }
 
   .voice-transcript-sheet {
@@ -8534,6 +8566,22 @@ button {
 
   .worksheet-blueprint-toolbar {
     margin-bottom: 12px;
+  }
+
+  .mobile-preview-sheet.is-concept-preview .worksheet-blueprint-toolbar {
+    top: 0;
+    z-index: 8;
+    width: calc(100% + 28px);
+    margin: 0 -14px 12px;
+    padding: 6px 14px;
+    border-bottom: 1px solid #e3e8f0;
+    background: rgb(255 255 255 / 96%);
+    box-shadow: 0 4px 12px rgb(39 49 75 / 6%);
+    backdrop-filter: blur(10px);
+  }
+
+  .mobile-preview-sheet.is-concept-preview .mobile-preview-body.sheetify-scrollbar .simplebar-content-wrapper {
+    overscroll-behavior-y: contain;
   }
 
   .worksheet-blueprint-mode-switch {

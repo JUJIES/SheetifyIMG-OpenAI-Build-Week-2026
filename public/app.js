@@ -5756,8 +5756,7 @@ function worksheetConceptTitle(project = {}, brief = {}, content = {}, teachingC
 function worksheetConceptSubtitle(brief = {}, content = {}, teachingContext = {}) {
   return joinTextParts(
     worksheetScopeLabel(brief, content),
-    teachingContextFieldValue(teachingContext, "worksheetType"),
-    brief.outputPreference?.layout
+    teachingContextFieldValue(teachingContext, "worksheetType")
   );
 }
 
@@ -10143,7 +10142,9 @@ function renderMobilePreview() {
   const mode = state.mobilePreview.mode === "project"
     ? "project"
     : concreteMobileMode(state.mobilePreview.mode, context);
+  const isConceptPreview = ["brief", "lessonbrief_proposal", "content", "content_proposal", "concept"].includes(mode);
   state.mobilePreview.mode = mode;
+  elements.mobilePreviewSheet?.classList.toggle("is-concept-preview", isConceptPreview);
   const copy = mobileSheetTitleForMode(context, mode);
   elements.mobilePreviewEyebrow.textContent = copy.eyebrow;
   elements.mobilePreviewTitle.textContent = copy.title;
@@ -10284,11 +10285,15 @@ function endMobilePreviewSwipe(event) {
   const deltaY = event.clientY - swipe.startY;
   const elapsed = Math.max(1, (event.timeStamp || performance.now()) - swipe.startTime);
   const velocity = deltaY / elapsed;
-  const shouldMinimize = swipe.dragging && (deltaY > 96 || (deltaY > 44 && velocity > 0.45));
+  const shouldDismiss = swipe.dragging && (deltaY > 96 || (deltaY > 44 && velocity > 0.45));
   resetMobilePreviewSwipeState();
-  if (shouldMinimize) {
+  if (shouldDismiss) {
     clearMobilePreviewSwipeVisuals();
-    minimizeMobilePreview();
+    if (state.mobilePreview.source === "library") {
+      minimizeMobilePreview();
+    } else {
+      closeMobilePreview();
+    }
     return;
   }
   clearMobilePreviewSwipeVisuals({ animate: true });

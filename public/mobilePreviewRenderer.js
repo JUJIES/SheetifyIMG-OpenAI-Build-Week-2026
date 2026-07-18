@@ -81,7 +81,7 @@
         target.contentMirrorId ? `data-content-mirror-id="${escapeHtml(target.contentMirrorId)}"` : "",
         target.conceptVersion ? `data-concept-version="${escapeHtml(target.conceptVersion)}"` : ""
       ].filter(Boolean).join(" ");
-      return `<button class="primary-button mobile-footer-button mobile-revision-button" type="button" data-mobile-revise-concept ${attrs}>${icon("square-pen", "icon icon-small")}<span>${escapeHtml(label)}</span></button>`;
+      return `<button class="secondary-button mobile-footer-button mobile-revision-button" type="button" data-mobile-revise-concept ${attrs}>${icon("square-pen", "icon icon-small")}<span>${escapeHtml(label)}</span></button>`;
     }
 
     function mobileCloseButton(label = t("common.close")) {
