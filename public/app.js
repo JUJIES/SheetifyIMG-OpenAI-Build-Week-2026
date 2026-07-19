@@ -11432,7 +11432,7 @@ elements.chatComposer.addEventListener("submit", (event) => {
   submitComposerMessage();
 });
 elements.chatInput.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter" || event.altKey || event.isComposing) {
+  if (event.key !== "Enter" || event.shiftKey || event.altKey || event.isComposing) {
     return;
   }
   event.preventDefault();
