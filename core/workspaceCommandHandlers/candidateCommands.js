@@ -5,6 +5,7 @@ const { getApprovalState } = require("../approvalManager");
 const { startCandidateGenerationJob } = require("../candidateGenerationJobManager");
 const { assertImageGenerationContract } = require("../imageGenerationContract");
 const { createRun } = require("../runManager");
+const { resolveReferenceImages } = require("../imageGenerationManager/referenceImages");
 const {
   approveCurrentContent,
   assertProposalMatchesCurrentState,
@@ -22,6 +23,39 @@ function createGenerationOptions(context) {
     usageAttribution: context.usageAttribution,
     generationQuota: context.generationQuota
   };
+}
+
+function draftRevisionBasisReferences(payload = {}) {
+  const target = payload.revisionTarget;
+  if (target?.kind !== "draft") {
+    return [];
+  }
+  return (Array.isArray(payload.referenceImages) ? payload.referenceImages : [])
+    .filter((reference) => {
+      const source = reference?.source || {};
+      if (!target.candidateId || source.candidateId !== target.candidateId) {
+        return false;
+      }
+      if (target.runId && source.runId && source.runId !== target.runId) {
+        return false;
+      }
+      return Boolean(reference.path);
+    });
+}
+
+async function assertDraftRevisionBasis(projectDir, payload = {}) {
+  if (payload.revisionTarget?.kind !== "draft") {
+    return [];
+  }
+  const references = draftRevisionBasisReferences(payload);
+  if (!references.length) {
+    throw new Error("Der ausgewählte Basisentwurf ist nicht verfügbar. Bitte wähle den Entwurf erneut aus.");
+  }
+  const resolved = await resolveReferenceImages(projectDir, references);
+  if (resolved.length !== references.length) {
+    throw new Error("Der ausgewählte Basisentwurf konnte nicht vollständig geladen werden. Bitte wähle ihn erneut aus.");
+  }
+  return resolved;
 }
 
 async function assertGenerationContractForPayload(context, payload = {}) {
@@ -46,6 +80,7 @@ async function assertGenerationContractForPayload(context, payload = {}) {
 }
 
 async function startCandidateGeneration(context, payload) {
+  await assertDraftRevisionBasis(context.projectDir, payload);
   await assertProposalMatchesCurrentState(context.projectDir, payload.imageSpecProposalId, PROPOSAL_KINDS.IMAGE_SPEC);
   const contract = await assertGenerationContractForPayload(context, payload);
   const effectivePayload = {
@@ -103,5 +138,7 @@ const candidateCommandHandlers = {
 };
 
 module.exports = {
-  candidateCommandHandlers
+  candidateCommandHandlers,
+  assertDraftRevisionBasis,
+  draftRevisionBasisReferences,
 };

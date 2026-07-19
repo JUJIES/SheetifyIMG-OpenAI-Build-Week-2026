@@ -83,6 +83,8 @@ function effectiveReferenceRole(role = "", purpose = "") {
 
 function referenceRoleInstruction(role = "", purpose = "") {
   const effectiveRole = effectiveReferenceRole(role, purpose);
+  const targetedDraftRevision = effectiveRole === REFERENCE_ROLES.STYLE_LAYOUT
+    && /basisentwurf|gezielte\s+(?:ueberarbeitung|überarbeitung)/i.test(String(purpose || ""));
   if (effectiveRole === REFERENCE_ROLES.MATERIAL) {
     return [
       "Funktion: Bildmaterial.",
@@ -104,6 +106,15 @@ function referenceRoleInstruction(role = "", purpose = "") {
     ].join(" ");
   }
   if (effectiveRole === REFERENCE_ROLES.STYLE_LAYOUT) {
+    if (targetedDraftRevision) {
+      return [
+        "Funktion: Basisentwurf fuer eine gezielte Ueberarbeitung.",
+        "Behandle die Referenz als bestehenden Entwurf, nicht als lose Inspiration und nicht als Anlass fuer eine komplette Neugestaltung.",
+        "Erhalte alle nicht ausdruecklich genannten Bereiche moeglichst stabil: Komposition, Positionen, Groessenverhaeltnisse, Farbwelt, Schriftanmutung, Linien-/Boxenstil, Weissraum und Illustrationen.",
+        "Setze den Variantenwunsch lokal und so klein wie sinnvoll um. Aendere weitere Bereiche nur, wenn es fuer die geforderte Anpassung technisch notwendig ist.",
+        "Der aktuelle freigegebene Arbeitsblattinhalt bleibt fuer alle sichtbaren Texte verbindlich."
+      ].join(" ");
+    }
     return [
       "Funktion: Vorlage fuer Stil und Aufbau.",
       "Nutze diese Referenz als adaptive Rohblattvorlage fuer ein Folgeblatt oder eine Reihe: Randlogik, Header-/Titelstil, Seitenmarker-Stil, Kopf-/Fussbereich, Abstaende, Farbwelt, Schriftanmutung, Linien-/Boxenstil, Weissraum, Rhythmus und Illustrationsstil.",

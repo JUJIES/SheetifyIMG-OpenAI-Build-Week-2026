@@ -331,7 +331,7 @@
             <strong>${escapeHtml(displayCandidateId)}</strong>
             <small>${escapeHtml([t(pageCount === 1 ? "app.draft.pageCount" : "app.draft.pageCountPlural", { count: pageCount }), lineageText || foundation].filter(Boolean).join(" · "))}</small>
             <div class="mobile-preview-row-actions">
-              <button class="primary-button mini-button mobile-revision-button" type="button" data-mobile-revise-draft aria-label="${escapeHtml(`${t("app.draft.adjust")}: ${displayCandidateId}`)}" title="${escapeHtml(t("app.draft.adjust"))}">${icon("square-pen", "icon icon-small")}<span>${escapeHtml(isEnglish() ? "Adjust" : "Anpassen")}</span></button>
+              <button class="primary-button mini-button mobile-revision-button" type="button" data-mobile-revise-draft aria-label="${escapeHtml(`${t("app.draft.adjust")}: ${displayCandidateId}`)}" title="${escapeHtml(t("app.draft.adjust"))}">${icon("square-pen", "icon icon-small")}<span>${escapeHtml(isEnglish() ? "Revise" : "Überarbeiten")}</span></button>
               ${renderCandidateImageDownloadButton(imageDownloads)}
               <button class="secondary-button mini-button mobile-preview-icon-action" type="button" data-mobile-open-candidate aria-label="${escapeHtml(t("app.preview.viewDraft"))}" title="${escapeHtml(t("app.preview.viewDraft"))}">${icon("eye", "icon icon-small")}</button>
               <button class="secondary-button mini-button mobile-preview-icon-action" type="button" data-card-action="candidate-info" data-candidate-id="${escapeHtml(candidate.id || "")}" data-run-id="${escapeHtml(candidate.runId || "")}" aria-label="${escapeHtml(t("app.draft.info"))}" title="${escapeHtml(t("app.draft.info"))}">${icon("info", "icon icon-small")}</button>

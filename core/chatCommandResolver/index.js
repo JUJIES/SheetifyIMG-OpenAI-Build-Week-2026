@@ -675,9 +675,9 @@ function candidateReferenceImagesFromTarget(workspace = {}, target = null, messa
       const refPath = normalizeRepoCandidatePath(page.path);
       return refPath ? {
         id: `ref_${candidate.id || "candidate"}_${pageNumber}`,
-        role: inferReferenceRole(message || target.label || ""),
+        role: "style_layout_reference",
         path: refPath,
-        purpose: `Bestehenden ${target.label || candidate.id || "Entwurf"} als visuelle Referenz nutzen: ${String(message || "").trim()}`,
+        purpose: `Bestehenden ${target.label || candidate.id || "Entwurf"} als Basisentwurf für eine gezielte Überarbeitung nutzen. Nicht erwähnte Gestaltung, Anordnung und Illustrationen möglichst stabil beibehalten. Änderungswunsch: ${String(message || "").trim()}`,
         scope: referenceScopeForMessage(message),
         source: {
           projectId: workspace.project?.projectId || null,

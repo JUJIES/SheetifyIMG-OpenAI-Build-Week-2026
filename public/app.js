@@ -7891,27 +7891,26 @@ function runReferenceRoleOptions() {
   return [
     {
       value: "style_reference",
-      label: "Stil",
-      description: "Look, Farben, Schriftanmutung"
+      label: t("app.generation.reference.style"),
+      description: t("app.generation.reference.styleDescription")
     },
     {
       value: "layout_reference",
-      label: "Aufbau",
-      description: "Blattkomposition, Bereiche, Anordnung"
+      label: t("app.generation.reference.layout"),
+      description: t("app.generation.reference.layoutDescription")
     },
     {
       value: "style_layout_reference",
-      label: "Vorlage",
-      description: "Komposition und Stil für ein Folgeblatt"
+      label: t("app.generation.reference.template"),
+      description: t("app.generation.reference.templateDescription")
     },
     {
       value: "material_image",
-      label: "Bildmaterial",
-      description: "sichtbar ins Arbeitsblatt einbauen"
+      label: t("app.generation.reference.material"),
+      description: t("app.generation.reference.materialDescription")
     }
   ];
 }
-
 function roleLabel(role = "") {
   return runReferenceRoleOptions().find((option) => option.value === role)?.label || "Referenz";
 }
@@ -8009,6 +8008,125 @@ function availableRunReferenceSources(workspace = state.workspace) {
   return [...sourceFiles, ...candidatePages];
 }
 
+function runReferenceMatchesDraftTarget(reference = {}, target = null) {
+  const source = reference?.source || {};
+  if (target?.kind !== "draft" || !target.candidateId || source.candidateId !== target.candidateId) {
+    return false;
+  }
+  if (target.runId && source.runId && source.runId !== target.runId) {
+    return false;
+  }
+  return true;
+}
+
+function sourceAsRunReference(source = {}, target = null) {
+  const label = source.label || fileName(source.path) || t("app.generation.basis.concept");
+  return {
+    localId: `basis_${source.key || source.path}`,
+    key: source.key,
+    label,
+    path: source.path,
+    url: source.url,
+    role: "style_layout_reference",
+    targetPage: Number(source.page || target?.page || 0) || 0,
+    userDetails: "",
+    source: source.source || null
+  };
+}
+
+function ensureDraftBasisSelection(payload = {}, sources = [], selection = []) {
+  const target = payload.revisionTarget;
+  if (target?.kind !== "draft") {
+    return selection;
+  }
+  const basisSources = sources.filter((source) => runReferenceMatchesDraftTarget(source, target));
+  const basisReferences = basisSources.map((source) => {
+    return selection.find((reference) => reference.path === source.path)
+      || sourceAsRunReference(source, target);
+  });
+  const optionalReferences = selection.filter((reference) => !runReferenceMatchesDraftTarget(reference, target));
+  return [...basisReferences, ...optionalReferences].slice(0, 4);
+}
+
+function generationProviderNote(payload = {}) {
+  return t(payload.imageProvider === "codex_cli"
+    ? "app.generation.provider.codex"
+    : "app.generation.provider.openai");
+}
+
+function generationConfirmationContext(command = {}, payload = {}, selection = []) {
+  const target = payload.revisionTarget;
+  const candidates = state.workspace?.artifacts?.candidates || [];
+  const currentContent = state.workspace?.artifacts?.currentContent || {};
+  const conceptVersion = Number(currentContent.version || 0) || null;
+  const conceptLabel = conceptVersion
+    ? t("app.generation.basis.conceptVersion", { version: conceptVersion })
+    : t("app.generation.basis.concept");
+  const page = Number(payload.pageNumber || payload.page || 0) || null;
+  const basisReferences = target?.kind === "draft"
+    ? selection.filter((reference) => runReferenceMatchesDraftTarget(reference, target))
+    : [];
+
+  if (target?.kind === "draft") {
+    const candidate = candidates.find((entry) => entry.id === target.candidateId
+      && (!target.runId || !entry.runId || entry.runId === target.runId));
+    const draftLabel = target.label || (candidate ? draftDisplayLabel(candidate) : null) || t("app.draft.label", { number: "" }).trim();
+    return {
+      mode: "revision",
+      title: t("app.generation.revision.title", { draft: draftLabel }),
+      message: t("app.generation.revision.message"),
+      acceptLabel: t("app.generation.revision.accept"),
+      basisLabel: draftLabel,
+      basisDescription: basisReferences.length
+        ? t("app.generation.basis.draftDescription")
+        : t("app.generation.basis.missing"),
+      basisUrl: basisReferences[0]?.url || null,
+      basisReferences,
+      basisMissing: basisReferences.length === 0
+    };
+  }
+
+  if (page) {
+    return {
+      mode: "page",
+      title: t("app.generation.page.title", { page }),
+      message: t("app.generation.page.message"),
+      acceptLabel: t("app.generation.page.accept", { page }),
+      basisLabel: conceptLabel,
+      basisDescription: t("app.generation.basis.conceptDescription"),
+      basisUrl: null,
+      basisReferences: [],
+      basisMissing: false
+    };
+  }
+
+  if (command.id === "generate_candidate_from_content_proposal" || payload.proposalId) {
+    return {
+      mode: "proposal",
+      title: t("app.generation.first.title"),
+      message: t("app.generation.first.message"),
+      acceptLabel: t("app.generation.first.accept"),
+      basisLabel: t("app.generation.basis.proposal"),
+      basisDescription: t("app.generation.basis.proposalDescription"),
+      basisUrl: null,
+      basisReferences: [],
+      basisMissing: false
+    };
+  }
+
+  const hasCandidates = candidates.length > 0;
+  return {
+    mode: hasCandidates ? "variant" : "first",
+    title: t(hasCandidates ? "app.generation.variant.title" : "app.generation.first.title"),
+    message: t(hasCandidates ? "app.generation.variant.message" : "app.generation.first.message"),
+    acceptLabel: t(hasCandidates ? "app.generation.variant.accept" : "app.generation.first.accept"),
+    basisLabel: conceptLabel,
+    basisDescription: t("app.generation.basis.conceptDescription"),
+    basisUrl: null,
+    basisReferences: [],
+    basisMissing: false
+  };
+}
 function initialRunReferenceSelection(payload = {}, sources = []) {
   const byPath = new Map(sources.map((source) => [source.path, source]));
   return (Array.isArray(payload.referenceImages) ? payload.referenceImages : [])
@@ -8083,84 +8201,103 @@ async function uploadRunReferenceFiles(fileList = []) {
 function pageTargetOptions(pageCount = 1, selectedPage = 0) {
   const count = Math.max(1, Number(pageCount || 1) || 1);
   return [
-    `<option value="" ${selectedPage ? "" : "selected"}>alle Seiten</option>`,
+    `<option value="" ${selectedPage ? "" : "selected"}>${escapeHtml(t("app.generation.reference.allPages"))}</option>`,
     ...Array.from({ length: count }, (_, index) => {
       const page = index + 1;
-      return `<option value="${page}" ${Number(selectedPage) === page ? "selected" : ""}>Seite ${page}</option>`;
+      return `<option value="${page}" ${Number(selectedPage) === page ? "selected" : ""}>${escapeHtml(t("app.generation.reference.page", { page }))}</option>`;
     })
   ].join("");
 }
-
 function renderRunReferenceSelector({ command = {}, payload = {}, selection = [], sources = [], uploading = false } = {}) {
   const pageCount = commandPageCount(command, payload) || 1;
   const roleOptions = runReferenceRoleOptions();
+  const context = generationConfirmationContext(command, payload, selection);
+  const additionalEntries = selection
+    .map((reference, index) => ({ reference, index }))
+    .filter(({ reference }) => !context.basisReferences.includes(reference));
   const availableToAdd = sources.filter((source) => !selection.some((reference) => reference.path === source.path));
   const sourceOptions = availableToAdd.map((source) => `
     <option value="${escapeHtml(source.key)}">${escapeHtml(`${source.label} · ${source.detail}`)}</option>
   `).join("");
+  const extraSummary = additionalEntries.length
+    ? t("app.generation.extra.summaryCount", { count: additionalEntries.length })
+    : t("app.generation.extra.summary");
   return `
-    <section class="run-reference-panel">
+    <section class="run-reference-panel" data-generation-mode="${escapeHtml(context.mode)}">
       <header>
         <div>
-          <strong>Referenzen</strong>
-          <span>Optional für diesen Lauf</span>
+          <strong>${escapeHtml(t("app.generation.basis.title"))}</strong>
+          <span>${escapeHtml(t("app.generation.basis.review"))}</span>
         </div>
       </header>
-      <div class="run-reference-add-row">
-        <label class="run-reference-source-field">
-          <span class="sr-only">Bild auswählen</span>
-          <select data-run-reference-source ${availableToAdd.length ? "" : "disabled"} aria-label="Referenzquelle">
-            ${sourceOptions || "<option>Keine vorhandenen Bilder</option>"}
-          </select>
-        </label>
-        <button class="secondary-button mini-button" type="button" data-run-reference-add ${availableToAdd.length && selection.length < 4 ? "" : "disabled"}>Hinzufügen</button>
-        <button class="secondary-button mini-button" type="button" data-run-reference-upload ${uploading || selection.length >= 4 ? "disabled" : ""}>Aus Datei</button>
-        <input class="sr-only" type="file" accept="image/*" multiple data-run-reference-file-input>
-      </div>
-      ${uploading ? `<p class="run-reference-note">Bild wird gespeichert...</p>` : ""}
-      ${selection.length ? `
-        <div class="run-reference-list">
-          ${selection.map((reference, index) => `
-            <article class="run-reference-item" data-run-reference-index="${index}">
-              <div class="run-reference-thumb">
-                ${reference.url ? `<img src="${escapeHtml(reference.url)}" alt="">` : ""}
-              </div>
-              <div class="run-reference-fields">
-                <div class="run-reference-item-header">
-                  <strong>${escapeHtml(reference.label || fileName(reference.path) || "Referenz")}</strong>
-                  <button class="icon-button icon-button-plain" type="button" data-run-reference-remove="${index}" aria-label="Referenz entfernen" title="Referenz entfernen">${icon("x", "icon icon-small")}</button>
-                </div>
-                <div class="run-reference-controls">
-                  <label>
-                    <span>Funktion</span>
-                    <select data-run-reference-role="${index}">
-                      ${roleOptions.map((option) => `<option value="${escapeHtml(option.value)}" ${option.value === reference.role ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
-                    </select>
-                    <em>${escapeHtml(roleOptions.find((option) => option.value === reference.role)?.description || "Referenzfunktion festlegen")}</em>
-                  </label>
-                  <label>
-                    <span>Gilt für</span>
-                    <select data-run-reference-page="${index}">
-                      ${pageTargetOptions(pageCount, reference.targetPage)}
-                    </select>
-                  </label>
-                </div>
-                <label class="run-reference-detail">
-                  <span>Details</span>
-                  <textarea data-run-reference-details="${index}" rows="2" maxlength="220" placeholder="${escapeHtml(`${roleLabel(reference.role)} genauer beschreiben...`)}">${escapeHtml(reference.userDetails || "")}</textarea>
-                </label>
-              </div>
-            </article>
-          `).join("")}
+      <div class="run-reference-basis ${context.basisMissing ? "is-missing" : ""}" data-run-reference-basis>
+        ${context.basisUrl ? `<div class="run-reference-basis-thumb"><img src="${escapeHtml(context.basisUrl)}" alt=""></div>` : `<div class="run-reference-basis-icon">${icon(context.mode === "revision" ? "images" : "file-text", "icon icon-small")}</div>`}
+        <div>
+          <strong data-run-reference-basis-label>${escapeHtml(context.basisLabel)}</strong>
+          <p>${escapeHtml(context.basisDescription)}</p>
         </div>
-      ` : `<p class="run-reference-note">Keine Referenz ausgewählt.</p>`}
+      </div>
+      <p class="run-reference-provider-note">${escapeHtml(generationProviderNote(payload))}</p>
+      <details class="run-reference-advanced" ${additionalEntries.length ? "open" : ""}>
+        <summary>${escapeHtml(extraSummary)}</summary>
+        <div class="run-reference-advanced-content">
+          <div class="run-reference-add-row">
+            <label class="run-reference-source-field">
+              <span class="sr-only">${escapeHtml(t("app.generation.extra.source"))}</span>
+              <select data-run-reference-source ${availableToAdd.length ? "" : "disabled"} aria-label="${escapeHtml(t("app.generation.extra.source"))}">
+                ${sourceOptions || `<option>${escapeHtml(t("app.generation.extra.none"))}</option>`}
+              </select>
+            </label>
+            <button class="secondary-button mini-button" type="button" data-run-reference-add ${availableToAdd.length && selection.length < 4 ? "" : "disabled"}>${escapeHtml(t("app.generation.extra.add"))}</button>
+            <button class="secondary-button mini-button" type="button" data-run-reference-upload ${uploading || selection.length >= 4 ? "disabled" : ""}>${escapeHtml(t("app.generation.extra.upload"))}</button>
+            <input class="sr-only" type="file" accept="image/*" multiple data-run-reference-file-input>
+          </div>
+          ${uploading ? `<p class="run-reference-note">${escapeHtml(t("app.generation.extra.uploading"))}</p>` : ""}
+          ${additionalEntries.length ? `
+            <div class="run-reference-list">
+              ${additionalEntries.map(({ reference, index }) => `
+                <article class="run-reference-item" data-run-reference-index="${index}">
+                  <div class="run-reference-thumb">
+                    ${reference.url ? `<img src="${escapeHtml(reference.url)}" alt="">` : ""}
+                  </div>
+                  <div class="run-reference-fields">
+                    <div class="run-reference-item-header">
+                      <strong>${escapeHtml(reference.label || fileName(reference.path) || t("app.generation.basis.concept"))}</strong>
+                      <button class="icon-button icon-button-plain" type="button" data-run-reference-remove="${index}" aria-label="${escapeHtml(t("app.generation.reference.remove"))}" title="${escapeHtml(t("app.generation.reference.remove"))}">${icon("x", "icon icon-small")}</button>
+                    </div>
+                    <div class="run-reference-controls">
+                      <label>
+                        <span>${escapeHtml(t("app.generation.reference.function"))}</span>
+                        <select data-run-reference-role="${index}">
+                          ${roleOptions.map((option) => `<option value="${escapeHtml(option.value)}" ${option.value === reference.role ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+                        </select>
+                        <em>${escapeHtml(roleOptions.find((option) => option.value === reference.role)?.description || t("app.generation.reference.styleDescription"))}</em>
+                      </label>
+                      <label>
+                        <span>${escapeHtml(t("app.generation.reference.appliesTo"))}</span>
+                        <select data-run-reference-page="${index}">
+                          ${pageTargetOptions(pageCount, reference.targetPage)}
+                        </select>
+                      </label>
+                    </div>
+                    <label class="run-reference-detail">
+                      <span>${escapeHtml(t("app.generation.reference.details"))}</span>
+                      <textarea data-run-reference-details="${index}" rows="2" maxlength="220" placeholder="${escapeHtml(roleLabel(reference.role))}">${escapeHtml(reference.userDetails || "")}</textarea>
+                    </label>
+                  </div>
+                </article>
+              `).join("")}
+            </div>
+          ` : `<p class="run-reference-note">${escapeHtml(t("app.generation.extra.none"))}</p>`}
+        </div>
+      </details>
     </section>
   `;
 }
-
 async function requestImageGenerationConfirmation(command = {}, payload = {}) {
   let sources = availableRunReferenceSources(state.workspace);
   let selection = initialRunReferenceSelection(payload, sources);
+  selection = ensureDraftBasisSelection(payload, sources, selection);
   let uploading = false;
   let extraHost = null;
 
@@ -8261,11 +8398,12 @@ async function requestImageGenerationConfirmation(command = {}, payload = {}) {
     });
   };
 
+  const context = generationConfirmationContext(command, payload, selection);
   return requestConfirmation({
-    eyebrow: "Entwurf",
-    title: "Entwurf erstellen",
-    message: "Optional Referenzen festlegen.",
-    acceptLabel: "Entwurf erstellen",
+    eyebrow: t("app.generation.basis.review"),
+    title: context.title,
+    message: context.message,
+    acceptLabel: context.acceptLabel,
     compact: true,
     variant: "reference",
     extraHtml: "<div></div>",
@@ -8275,7 +8413,12 @@ async function requestImageGenerationConfirmation(command = {}, payload = {}) {
     },
     onAccept: () => {
       if (uploading) {
-        showToast("Bitte warte, bis das Referenzbild gespeichert ist.", "info");
+        showToast(t("app.generation.extra.wait"), "info");
+        return false;
+      }
+      const latestContext = generationConfirmationContext(command, payload, selection);
+      if (latestContext.mode === "revision" && latestContext.basisMissing) {
+        showToast(t("app.generation.basis.missing"), "error");
         return false;
       }
       return {
@@ -8286,7 +8429,6 @@ async function requestImageGenerationConfirmation(command = {}, payload = {}) {
     }
   });
 }
-
 function requestConfirmation(options = {}) {
   return new Promise((resolve) => {
     const modal = elements.confirmationModal;
@@ -8372,23 +8514,6 @@ function requestCommandConfirmation(command = {}, payload = {}) {
       message: command.confirmationMessage
         || "Der Unterrichtsrahmen ist noch nicht vollständig geklärt. Dadurch kann die Arbeitsblattqualität leiden. Trotzdem fortfahren?",
       acceptLabel: command.confirmationAcceptLabel || command.label || "Trotzdem fortfahren"
-    });
-  }
-  if (command.id === "generate_image_candidate" && Number(payload.pageNumber || payload.page)) {
-    const page = Number(payload.pageNumber || payload.page);
-    if (payload.imageProvider === "codex_cli") {
-      return requestConfirmation({
-        eyebrow: "Usage-Verbrauch",
-        title: `Seite ${page} mit Codex Usage neu erzeugen?`,
-        message: "Dieser Schritt nutzt deinen lokalen Codex-Login und verbraucht Codex/ChatGPT-Kontingent. Es entstehen keine OpenAI-API-Kosten über deinen API-Key. Die Datei wird danach technisch geprüft.",
-        acceptLabel: `Seite ${page} mit Codex erzeugen`
-      });
-    }
-    return requestConfirmation({
-      eyebrow: "API-Kosten",
-      title: `Seite ${page} mit OpenAI API neu erzeugen?`,
-      message: `Dieser Schritt nutzt den hinterlegten OpenAI API-Key und kann API-Kosten verursachen. Er erzeugt nur Seite ${page} als neuen Entwurf.`,
-      acceptLabel: `Seite ${page} mit OpenAI API erzeugen`
     });
   }
   if (commandUsesImageProvider(command)) {
