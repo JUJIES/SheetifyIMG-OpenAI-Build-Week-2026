@@ -11641,7 +11641,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.sheetifyBetaFeedbackContext = () => {
-  const viewerItem = currentCandidateViewerItem();
+  const viewerItem = isCandidateViewerOpen() ? currentCandidateViewerItem() : null;
   const source = viewerItem?.source || {};
   const artifact = state.activeArtifactSelection || {};
   return {

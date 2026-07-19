@@ -305,14 +305,24 @@
     }
   }
 
+  function scopedArtifactContext(provided = {}, artifact = {}) {
+    const currentProjectId = provided.projectId || null;
+    const artifactProjectId = artifact.projectId || null;
+    if (!currentProjectId || artifactProjectId === currentProjectId) {
+      return artifact;
+    }
+    return {};
+  }
+
   function feedbackContext() {
     const provided = providerContext();
+    const artifact = scopedArtifactContext(provided, lastArtifactContext);
     const current = {
       ...provided,
-      projectId: provided.projectId || lastArtifactContext.projectId || null,
-      runId: provided.runId || lastArtifactContext.runId || null,
-      candidateId: provided.candidateId || lastArtifactContext.candidateId || null,
-      page: provided.page || lastArtifactContext.page || null
+      projectId: provided.projectId || artifact.projectId || null,
+      runId: provided.runId || artifact.runId || null,
+      candidateId: provided.candidateId || artifact.candidateId || null,
+      page: provided.page || artifact.page || null
     };
     return Object.fromEntries(Object.entries({
       projectId: current.projectId || null,
@@ -656,8 +666,9 @@
   document.addEventListener("click", (event) => {
     const artifact = event.target.closest?.("[data-run-id], [data-candidate-id]");
     if (!artifact) return;
+    const provided = providerContext();
     lastArtifactContext = {
-      projectId: artifact.dataset.projectId || null,
+      projectId: artifact.dataset.projectId || provided.projectId || null,
       runId: artifact.dataset.runId || null,
       candidateId: artifact.dataset.candidateId || null,
       page: Number(artifact.dataset.page || 0) || null
