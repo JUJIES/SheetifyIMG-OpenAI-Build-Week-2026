@@ -29,7 +29,8 @@ function assertCentralTaskNormalization() {
   assert.deepEqual(normalized, {
     id: "task_dirty",
     groupLabel: "Station A",
-    prompt: "Ordne die Samen der passenden Verbreitungsart zu."
+    prompt: "Ordne die Samen der passenden Verbreitungsart zu.",
+    displayNumber: 1
   });
 
   const inferred = normalizeTaskLabelFields({
@@ -46,6 +47,14 @@ function assertCentralTaskNormalization() {
   });
   assert.equal(pageTaskLabel.groupLabel, "");
   assert.equal(pageTaskLabel.prompt, "Beschreibe das Verhalten.");
+
+  const numberedTaskLabel = normalizeTaskLabelFields({
+    id: "task_4",
+    groupLabel: "Aufgabe 4",
+    prompt: "Welche Aussage passt am besten?"
+  });
+  assert.equal(numberedTaskLabel.groupLabel, "");
+  assert.equal(numberedTaskLabel.displayNumber, 4);
 
   const matchingPrompt = normalizeInlineListHeadings(
     "Verbinde die sichtbaren Bräuche. Sichtbare Bräuche:\n- Schabbatkerzen\n- Kippa\n- koscher essen Bedeutungen:\n- Ruhetag beginnt\n- Erinnerung an Gott\n- Speiseregeln"
@@ -227,14 +236,57 @@ function assertFinalPromptIsCleanBeforeImageModel() {
   assert.doesNotMatch(approvedText, /\n\d+\.\s*Stufe\s*2/i);
 }
 
+function assertMultiPageNumberingUsesCanonicalTaskOrder() {
+  const tasks = [
+    { id: "task_1", page: 2, groupLabel: "Aufgabe 1", prompt: "Beschreibe die Beobachtung." },
+    { id: "task_2", page: 2, groupLabel: "Aufgabe 2", prompt: "Ordne die Begriffe zu." },
+    { id: "task_3", page: 3, groupLabel: "Aufgabe 3", prompt: "Entscheide: richtig oder falsch?" },
+    { id: "task_4", page: 3, groupLabel: "Aufgabe 4", prompt: "Waehle die passende Aussage." },
+    { id: "task_5", page: 3, groupLabel: "Aufgabe 5", prompt: "Erklaere den Zusammenhang." },
+    { id: "task_6", page: 4, groupLabel: "Aufgabe 6", prompt: "Halte Ergebnisse fest." }
+  ];
+  const pageThreeLines = visibleTaskLines(visibleTaskEntries(
+    tasks.filter((task) => task.page === 3),
+    { allTasks: tasks }
+  )).join("\n");
+  assert.equal(pageThreeLines, [
+    "3. Entscheide: richtig oder falsch?",
+    "4. Waehle die passende Aussage.",
+    "5. Erklaere den Zusammenhang."
+  ].join("\n"));
+  assert.doesNotMatch(pageThreeLines, /\d+\.\s+Aufgabe\s+\d+/i);
+
+  const pageThreePrompt = promptForPage({
+    imageSheetBrief: {
+      lessonBrief: { subject: "Biologie", targetGroup: "Klasse 10", topic: "Genetik" },
+      contentMirror: {
+        title: "Genetik",
+        outputPreference: { pages: 4, layout: "separate_reading_and_task_sheets" },
+        readingTexts: [{ id: "reading_1", page: 1, title: "Genetik", body: "Lesetext" }],
+        tasks,
+        imageMaterials: [],
+        solutionNotes: []
+      }
+    },
+    pageNumber: 3,
+    pageCount: 4,
+    role: "tasks"
+  });
+  const approvedText = approvedVisibleTextFromPrompt(pageThreePrompt);
+  assert.match(approvedText, /3\. Entscheide:[\s\S]*4\. Waehle[\s\S]*5\. Erklaere/);
+  assert.doesNotMatch(approvedText, /\d+\.\s+Aufgabe\s+\d+/i);
+}
+
 assertCentralTaskNormalization();
 assertConceptValidationUsesNormalizer();
 assertVisibleTextUsesNormalizer();
 assertFinalPromptIsCleanBeforeImageModel();
+assertMultiPageNumberingUsesCanonicalTaskOrder();
 
 console.log(JSON.stringify({
   ok: true,
   centralTaskNormalization: true,
   conceptValidationUsesNormalizer: true,
-  finalPromptCleanBeforeImageModel: true
+  finalPromptCleanBeforeImageModel: true,
+  multiPageNumberingUsesCanonicalTaskOrder: true
 }, null, 2));

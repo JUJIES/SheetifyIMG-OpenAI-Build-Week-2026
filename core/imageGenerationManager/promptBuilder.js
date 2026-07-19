@@ -627,7 +627,7 @@ function visibleWorksheetText(contentMirror, lessonBrief = {}) {
     }));
   }
   const tasks = contentMirror.tasks || [];
-  const visibleTasks = visibleTaskEntries(tasks.slice(0, 8));
+  const visibleTasks = visibleTaskEntries(tasks.slice(0, 8), { allTasks: tasks });
   if (visibleTasks.length) {
     if (shouldShowTaskHeading(contentMirror, { kind: "worksheet", tasks }, language)) {
       lines.push(`${headings.sectionPrefix}: ${headings.tasks}`);
@@ -668,7 +668,10 @@ function visibleWorksheetTextForPage(contentMirror, lessonBrief = {}, pageNumber
         omitTitles: [contentMirror.title, pageTitle]
       }));
     }
-    const visibleTasks = visibleTaskEntries(pagePlan.tasks || [], { preprocessPrompt: stripLeadingSheetBlock });
+    const visibleTasks = visibleTaskEntries(pagePlan.tasks || [], {
+      preprocessPrompt: stripLeadingSheetBlock,
+      allTasks: contentMirror.tasks || []
+    });
     if (visibleTasks.length) {
       if (shouldShowTaskHeading(contentMirror, pagePlan, language)) {
         lines.push(`${headings.sectionPrefix}: ${headings.tasks}`);
@@ -698,7 +701,7 @@ function visibleWorksheetTextForPage(contentMirror, lessonBrief = {}, pageNumber
     return lines.filter(Boolean).join("\n");
   }
   const tasks = contentMirror.tasks || [];
-  const visibleTasks = visibleTaskEntries(tasks.slice(0, 8));
+  const visibleTasks = visibleTaskEntries(tasks.slice(0, 8), { allTasks: tasks });
   if (visibleTasks.length) {
     if (shouldShowTaskHeading(contentMirror, { kind: "worksheet", tasks }, language)) {
       lines.push(`${headings.sectionPrefix}: ${headings.tasks}`);

@@ -1,6 +1,7 @@
 "use strict";
 
 const TASK_GROUP_LABEL_RE = /^\s*((?:(?:Stufe|Station|Teil|Block|Gruppe|Abschnitt|Niveau|Level|Phase)\s+[A-Z0-9][^\r\n:]{0,40})|(?:leicht|mittel|schwer))\s*(?::|\r?\n|[-–—]\s*\r?\n)\s*([\s\S]+)$/i;
+const TASK_NUMBER_LABEL_RE = /^\s*(?:(?:aufgabe|task|exercise)\s*(\d+)|(\d+)\s*(?:[.):-]\s*)?(?:aufgabe|task|exercise))\s*(?:[.):-]\s*)?$/i;
 const STATION_GROUP_RE = /^station\s+[a-z0-9]+\b/i;
 const MATCHING_SECOND_HEADING_RE = /^\s*(Bedeutungen|Bedeutung|Erklaerungen|Erklärungen|Meaning|Meanings|Definitions?)\s*:\s*/i;
 const MATCHING_PAIR_SEPARATOR_RE = /\s*(?:->|→|–|-|:)\s*/;
@@ -35,10 +36,24 @@ function stripLeadingPageMarker(value) {
 function normalizeGroupLabel(value) {
   const text = stripLeadingPageMarker(value);
   const key = normalizeLabel(text);
-  if (!text || /^(?:aufgaben|aufgabe|tasks?|exercises?|aufgabenseite|aufgabenblatt|task page|tasks page|worksheet page)$/.test(key)) {
+  if (!text || TASK_NUMBER_LABEL_RE.test(text) || /^(?:aufgaben|aufgabe|tasks?|exercises?|aufgabenseite|aufgabenblatt|task page|tasks page|worksheet page)$/.test(key)) {
     return "";
   }
   return text;
+}
+
+function taskNumberFromLabel(value) {
+  const match = String(value || "").trim().match(TASK_NUMBER_LABEL_RE);
+  const number = Number(match?.[1] || match?.[2] || 0);
+  return Number.isInteger(number) && number > 0 ? number : null;
+}
+
+function leadingTaskNumber(value) {
+  const text = String(value || "").trim();
+  const named = text.match(/^\s*(?:aufgabe|task|exercise)\s*[a-z]?\s*(\d+)\b/i);
+  const numbered = text.match(/^\s*(\d+)\s*(?:[.):-]\s*|\s+(?=(?:aufgabe|task|exercise)\b))/i);
+  const number = Number(named?.[1] || numbered?.[1] || 0);
+  return Number.isInteger(number) && number > 0 ? number : null;
 }
 
 function sameLabel(left, right) {
@@ -218,7 +233,9 @@ function normalizeTaskLabelFields(task = {}, index = 0, options = {}) {
   const id = stringOrNull(task.id) || `task_${index + 1}`;
   const rawPrompt = cleanText(task.prompt) || cleanText(task.text) || cleanText(task.label) || fallbackPrompt;
   const expectedAnswer = cleanText(task.expectedAnswer) || "";
-  const rawGroupLabel = normalizeGroupLabel(cleanText(task.groupLabel) || "");
+  const rawGroupLabelText = cleanText(task.groupLabel) || "";
+  const displayNumber = taskNumberFromLabel(rawGroupLabelText) || leadingTaskNumber(rawPrompt);
+  const rawGroupLabel = normalizeGroupLabel(rawGroupLabelText);
   const source = stripLeadingPageMarker(preprocessPrompt(rawPrompt));
   const unnumbered = stripLeadingTaskNumbering(source);
   const split = splitLeadingTaskGroupLabel(unnumbered);
@@ -230,11 +247,17 @@ function normalizeTaskLabelFields(task = {}, index = 0, options = {}) {
   return {
     id,
     groupLabel,
-    prompt: prompt || rawPrompt
+    prompt: prompt || rawPrompt,
+    ...(displayNumber ? { displayNumber } : {})
   };
 }
 
 function visibleTaskEntries(tasks = [], options = {}) {
+  const canonicalNumbers = new Map(
+    (Array.isArray(options.allTasks) ? options.allTasks : [])
+      .map((task, index) => [stringOrNull(task?.id), index + 1])
+      .filter(([id]) => id)
+  );
   return (Array.isArray(tasks) ? tasks : [])
     .map((task, index) => {
       const normalized = normalizeTaskLabelFields(task, index, {
@@ -245,7 +268,8 @@ function visibleTaskEntries(tasks = [], options = {}) {
       return {
         task,
         groupLabel: normalized.groupLabel,
-        text: normalized.prompt
+        text: normalized.prompt,
+        displayNumber: canonicalNumbers.get(normalized.id) || normalized.displayNumber || null
       };
     })
     .filter((entry) => entry.text);
@@ -307,7 +331,7 @@ function allGroupsAreSingleNumberedCategories(groups = []) {
 
 function visibleTaskLines(entries = []) {
   if (!entries.some((entry) => entry.groupLabel)) {
-    return entries.map((entry, index) => `${index + 1}. ${entry.text}`);
+    return entries.map((entry, index) => `${entry.displayNumber || index + 1}. ${entry.text}`);
   }
   const groups = consecutiveTaskGroups(entries);
   const numberSingleGroups = allGroupsAreSingleNumberedCategories(groups);
