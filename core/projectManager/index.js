@@ -14,6 +14,7 @@ const { appendEvent, projectCreatedEvent } = require("../eventLog");
 const { getProjectStatus, projectTypeOf } = require("../projectStatus");
 const { initialStatusSnapshot } = require("../statusSnapshot");
 const { readJsonFile, writeJsonFile } = require("../jsonFile");
+const { normalizeLocale } = require("../locale");
 
 const DEFAULT_PROJECTS_DIR = path.resolve(__dirname, "..", "..", "projects");
 
@@ -79,6 +80,7 @@ function publicProject(manifest, projectDir, status) {
     subject: manifest.subject || null,
     topic: manifest.topic || null,
     targetGroup: manifest.targetGroup || null,
+    conversationLocale: manifest.conversationLocale || null,
     sourceType: status.sourceType || "production",
     isLegacy: Boolean(status.isLegacy),
     status: status.status,
@@ -267,6 +269,7 @@ async function createSingleWorksheetProject(input = {}, options = {}) {
     subject: input.subject || null,
     topic: input.topic || null,
     targetGroup: input.targetGroup || null,
+    conversationLocale: normalizeLocale(input.conversationLocale),
     status: "draft",
     createdAt: now,
     updatedAt: now,

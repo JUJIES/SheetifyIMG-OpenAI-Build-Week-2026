@@ -29,14 +29,28 @@ async function main() {
   assert.equal(single.subject, null);
   assert.equal(single.topic, null);
   assert.equal(single.targetGroup, null);
+  assert.equal(single.conversationLocale, "de");
+
+  const english = await createSingleWorksheetProject({
+    title: "English conversation",
+    conversationLocale: "en-US"
+  }, {
+    ...options,
+    now: "2026-06-18T00:01:00.000Z"
+  });
+  assert.equal(english.conversationLocale, "en");
 
   const projects = await listProjects({ projectsDir: smokeRoot });
-  assert.equal(projects.length, 1);
+  assert.equal(projects.length, 2);
 
   const reopened = await openProject(single.projectId, { projectsDir: smokeRoot });
   assert.equal(reopened.title, "Material für nächste Woche");
   assert.equal(reopened.derivedStatus.hasDraftContent, false);
   assert.equal(reopened.derivedStatus.canGenerate, false);
+  assert.equal(reopened.conversationLocale, "de");
+
+  const reopenedEnglish = await openProject(english.projectId, { projectsDir: smokeRoot });
+  assert.equal(reopenedEnglish.manifest.conversationLocale, "en");
 
   console.log(JSON.stringify({
     ok: true,

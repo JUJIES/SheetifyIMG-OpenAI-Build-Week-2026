@@ -49,7 +49,7 @@ const RESULT_LANGUAGE_WITHOUT_COMMAND = [
   /\bich\s+habe\b.{0,100}\b(?:erstellt|erzeugt|generiert|überarbeitet|ueberarbeitet|ausformuliert|abgelegt|gespeichert|vorbereitet|angelegt|gemacht)\b/i,
   /\b(?:liegt|steht)\s+(?:vor|bereit)\b/i
 ];
-const EXECUTED_VISIBILITY_LANGUAGE = /\b(?:Arbeitsblatt-Konzept|Konzept|Konzeptversion|Konzeptfassung|Entwurf|Entwürfe|Arbeitsblatt|Referenz|Bildreferenz|Input|Basis|Bestätigung|Bestaetigung|nächste|naechste|weitergearbeitet|genutzt|fertig|abgelegt|vorbereitet|ausformuliert|angelegt|erstellt|erzeugt|gespeichert)\b/i;
+const EXECUTED_VISIBILITY_LANGUAGE = /\b(?:Arbeitsblatt-Konzept|Konzept|Konzeptversion|Konzeptfassung|Entwurf|Entwürfe|Arbeitsblatt|Referenz|Bildreferenz|Input|Basis|Bestätigung|Bestaetigung|nächste|naechste|weitergearbeitet|genutzt|fertig|abgelegt|vorbereitet|ausformuliert|angelegt|erstellt|erzeugt|gespeichert|worksheet concept|concept version|concept|drafts?|worksheets?|reference|basis|confirmation|next|ready|saved|prepared|created|generated)\b/i;
 
 function nonEmpty(value) {
   return String(value || "").trim();
@@ -92,6 +92,43 @@ function compactMessages(messages = []) {
       content: truncate(message.content || message.message, 500)
     }))
     .filter((message) => message.content);
+}
+
+function explicitConversationLocale(value) {
+  const text = nonEmpty(value).toLowerCase();
+  if (!text) return null;
+  if (/(?:continue|reply|respond|speak|write|switch|talk).{0,40}\b(?:in|to)\s+english\b|\benglish\s+(?:please|from now on)\b|\bauf englisch\b|\benglisch\s+(?:bitte|weiter)\b/.test(text)) return "en";
+  if (/(?:continue|reply|respond|speak|write|switch|talk).{0,40}\b(?:in|to)\s+german\b|\bgerman\s+(?:please|from now on)\b|\bauf deutsch\b|\bdeutsch\s+(?:bitte|weiter)\b/.test(text)) return "de";
+  return null;
+}
+
+function inferredConversationLocale(value) {
+  const words = nonEmpty(value).toLowerCase().match(/[a-zäöüß']+/g) || [];
+  if (words.length < 4) return null;
+  const englishWords = new Set(["a", "an", "and", "are", "as", "be", "before", "but", "can", "create", "do", "for", "from", "have", "help", "how", "i", "in", "is", "it", "make", "my", "of", "on", "one", "please", "students", "that", "the", "then", "this", "to", "use", "want", "what", "with", "worksheet", "would"]);
+  const germanWords = new Set(["aber", "als", "auf", "bitte", "das", "dass", "der", "die", "ein", "eine", "erstellen", "für", "habe", "ich", "ist", "machen", "mit", "nicht", "oder", "soll", "und", "von", "was", "wie", "zu"]);
+  const englishScore = words.filter((word) => englishWords.has(word)).length;
+  const germanScore = words.filter((word) => germanWords.has(word)).length;
+  if (englishScore >= 3 && englishScore > germanScore) return "en";
+  if (germanScore >= 3 && germanScore > englishScore) return "de";
+  return null;
+}
+
+function responseLocaleForMoment(moment = {}) {
+  const recentUserMessages = (moment.workspace?.chat?.messages || [])
+    .filter((message) => message.role !== "assistant")
+    .map((message) => message.content || message.message)
+    .filter(Boolean);
+  const conversation = [...recentUserMessages, moment.userMessage].filter(Boolean);
+  for (const message of [...conversation].reverse()) {
+    const explicit = explicitConversationLocale(message);
+    if (explicit) return explicit;
+  }
+  for (const message of [...conversation].reverse()) {
+    const inferred = inferredConversationLocale(message);
+    if (inferred) return inferred;
+  }
+  return moment.workspace?.project?.conversationLocale === "en" ? "en" : "de";
 }
 
 function compactContent(content = {}) {
@@ -181,7 +218,8 @@ function compactWorkspace(workspace = {}) {
     project: workspace.project ? {
       title: truncate(workspace.project.title, 180),
       topic: truncate(workspace.project.topic, 160),
-      targetGroup: truncate(workspace.project.targetGroup, 120)
+      targetGroup: truncate(workspace.project.targetGroup, 120),
+      conversationLocale: workspace.project.conversationLocale || null
     } : null,
     teachingContext: workspace.teachingContext ? {
       status: workspace.teachingContext.status || null,
@@ -224,6 +262,7 @@ function compactWorkspace(workspace = {}) {
 
 function compactMoment(moment = {}) {
   const proposalKind = moment.proposal?.kind || null;
+  const responseLocale = responseLocaleForMoment(moment);
   const stateFacts = [];
   if (proposalKind === "image_spec" && (moment.kind === "proposal_ready" || moment.kind === "proposal_adopted")) {
     stateFacts.push("Interne Bildplanung ist vorbereitet/gespeichert; es wurde dadurch noch kein Bild-Entwurf erzeugt.");
@@ -245,6 +284,7 @@ function compactMoment(moment = {}) {
   }
   return {
     kind: moment.kind || "chat_followup",
+    responseLocale,
     persona: responsePlanForMoment(moment),
     stateFacts,
     fallback: truncate(moment.fallback, MAX_MESSAGE_LENGTH),
@@ -370,13 +410,23 @@ function sanitizeNarration(value, moment = null) {
   return text;
 }
 
-function narrationInstructions() {
+function narrationInstructions(responseLocale = "de") {
+  const languageInstructions = responseLocale === "en"
+    ? [
+        "OUTPUT LANGUAGE: English only.",
+        "Address the teacher directly in natural English. Use these visible product terms: Input, Worksheet concept, Draft, Drafts and Worksheets.",
+        "Any German wording or examples below describe behavior and tone only. Translate their intent; never copy German wording into the response."
+      ]
+    : [
+        "AUSGABESPRACHE: ausschließlich Deutsch mit echten Umlauten.",
+        "Sprich die Lehrkraft immer mit du an, nie mit Sie."
+      ];
   return [
+    ...languageInstructions,
     personaInstructions(),
     "Du formulierst genau eine sichtbare Chatantwort für SheetifyIMG.",
     "Die App entscheidet Workflow, Buttons, Freigaben und Kostenbestätigungen. Du formulierst nur den Begleittext.",
-    "Schreibe auf Deutsch mit echten Umlauten.",
-    "Sprich die Lehrkraft immer mit du an, nie mit Sie.",
+    "moment.responseLocale ist bereits aus ausdruecklichen Sprachwuenschen, der laufenden Unterhaltung und der Projekt-Startpraeferenz aufgeloest. Halte dich strikt daran.",
     "Ton: aufmerksam, knapp, freundlich, bestimmt. Kein generisches Lob und kein neutraler Behördenstil.",
     "Halte dich an moment.persona: responseDepth bestimmt die Laenge, relationshipMove bestimmt die Art der Beziehungsebene.",
     "Bei responseDepth minimal: genau ein kurzer Satz. Kein Lob, keine Mini-Zusammenfassung, keine didaktische Einschaetzung.",
@@ -409,7 +459,8 @@ function narrationInstructions() {
     "Wenn requiresPaidConfirmation true ist, erwähne knapp, dass die Bildgenerierung bewusst bestätigt werden muss.",
     "Vermeide im sichtbaren Chat technische Begriffe wie Bild-API; sage lieber Bildgenerierung oder Erzeugung.",
     "Maximal moment.persona.sentenceBudget Saetze, nie mehr als 3 kurze Saetze. Keine Liste, außer der Moment verlangt ausdrücklich kurze Optionen.",
-    "Gib ausschließlich JSON im vorgegebenen Schema zurück."
+    "Gib ausschließlich JSON im vorgegebenen Schema zurück.",
+    ...(responseLocale === "en" ? ["Return the JSON message value in English only."] : [])
   ].join("\n");
 }
 
@@ -474,7 +525,7 @@ async function narrateChatMoment(projectDir, moment = {}, options = {}) {
   const payload = compactMoment(moment);
   const responseBody = {
     model,
-    instructions: narrationInstructions(),
+    instructions: narrationInstructions(payload.responseLocale),
     input: [{
       role: "user",
       content: JSON.stringify(payload, null, 2)
@@ -560,6 +611,7 @@ module.exports = {
     compactContent,
     compactMoment,
     compactProposal,
-    narrationInstructions
+    narrationInstructions,
+    responseLocaleForMoment
   }
 };

@@ -403,10 +403,16 @@ function worksheetLanguage(contentMirror = {}, lessonBrief = {}) {
     /\bklasse\b/g
   ].reduce((sum, regex) => sum + (text.match(regex) || []).length, 0);
 
-  if (englishSignals >= 3 && englishSignals > germanSignals) {
+  const words = text.match(/[a-z']+/g) || [];
+  const englishWords = new Set(["a", "an", "and", "are", "as", "at", "be", "beginning", "between", "can", "changes", "choose", "cycle", "describe", "each", "explain", "find", "first", "forms", "from", "how", "in", "into", "is", "it", "moves", "of", "on", "one", "or", "students", "that", "the", "then", "through", "to", "use", "water", "when", "with", "write"]);
+  const germanWords = new Set(["als", "auf", "aus", "beschreibe", "das", "der", "die", "durch", "ein", "eine", "erkläre", "erklaere", "für", "fuer", "in", "ist", "mit", "oder", "schreibe", "und", "von", "wasser", "wenn", "wie", "zu"]);
+  const englishWordScore = words.filter((word) => englishWords.has(word)).length;
+  const germanWordScore = words.filter((word) => germanWords.has(word)).length;
+
+  if ((englishSignals >= 3 || englishWordScore >= 5) && englishSignals + englishWordScore > germanSignals + germanWordScore) {
     return "en";
   }
-  if (germanSignals >= 2 && germanSignals > englishSignals) {
+  if ((germanSignals >= 2 || germanWordScore >= 5) && germanSignals + germanWordScore > englishSignals + englishWordScore) {
     return "de";
   }
 

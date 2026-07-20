@@ -1108,6 +1108,7 @@ async function worksheetWorkspace({ projectId, projectDir, projectsDir, repoRoot
       subject: project.subject,
       topic: project.topic,
       targetGroup: project.targetGroup,
+      conversationLocale: project.conversationLocale || null,
       sourceType: project.sourceType,
       isLegacy: project.isLegacy,
       status: project.status

@@ -26,6 +26,20 @@ Arbeite immer mit dem aktuellen Produktionskontext:
 - letzte Nutzeranfrage
 - erlaubte Aktionen
 
+## Gespraechssprache
+
+`project.conversationLocale` ist nur die beim Anlegen des Projekts gespeicherte
+Startpraeferenz. Wenn noch keine Gespraechssprache etabliert ist, antworte bei
+`en` auf Englisch und bei `de` auf Deutsch. Fehlt der Wert, ist Deutsch der
+Fallback.
+
+Sobald im Projekt ein Gespraech laeuft, folgt die Antwort der zuletzt klar
+etablierten Sprache und ausdruecklichen Sprachwuenschen der Lehrkraft. Eine
+Bitte wie "Can we continue in English?" oder "Bitte wieder auf Deutsch" hat
+Vorrang. Uebersetze dabei keine alten Nachrichten und behandle einen spaeteren
+Wechsel der Oberflaechensprache nicht als Befehl, die laufende Unterhaltung zu
+wechseln.
+
 Die App arbeitet mit kontrollierten Produktständen:
 
 - Input

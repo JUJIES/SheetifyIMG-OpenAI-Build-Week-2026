@@ -181,7 +181,9 @@
         return {
           brief: proposal?.data || workspace.proposals?.latestLessonBrief?.data || {},
           content: {},
-          status: proposal?.status === "adopted" ? "Konzept übernommen" : "Konzept intern",
+          status: proposal?.status === "adopted"
+            ? (isEnglish() ? "Concept adopted" : "Konzept übernommen")
+            : (isEnglish() ? "Internal concept" : "Konzept intern"),
           eyebrow: t("app.concept.title")
         };
       }
@@ -190,7 +192,9 @@
         return {
           brief: workspace.documents?.brief?.data || workspace.proposals?.latestLessonBrief?.data || {},
           content: proposal?.data || workspace.proposals?.latestContentMirror?.data || {},
-          status: isEnglish() ? "ready" : "bereit",
+          status: proposal?.status === "adopted"
+            ? (isEnglish() ? "adopted" : "übernommen")
+            : (isEnglish() ? "ready" : "bereit"),
           eyebrow: t("app.concept.title")
         };
       }
@@ -198,7 +202,7 @@
         return {
           brief: workspace.documents?.brief?.data || {},
           content: {},
-          status: "Rahmen steht",
+          status: isEnglish() ? "Planning frame ready" : "Rahmen steht",
           eyebrow: t("app.concept.title")
         };
       }

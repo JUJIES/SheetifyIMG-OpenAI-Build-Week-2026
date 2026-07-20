@@ -9038,6 +9038,10 @@ function renderedActionButtonLabel(action = {}, options = {}) {
   if (options.candidateDecision && (action.id || action.command) === "generate_image_candidate") {
     return t("app.chat.createAnotherVariant");
   }
+  if (options.candidateDecision && (action.id || action.command) === "deposit_worksheet") {
+    const multiplePages = /Arbeitsblätter|worksheets/i.test(action.label || "");
+    return worksheetDepositActionLabel(multiplePages ? 2 : 1);
+  }
   return normalizeVisibleProductTerminology(action.label || decisionButtonLabel({ id: action.id || action.command }));
 }
 
@@ -11445,7 +11449,8 @@ async function createNewWorksheetFromLibrary() {
     const payload = await fetchJson("/api/projects/single", {
       method: "POST",
       body: JSON.stringify({
-        title
+        title,
+        conversationLocale: appLocale?.current() || "de"
       })
     });
     const projectId = payload.project?.projectId;
