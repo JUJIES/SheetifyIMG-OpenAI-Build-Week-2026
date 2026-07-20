@@ -3,7 +3,7 @@
 (() => {
   const REMINDER_KEY = "sheetifyimg.feedback-reminder.v2";
   const RENDER_NUDGE_KEY = "sheetifyimg.feedback-render-nudge.v1";
-  const FEEDBACK_POSITION_KEY = "sheetifyimg.feedback-position.v1";
+  const FEEDBACK_POSITION_KEY = "sheetifyimg.feedback-edge-position.v1";
   const FEEDBACK_DRAG_THRESHOLD = 6;
   const locale = window.sheetifyLocale;
   let experience = null;
@@ -132,8 +132,8 @@
   function readFeedbackPosition() {
     try {
       const stored = JSON.parse(sessionStorage.getItem(FEEDBACK_POSITION_KEY) || "null");
-      if (!stored || !Number.isFinite(stored.x) || !Number.isFinite(stored.y)) return null;
-      return { x: clamp(stored.x, 0, 1), y: clamp(stored.y, 0, 1) };
+      if (!stored || !Number.isFinite(stored.y)) return null;
+      return { y: clamp(stored.y, 0, 1) };
     } catch {
       return null;
     }
@@ -153,12 +153,12 @@
     return window.innerWidth <= 700 ? 10 : 12;
   }
 
-  function triggerBounds(left, top) {
+  function triggerBounds(_left, top) {
     const rect = elements.feedbackTrigger.getBoundingClientRect();
     const viewport = feedbackViewport();
     const margin = feedbackEdgeMargin();
     return {
-      left: clamp(left, margin, Math.max(margin, viewport.width - rect.width - margin)),
+      left: Math.max(0, viewport.width - rect.width),
       top: clamp(top, margin, Math.max(margin, viewport.height - rect.height - margin)),
       width: rect.width,
       height: rect.height,
@@ -170,17 +170,14 @@
   function applyFeedbackPixelPosition(left, top) {
     const bounded = triggerBounds(left, top);
     elements.feedbackTrigger.classList.add("is-positioned");
-    elements.feedbackTrigger.style.setProperty("--beta-feedback-left", `${Math.round(bounded.left)}px`);
     elements.feedbackTrigger.style.setProperty("--beta-feedback-top", `${Math.round(bounded.top)}px`);
     return bounded;
   }
 
   function normalizedFeedbackPosition(left, top) {
     const bounded = triggerBounds(left, top);
-    const availableX = Math.max(0, bounded.viewport.width - bounded.width - (bounded.margin * 2));
     const availableY = Math.max(0, bounded.viewport.height - bounded.height - (bounded.margin * 2));
     return {
-      x: availableX ? (bounded.left - bounded.margin) / availableX : 0,
       y: availableY ? (bounded.top - bounded.margin) / availableY : 0
     };
   }
@@ -195,15 +192,14 @@
   }
 
   function applyStoredFeedbackPosition() {
-    if (!feedbackPosition || elements.feedbackTrigger.classList.contains("hidden")) return;
+    if (elements.feedbackTrigger.classList.contains("hidden")) return;
     const rect = elements.feedbackTrigger.getBoundingClientRect();
     const viewport = feedbackViewport();
     const margin = feedbackEdgeMargin();
-    const availableX = Math.max(0, viewport.width - rect.width - (margin * 2));
     const availableY = Math.max(0, viewport.height - rect.height - (margin * 2));
     applyFeedbackPixelPosition(
-      margin + (feedbackPosition.x * availableX),
-      margin + (feedbackPosition.y * availableY)
+      viewport.width - rect.width,
+      margin + ((feedbackPosition?.y ?? 0.55) * availableY)
     );
   }
 
@@ -225,13 +221,12 @@
     const margin = feedbackEdgeMargin();
     const gap = 10;
     const left = clamp(
-      triggerRect.left + ((triggerRect.width - reminderRect.width) / 2),
+      triggerRect.left - reminderRect.width - gap,
       margin,
       Math.max(margin, viewport.width - reminderRect.width - margin)
     );
-    const above = triggerRect.top - reminderRect.height - gap;
     const top = clamp(
-      above >= margin ? above : triggerRect.bottom + gap,
+      triggerRect.top + ((triggerRect.height - reminderRect.height) / 2),
       margin,
       Math.max(margin, viewport.height - reminderRect.height - margin)
     );
@@ -425,6 +420,7 @@
       top: rect.top,
       pointerType: event.pointerType,
       dragging: false,
+      moved: false,
       reminderVisible: !elements.feedbackReminder.classList.contains("hidden")
     };
     elements.feedbackTrigger.setPointerCapture?.(event.pointerId);
@@ -435,7 +431,10 @@
     const deltaX = event.clientX - feedbackDrag.startX;
     const deltaY = event.clientY - feedbackDrag.startY;
     const dragThreshold = feedbackDrag.pointerType === "mouse" ? FEEDBACK_DRAG_THRESHOLD : 10;
-    if (!feedbackDrag.dragging && Math.hypot(deltaX, deltaY) < dragThreshold) return;
+    if (!feedbackDrag.dragging && Math.hypot(deltaX, deltaY) >= dragThreshold) {
+      feedbackDrag.moved = true;
+    }
+    if (!feedbackDrag.dragging && Math.abs(deltaY) < dragThreshold) return;
     if (!feedbackDrag.dragging) {
       feedbackDrag.dragging = true;
       elements.feedbackTrigger.classList.remove("is-nudged");
@@ -443,7 +442,7 @@
     }
     event.preventDefault();
     const bounded = applyFeedbackPixelPosition(
-      feedbackDrag.startLeft + deltaX,
+      feedbackDrag.startLeft,
       feedbackDrag.startTop + deltaY
     );
     feedbackDrag.left = bounded.left;
@@ -462,6 +461,13 @@
       // Pointer capture may already be released by the browser.
     }
     if (!completed.dragging) {
+      if (completed.moved) {
+        suppressFeedbackClick = true;
+        setTimeout(() => {
+          suppressFeedbackClick = false;
+        }, 0);
+        return;
+      }
       if (event.type === "pointerup" && event.pointerType !== "mouse") {
         suppressFeedbackClick = true;
         setTimeout(() => {
