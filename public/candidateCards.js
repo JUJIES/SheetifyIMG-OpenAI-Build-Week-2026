@@ -23,21 +23,12 @@
     function renderCandidateLineageBadges(candidate = {}, options = {}) {
       const showConceptTag = options.showConceptTag !== false;
       const badges = [showConceptTag ? candidate.conceptDisplayLabel : null].filter(Boolean);
-      const referenceCount = Array.isArray(candidate.generation?.referenceImages)
-        ? candidate.generation.referenceImages.length
-        : 0;
-      const referenceBadge = referenceCount
-        ? (global.sheetifyLocale?.current() === "en"
-          ? `${referenceCount} reference${referenceCount === 1 ? "" : "s"}`
-          : `${referenceCount} Referenz${referenceCount === 1 ? "" : "en"}`)
-        : null;
-      const allBadges = [...badges, referenceBadge].filter(Boolean);
-      if (!allBadges.length) {
+      if (!badges.length) {
         return "";
       }
       return `
         <span class="candidate-lineage-badges">
-          ${allBadges.map((badge) => `<span class="candidate-lineage-badge">${escapeHtml(badge)}</span>`).join("")}
+          ${badges.map((badge) => `<span class="candidate-lineage-badge">${escapeHtml(badge)}</span>`).join("")}
         </span>
       `;
     }
@@ -172,6 +163,16 @@
       `;
     }
 
+    function renderCandidateRevisionAction(candidate = {}) {
+      const label = t("app.draft.adjust");
+      return `
+        <button class="secondary-button mini-button candidate-revise-button" type="button" data-card-action="revise-candidate" ${candidateActionAttributes(candidate)} aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">
+          ${icon("square-pen", "icon icon-small")}
+          <span>${escapeHtml(label)}</span>
+        </button>
+      `;
+    }
+
     function renderCandidateCard(candidate, workspace = {}, options = {}) {
       const pages = (candidate.pages || []).filter((page) => page.url);
       const firstPage = pages[0];
@@ -227,6 +228,7 @@
             `).join("")}
           </div>
           <div class="candidate-card-actions">
+            ${renderCandidateRevisionAction(candidate)}
             ${renderCandidateWorksheetStoreAction(candidate, pages.length, workspace)}
           </div>
         </figure>

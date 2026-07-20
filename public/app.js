@@ -249,7 +249,7 @@ const state = {
   }
 };
 
-const spriteHref = "/icons/lucide-sprite.svg?v=16";
+const spriteHref = "/icons/lucide-sprite.svg?v=21";
 const worksheetShareFileCache = new Map();
 let pendingInitialRoute = initialRoute;
 let backgroundRefreshTimer = null;
@@ -361,7 +361,9 @@ const elements = {
   confirmationTitle: document.querySelector("#confirmationTitle"),
   confirmationMessage: document.querySelector("#confirmationMessage"),
   confirmationExtra: document.querySelector("#confirmationExtra"),
+  confirmationPopoverHost: document.querySelector("#confirmationPopoverHost"),
   confirmationCancelButton: document.querySelector("#confirmationCancelButton"),
+  confirmationAccessoryButton: document.querySelector("#confirmationAccessoryButton"),
   confirmationAcceptButton: document.querySelector("#confirmationAcceptButton"),
   manualCopyModal: document.querySelector("#manualCopyModal"),
   manualCopyText: document.querySelector("#manualCopyText"),
@@ -458,7 +460,7 @@ const canvasLabels = {
   lessonbrief_proposal: "Arbeitsblatt-Konzept",
   content_proposal: "Arbeitsblatt-Bauplan",
   warnings_proposal: "Konzept-Feedback",
-  image_spec_proposal: "Referenz/Vorlage"
+  image_spec_proposal: "Interne Bildplanung"
 };
 
 const CANVAS_DEFAULT_WIDTH = 520;
@@ -2346,31 +2348,36 @@ function revisionTargetDisplayLabel(target = null) {
   if (!target) {
     return "";
   }
+  const english = appLocale?.current() === "en";
+  const conceptWord = english ? "Concept" : "Konzept";
   if (target.kind === "concept") {
     const label = String(target.label || "").trim();
-    if (/offener\s+konzeptvorschlag/i.test(label)) {
+    if (/offener\s+konzeptvorschlag|open\s+concept\s+proposal/i.test(label)) {
       const elementLabel = textTargetValue(target.elementLabel, 120);
       return elementLabel
-        ? `${elementLabel} · Offener Konzeptvorschlag`
-        : "Offener Konzeptvorschlag";
+        ? `${conceptWord}: ${elementLabel}`
+        : english ? "Open concept proposal" : "Offener Konzeptvorschlag";
     }
-    const labelVersion = label.match(/\b(?:AB-Konzept|Arbeitsblatt-Konzept|Konzept|Version|v)\s*v?(\d+)\b/i);
+    const labelVersion = label.match(/\b(?:AB-Konzept|Arbeitsblatt-Konzept|Konzept|Concept|Version|v)\s*v?(\d+)\b/i);
     const version = numberTargetValue(target.conceptVersion || labelVersion?.[1]);
     const elementLabel = textTargetValue(target.elementLabel, 120);
     if (elementLabel) {
-      return version ? `Konzept v${version} · ${elementLabel}` : `Konzept · ${elementLabel}`;
+      return version ? `${conceptWord} v${version}: ${elementLabel}` : `${conceptWord}: ${elementLabel}`;
     }
     if (version) {
-      return `Konzept v${version}`;
+      return `${conceptWord} v${version}`;
     }
     return label
-      ? label.replace(/^AB-Konzept\b/i, "Konzept").replace(/^Arbeitsblatt-Konzept\b/i, "Konzept")
-      : "Konzept";
+      ? label
+        .replace(/^AB-Konzept\b/i, conceptWord)
+        .replace(/^Arbeitsblatt-Konzept\b/i, conceptWord)
+        .replace(/^Konzept\b/i, conceptWord)
+      : conceptWord;
   }
   if (target.label) {
-    return target.label;
+    return english ? String(target.label).replace(/^Entwurf\b/i, "Draft") : target.label;
   }
-  return target.candidateId ? draftDisplayLabel({ id: target.candidateId }) : "Entwurf";
+  return target.candidateId ? draftDisplayLabel({ id: target.candidateId }) : t("app.draft.label", { number: "" }).trim();
 }
 
 function renderRevisionTargetPill() {
@@ -2399,7 +2406,7 @@ function renderRevisionTargetPill() {
 function setRevisionTarget(target = null, options = {}) {
   const normalized = normalizeRevisionTarget(target);
   if (!normalized) {
-    showToast("Bearbeitungsbezug konnte nicht gesetzt werden.", "error");
+    showToast("Änderungsziel konnte nicht gesetzt werden.", "error");
     return false;
   }
   state.revisionTarget = normalized;
@@ -5157,14 +5164,14 @@ function renderInfoRow(label, value) {
 
 function referencePolicyLabel(policy = {}) {
   if (!policy || policy.level === "none") {
-    return "Keine Referenz nötig";
+    return "Keine Vorlage nötig";
   }
-  return policy.label || {
+  return (policy.label ? String(policy.label).replace(/Referenz/gi, "Vorlage") : null) || {
     deterministic: "Exaktheit beachten",
-    required: "Referenz sinnvoll",
-    recommended: "Referenz empfohlen",
-    optional: "Referenz optional"
-  }[policy.level] || "Referenzhinweis";
+    required: "Vorlage sinnvoll",
+    recommended: "Vorlage empfohlen",
+    optional: "Vorlage optional"
+  }[policy.level] || "Vorlagenhinweis";
 }
 
 function referencePolicySummary(policy = {}) {
@@ -5172,11 +5179,11 @@ function referencePolicySummary(policy = {}) {
     return "Das Bildmodell kann diese Visualisierung voraussichtlich ohne spezielle Vorlage erzeugen.";
   }
   const source = policy.preferredSource === "app_template"
-    ? "Spezialvorlagen sind im normalen Ablauf deaktiviert; bei Bedarf ein eigenes Referenzbild anhängen."
+    ? "Spezialvorlagen sind im normalen Ablauf deaktiviert; bei Bedarf eine eigene Vorlage anhängen."
     : policy.preferredSource === "user_upload_or_reference_search"
-      ? "Am besten mit hochgeladener Referenz oder optionaler offener Bildreferenz."
+      ? "Am besten mit einer hochgeladenen Vorlage."
       : policy.preferredSource === "app_template_or_user_upload"
-        ? "Am besten mit hochgeladener Referenz."
+        ? "Am besten mit einer hochgeladenen Vorlage."
         : "";
   const action = policy.suggestedAction || "";
   return [policy.reason, source, action].filter(Boolean).join(" ");
@@ -5210,21 +5217,21 @@ function renderCandidateInfo(candidate) {
       ${renderInfoRow("Abrechnung", billing?.providerLabel)}
       ${renderInfoRow("Nutzung", usage)}
       ${renderInfoRow("Interne Bildplanung", generation.imageSpecSummary || generation.imageSpecProposalId)}
-      ${renderInfoRow("Referenz", referencePolicy ? referencePolicyLabel(referencePolicy) : "")}
+      ${renderInfoRow("Bildgrundlage", referencePolicy ? referencePolicyLabel(referencePolicy) : "")}
       ${renderInfoRow("Konzept", draftVersionLabel(candidate) || conceptLabel(candidate.concept || candidate))}
     </section>
     ${referencePolicy ? `
       <section class="candidate-info-section">
-        <p class="detail-label">Referenz/Vorlage</p>
+        <p class="detail-label">Bildgrundlage</p>
         <p>${escapeHtml(referencePolicySummary(referencePolicy))}</p>
       </section>
     ` : ""}
     ${referenceImages.length ? `
       <section class="candidate-info-section">
-        <p class="detail-label">Beigelegte Referenzen</p>
+        <p class="detail-label">Verwendete Bilder</p>
         <div class="candidate-reference-list">
           ${referenceImages.map((reference) => `
-            <span>${escapeHtml(reference.role || "Referenz")} · ${escapeHtml(fileName(reference.path) || reference.path)}</span>
+            <span>${escapeHtml(roleLabel(reference.role) || "Bild")} · ${escapeHtml(fileName(reference.path) || reference.path)}</span>
           `).join("")}
         </div>
       </section>
@@ -7912,7 +7919,7 @@ function runReferenceRoleOptions() {
   ];
 }
 function roleLabel(role = "") {
-  return runReferenceRoleOptions().find((option) => option.value === role)?.label || "Referenz";
+  return runReferenceRoleOptions().find((option) => option.value === role)?.label || "Bild";
 }
 
 function runReferencePurpose(role = "", label = "") {
@@ -8070,7 +8077,7 @@ function generationConfirmationContext(command = {}, payload = {}, selection = [
   if (target?.kind === "draft") {
     const candidate = candidates.find((entry) => entry.id === target.candidateId
       && (!target.runId || !entry.runId || entry.runId === target.runId));
-    const draftLabel = target.label || (candidate ? draftDisplayLabel(candidate) : null) || t("app.draft.label", { number: "" }).trim();
+    const draftLabel = revisionTargetDisplayLabel(target) || (candidate ? draftDisplayLabel(candidate) : null) || t("app.draft.label", { number: "" }).trim();
     return {
       mode: "revision",
       title: t("app.generation.revision.title", { draft: draftLabel }),
@@ -8208,20 +8215,145 @@ function pageTargetOptions(pageCount = 1, selectedPage = 0) {
     })
   ].join("");
 }
-function renderRunReferenceSelector({ command = {}, payload = {}, selection = [], sources = [], uploading = false } = {}) {
-  const pageCount = commandPageCount(command, payload) || 1;
-  const roleOptions = runReferenceRoleOptions();
+function generationAllowsTemplatePicker(context = {}) {
+  return ["first", "proposal", "variant"].includes(context.mode);
+}
+
+function isOptionalTemplateReference(reference = {}, context = {}) {
+  return !context.basisReferences.includes(reference) && reference.role !== "material_image";
+}
+
+function selectedTemplateReference(selection = [], context = {}) {
+  return selection.find((reference) => isOptionalTemplateReference(reference, context)) || null;
+}
+
+function sourceAsTemplateReference(source = {}) {
+  const label = source.label || fileName(source.path) || t("app.generation.template.button");
+  return {
+    localId: `template_${source.key || source.path}`,
+    key: source.key,
+    label,
+    path: source.path,
+    url: source.url,
+    role: "style_layout_reference",
+    targetPage: 0,
+    userDetails: "",
+    source: source.source || null
+  };
+}
+
+function simplifyTemplateSelection(command = {}, payload = {}, sources = [], selection = []) {
   const context = generationConfirmationContext(command, payload, selection);
-  const additionalEntries = selection
-    .map((reference, index) => ({ reference, index }))
-    .filter(({ reference }) => !context.basisReferences.includes(reference));
-  const availableToAdd = sources.filter((source) => !selection.some((reference) => reference.path === source.path));
-  const sourceOptions = availableToAdd.map((source) => `
-    <option value="${escapeHtml(source.key)}">${escapeHtml(`${source.label} · ${source.detail}`)}</option>
-  `).join("");
-  const extraSummary = additionalEntries.length
-    ? t("app.generation.extra.summaryCount", { count: additionalEntries.length })
-    : t("app.generation.extra.summary");
+  const basisReferences = context.basisReferences;
+  const materialReferences = selection.filter((reference) => (
+    !basisReferences.includes(reference) && reference.role === "material_image"
+  ));
+  if (!generationAllowsTemplatePicker(context)) {
+    return [...basisReferences, ...materialReferences].slice(0, 4);
+  }
+  const template = selectedTemplateReference(selection, context);
+  const source = template ? sources.find((entry) => entry.path === template.path) : null;
+  const normalizedTemplate = template
+    ? {
+      ...(source ? sourceAsTemplateReference(source) : template),
+      role: "style_layout_reference",
+      targetPage: 0,
+      userDetails: ""
+    }
+    : null;
+  return [...basisReferences, ...materialReferences, ...(normalizedTemplate ? [normalizedTemplate] : [])].slice(0, 4);
+}
+
+function generationCreditLabel(command = {}, payload = {}) {
+  const count = Math.max(1, commandPageCount(command, payload));
+  return t(count === 1 ? "app.generation.credit.one" : "app.generation.credit.many", { count });
+}
+
+function renderTemplateMenuItem(source = {}, selectedPath = "") {
+  const selected = source.path === selectedPath;
+  const actionLabel = selected
+    ? t("app.generation.template.remove")
+    : `${t("app.generation.template.button")}: ${source.label}`;
+  const sourceIcon = source.kind === "candidate_page" ? "images" : "upload";
+  const sourceDetail = t(source.kind === "candidate_page"
+    ? "app.generation.template.sourceDraft"
+    : "app.generation.template.sourceProjectImage");
+  return `
+    <button
+      class="run-template-menu-item ${selected ? "is-selected" : ""}"
+      type="button"
+      data-run-template-source="${escapeHtml(source.key)}"
+      role="menuitemradio"
+      aria-checked="${selected ? "true" : "false"}"
+      aria-label="${escapeHtml(actionLabel)}"
+    >
+      <span class="run-template-menu-check">${icon(selected ? "check" : sourceIcon, "icon icon-small")}</span>
+      <span class="run-template-menu-copy">
+        <strong>${escapeHtml(source.label)}</strong>
+        <small>${escapeHtml(sourceDetail)}</small>
+      </span>
+    </button>
+  `;
+}
+
+function renderTemplatePopover({ selection = [], sources = [], context = {} } = {}) {
+  const template = selectedTemplateReference(selection, context);
+  const menuSources = sources.filter((source) => ["candidate_page", "input_upload"].includes(source.kind));
+  return `
+    <section class="run-template-popover" data-run-template-picker data-run-template-popover role="menu" aria-label="${escapeHtml(t("app.generation.template.title"))}">
+      <strong class="run-template-popover-title">${escapeHtml(t("app.generation.template.button"))}</strong>
+      <div class="run-template-menu">
+        <button
+          class="run-template-menu-item ${template ? "" : "is-selected"}"
+          type="button"
+          data-run-template-clear
+          role="menuitemradio"
+          aria-checked="${template ? "false" : "true"}"
+        >
+          <span class="run-template-menu-check">${template ? "" : icon("check", "icon icon-small")}</span>
+          <span>${escapeHtml(t("app.generation.template.none"))}</span>
+        </button>
+        ${menuSources.map((source) => renderTemplateMenuItem(source, template?.path || "")).join("")}
+      </div>
+      <div class="run-template-menu-separator"></div>
+      <button class="run-template-menu-item run-template-upload" type="button" data-run-template-upload role="menuitem">
+        <span class="run-template-menu-check">${icon("upload", "icon icon-small")}</span>
+        <span>${escapeHtml(t("app.generation.template.fromFile"))}</span>
+      </button>
+    </section>
+  `;
+}
+
+function positionTemplatePopover(popoverHost, anchor) {
+  if (!popoverHost || !anchor || popoverHost.classList.contains("hidden")) {
+    return;
+  }
+  const anchorRect = anchor.getBoundingClientRect();
+  const width = Math.min(360, Math.max(240, window.innerWidth - 24));
+  const left = Math.max(12, Math.min(anchorRect.left, window.innerWidth - width - 12));
+  popoverHost.style.width = `${width}px`;
+  popoverHost.style.left = `${left}px`;
+  popoverHost.style.bottom = `${Math.max(12, window.innerHeight - anchorRect.top + 8)}px`;
+}
+
+function generationUsesCompactConfirmation(context = {}) {
+  return generationAllowsTemplatePicker(context) || context.mode === "revision";
+}
+
+function renderRunReferenceSelector({ command = {}, payload = {}, selection = [], uploading = false } = {}) {
+  const context = generationConfirmationContext(command, payload, selection);
+  const compact = generationUsesCompactConfirmation(context);
+  const materialCount = selection.filter((reference) => reference.role === "material_image").length;
+  if (compact) {
+    return `
+      <section class="run-reference-panel is-minimal" data-generation-mode="${escapeHtml(context.mode)}">
+        <p class="run-reference-credit-note">${escapeHtml(generationCreditLabel(command, payload))}</p>
+        ${materialCount ? `<p class="run-reference-material-note">${escapeHtml(t(materialCount === 1 ? "app.generation.material.one" : "app.generation.material.many", { count: materialCount }))}</p>` : ""}
+        <input class="sr-only" type="file" accept="image/*" data-run-template-file-input>
+        ${uploading ? `<p class="run-template-empty">${escapeHtml(t("app.generation.template.uploading"))}</p>` : ""}
+      </section>
+    `;
+  }
   return `
     <section class="run-reference-panel" data-generation-mode="${escapeHtml(context.mode)}">
       <header>
@@ -8238,178 +8370,121 @@ function renderRunReferenceSelector({ command = {}, payload = {}, selection = []
         </div>
       </div>
       <p class="run-reference-provider-note">${escapeHtml(generationProviderNote(payload))}</p>
-      <details class="run-reference-advanced" ${additionalEntries.length ? "open" : ""}>
-        <summary>${escapeHtml(extraSummary)}</summary>
-        <div class="run-reference-advanced-content">
-          <div class="run-reference-add-row">
-            <label class="run-reference-source-field">
-              <span class="sr-only">${escapeHtml(t("app.generation.extra.source"))}</span>
-              <select data-run-reference-source ${availableToAdd.length ? "" : "disabled"} aria-label="${escapeHtml(t("app.generation.extra.source"))}">
-                ${sourceOptions || `<option>${escapeHtml(t("app.generation.extra.none"))}</option>`}
-              </select>
-            </label>
-            <button class="secondary-button mini-button" type="button" data-run-reference-add ${availableToAdd.length && selection.length < 4 ? "" : "disabled"}>${escapeHtml(t("app.generation.extra.add"))}</button>
-            <button class="secondary-button mini-button" type="button" data-run-reference-upload ${uploading || selection.length >= 4 ? "disabled" : ""}>${escapeHtml(t("app.generation.extra.upload"))}</button>
-            <input class="sr-only" type="file" accept="image/*" multiple data-run-reference-file-input>
-          </div>
-          ${uploading ? `<p class="run-reference-note">${escapeHtml(t("app.generation.extra.uploading"))}</p>` : ""}
-          ${additionalEntries.length ? `
-            <div class="run-reference-list">
-              ${additionalEntries.map(({ reference, index }) => `
-                <article class="run-reference-item" data-run-reference-index="${index}">
-                  <div class="run-reference-thumb">
-                    ${reference.url ? `<img src="${escapeHtml(reference.url)}" alt="">` : ""}
-                  </div>
-                  <div class="run-reference-fields">
-                    <div class="run-reference-item-header">
-                      <strong>${escapeHtml(reference.label || fileName(reference.path) || t("app.generation.basis.concept"))}</strong>
-                      <button class="icon-button icon-button-plain" type="button" data-run-reference-remove="${index}" aria-label="${escapeHtml(t("app.generation.reference.remove"))}" title="${escapeHtml(t("app.generation.reference.remove"))}">${icon("x", "icon icon-small")}</button>
-                    </div>
-                    <div class="run-reference-controls">
-                      <label>
-                        <span>${escapeHtml(t("app.generation.reference.function"))}</span>
-                        <select data-run-reference-role="${index}">
-                          ${roleOptions.map((option) => `<option value="${escapeHtml(option.value)}" ${option.value === reference.role ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
-                        </select>
-                        <em>${escapeHtml(roleOptions.find((option) => option.value === reference.role)?.description || t("app.generation.reference.styleDescription"))}</em>
-                      </label>
-                      <label>
-                        <span>${escapeHtml(t("app.generation.reference.appliesTo"))}</span>
-                        <select data-run-reference-page="${index}">
-                          ${pageTargetOptions(pageCount, reference.targetPage)}
-                        </select>
-                      </label>
-                    </div>
-                    <label class="run-reference-detail">
-                      <span>${escapeHtml(t("app.generation.reference.details"))}</span>
-                      <textarea data-run-reference-details="${index}" rows="2" maxlength="220" placeholder="${escapeHtml(roleLabel(reference.role))}">${escapeHtml(reference.userDetails || "")}</textarea>
-                    </label>
-                  </div>
-                </article>
-              `).join("")}
-            </div>
-          ` : `<p class="run-reference-note">${escapeHtml(t("app.generation.extra.none"))}</p>`}
-        </div>
-      </details>
     </section>
   `;
 }
+
 async function requestImageGenerationConfirmation(command = {}, payload = {}) {
   let sources = availableRunReferenceSources(state.workspace);
   let selection = initialRunReferenceSelection(payload, sources);
   selection = ensureDraftBasisSelection(payload, sources, selection);
+  selection = simplifyTemplateSelection(command, payload, sources, selection);
   let uploading = false;
   let extraHost = null;
+  let popoverHost = null;
+  let templatePickerOpen = false;
+
+  const replaceTemplate = (source = null) => {
+    const context = generationConfirmationContext(command, payload, selection);
+    const current = selectedTemplateReference(selection, context);
+    const keep = selection.filter((reference) => !isOptionalTemplateReference(reference, context));
+    selection = source && current?.path !== source.path
+      ? [...keep, sourceAsTemplateReference(source)].slice(0, 4)
+      : keep;
+  };
 
   const render = () => {
-    if (!extraHost) {
+    if (!extraHost || !popoverHost) {
       return;
     }
+    const context = generationConfirmationContext(command, payload, selection);
+    const template = selectedTemplateReference(selection, context);
     extraHost.innerHTML = renderRunReferenceSelector({
       command,
       payload,
       selection,
-      sources,
       uploading
     });
+    if (generationAllowsTemplatePicker(context) && templatePickerOpen) {
+      popoverHost.innerHTML = renderTemplatePopover({ selection, sources, context });
+      popoverHost.classList.remove("hidden");
+    } else {
+      popoverHost.innerHTML = "";
+      popoverHost.classList.add("hidden");
+    }
+
+    const accessory = elements.confirmationAccessoryButton;
+    if (accessory && generationAllowsTemplatePicker(context)) {
+      accessory.innerHTML = `${icon("paperclip", "icon icon-small")}<span>${escapeHtml(t("app.generation.template.button"))}</span>${template ? `<span class="confirmation-template-state">${icon("check", "icon icon-small")}</span>` : ""}`;
+      accessory.classList.toggle("is-active", Boolean(template));
+      accessory.setAttribute("aria-expanded", templatePickerOpen ? "true" : "false");
+      accessory.setAttribute("aria-haspopup", "menu");
+      accessory.title = template?.label || t("app.generation.template.title");
+      positionTemplatePopover(popoverHost, accessory);
+    }
+
     const sourceByKey = new Map(sources.map((source) => [source.key, source]));
-    extraHost.querySelector("[data-run-reference-add]")?.addEventListener("click", () => {
-      const select = extraHost.querySelector("[data-run-reference-source]");
-      const source = sourceByKey.get(select?.value);
-      if (!source || selection.length >= 4) {
-        return;
-      }
-      selection = [...selection, {
-        localId: `ref_${Date.now()}_${selection.length}`,
-        key: source.key,
-        label: source.label,
-        path: source.path,
-        url: source.url,
-        role: source.defaultRole || "style_reference",
-        targetPage: 0,
-        userDetails: "",
-        source: source.source || null
-      }];
+    popoverHost.querySelectorAll("[data-run-template-source]").forEach((button) => {
+      button.addEventListener("click", () => {
+        replaceTemplate(sourceByKey.get(button.dataset.runTemplateSource) || null);
+        templatePickerOpen = false;
+        render();
+      });
+    });
+    popoverHost.querySelector("[data-run-template-clear]")?.addEventListener("click", () => {
+      replaceTemplate(null);
+      templatePickerOpen = false;
       render();
     });
-    extraHost.querySelector("[data-run-reference-upload]")?.addEventListener("click", () => {
-      extraHost.querySelector("[data-run-reference-file-input]")?.click();
+    popoverHost.querySelector("[data-run-template-upload]")?.addEventListener("click", () => {
+      extraHost.querySelector("[data-run-template-file-input]")?.click();
     });
-    extraHost.querySelector("[data-run-reference-file-input]")?.addEventListener("change", async (event) => {
+    extraHost.querySelector("[data-run-template-file-input]")?.addEventListener("change", async (event) => {
       uploading = true;
       render();
       try {
         const uploaded = await uploadRunReferenceFiles(event.currentTarget.files);
         sources = [...availableRunReferenceSources(state.workspace), ...uploaded]
           .filter((source, index, list) => list.findIndex((entry) => entry.path === source.path) === index);
-        const additions = uploaded
-          .filter((source) => !selection.some((reference) => reference.path === source.path))
-          .slice(0, Math.max(0, 4 - selection.length))
-          .map((source) => ({
-            localId: `ref_upload_${Date.now()}_${source.key}`,
-            key: source.key,
-            label: source.label,
-            path: source.path,
-            url: source.url,
-            role: source.defaultRole || "material_image",
-            targetPage: 0,
-            userDetails: "",
-            source: source.source || null
-          }));
-        selection = [...selection, ...additions].slice(0, 4);
+        if (uploaded[0]) {
+          replaceTemplate(uploaded[0]);
+        }
       } catch (error) {
         showToast(error.message, "error");
       } finally {
         uploading = false;
+        templatePickerOpen = false;
         render();
       }
-    });
-    extraHost.querySelectorAll("[data-run-reference-remove]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const index = Number(button.dataset.runReferenceRemove);
-        selection = selection.filter((_, itemIndex) => itemIndex !== index);
-        render();
-      });
-    });
-    extraHost.querySelectorAll("[data-run-reference-role]").forEach((select) => {
-      select.addEventListener("change", () => {
-        const index = Number(select.dataset.runReferenceRole);
-        selection = selection.map((reference, itemIndex) => itemIndex === index
-          ? { ...reference, role: select.value || "style_reference" }
-          : reference);
-        render();
-      });
-    });
-    extraHost.querySelectorAll("[data-run-reference-page]").forEach((select) => {
-      select.addEventListener("change", () => {
-        const index = Number(select.dataset.runReferencePage);
-        selection = selection.map((reference, itemIndex) => itemIndex === index
-          ? { ...reference, targetPage: Number(select.value || 0) || 0 }
-          : reference);
-      });
-    });
-    extraHost.querySelectorAll("[data-run-reference-details]").forEach((textarea) => {
-      textarea.addEventListener("input", () => {
-        const index = Number(textarea.dataset.runReferenceDetails);
-        selection = selection.map((reference, itemIndex) => itemIndex === index
-          ? { ...reference, userDetails: textarea.value }
-          : reference);
-      });
     });
   };
 
   const context = generationConfirmationContext(command, payload, selection);
+  const canChooseTemplate = generationAllowsTemplatePicker(context);
+  const compact = generationUsesCompactConfirmation(context);
   return requestConfirmation({
-    eyebrow: t("app.generation.basis.review"),
+    eyebrow: compact ? "" : t("app.generation.basis.review"),
     title: context.title,
-    message: context.message,
+    message: context.mode === "revision"
+      ? t("app.generation.revision.target", { draft: context.basisLabel })
+      : canChooseTemplate
+        ? t("app.generation.basis.from", { basis: context.basisLabel })
+        : context.message,
     acceptLabel: context.acceptLabel,
+    acceptIcon: context.mode === "revision" ? "square-pen" : context.mode === "variant" ? "rotate-cw" : "",
+    accessoryLabel: canChooseTemplate ? t("app.generation.template.button") : "",
     compact: true,
+    minimal: compact,
     variant: "reference",
     extraHtml: "<div></div>",
-    onRender: (host) => {
-      extraHost = host;
+    onAccessory: () => {
+      templatePickerOpen = !templatePickerOpen;
       render();
+    },
+    onRender: (host, confirmationPopoverHost) => {
+      extraHost = host;
+      popoverHost = confirmationPopoverHost;
+      requestAnimationFrame(render);
     },
     onAccept: () => {
       if (uploading) {
@@ -8429,6 +8504,7 @@ async function requestImageGenerationConfirmation(command = {}, payload = {}) {
     }
   });
 }
+
 function requestConfirmation(options = {}) {
   return new Promise((resolve) => {
     const modal = elements.confirmationModal;
@@ -8437,6 +8513,8 @@ function requestConfirmation(options = {}) {
     const title = elements.confirmationTitle;
     const message = elements.confirmationMessage;
     const extra = elements.confirmationExtra;
+    const popover = elements.confirmationPopoverHost;
+    const accessory = elements.confirmationAccessoryButton;
     const accept = elements.confirmationAcceptButton;
     const cancel = elements.confirmationCancelButton;
     if (!modal || !title || !message || !accept || !cancel) {
@@ -8445,20 +8523,34 @@ function requestConfirmation(options = {}) {
     }
 
     if (eyebrow) {
-      eyebrow.textContent = options.eyebrow || "Bestätigung";
+      eyebrow.textContent = options.eyebrow || "";
+      eyebrow.classList.toggle("hidden", !options.eyebrow);
     }
     card?.classList.toggle("confirmation-card-compact", Boolean(options.compact));
     modal.classList.toggle("confirmation-modal-reference", options.variant === "reference");
+    modal.classList.toggle("confirmation-modal-minimal", Boolean(options.minimal));
+    const hasAccessory = Boolean(accessory && options.accessoryLabel);
+    modal.classList.toggle("confirmation-has-accessory", hasAccessory);
+    if (accessory) {
+      accessory.classList.toggle("hidden", !hasAccessory);
+      accessory.classList.remove("is-active");
+      accessory.setAttribute("aria-expanded", "false");
+      accessory.innerHTML = hasAccessory
+        ? `${icon("paperclip", "icon icon-small")}<span>${escapeHtml(options.accessoryLabel)}</span>`
+        : "";
+    }
     title.textContent = options.title || "Aktion bestätigen?";
     message.textContent = options.message || "Diese Aktion kann nicht automatisch rückgängig gemacht werden.";
     if (extra) {
       extra.innerHTML = options.extraHtml || "";
       extra.classList.toggle("hidden", !options.extraHtml);
       if (options.extraHtml && typeof options.onRender === "function") {
-        options.onRender(extra);
+        options.onRender(extra, popover);
       }
     }
-    accept.textContent = options.acceptLabel || "Bestätigen";
+    accept.innerHTML = options.acceptIcon
+      ? `${icon(options.acceptIcon, "icon icon-small")}<span>${escapeHtml(options.acceptLabel || "Bestätigen")}</span>`
+      : escapeHtml(options.acceptLabel || "Bestätigen");
     cancel.textContent = options.cancelLabel || "Abbrechen";
     accept.classList.toggle("danger-button", Boolean(options.danger));
     modal.classList.remove("hidden");
@@ -8467,18 +8559,40 @@ function requestConfirmation(options = {}) {
     const cleanup = (value) => {
       modal.classList.add("hidden");
       modal.classList.remove("confirmation-modal-reference");
+      modal.classList.remove("confirmation-modal-minimal");
+      modal.classList.remove("confirmation-has-accessory");
       card?.classList.remove("confirmation-card-compact");
       accept.classList.remove("danger-button");
       if (extra) {
         extra.innerHTML = "";
         extra.classList.add("hidden");
       }
+      if (popover) {
+        popover.innerHTML = "";
+        popover.classList.add("hidden");
+        popover.removeAttribute("style");
+      }
+      eyebrow?.classList.remove("hidden");
       cancel.textContent = "Abbrechen";
+      if (accessory) {
+        accessory.classList.add("hidden");
+        accessory.classList.remove("is-active");
+        accessory.innerHTML = "";
+        accessory.setAttribute("aria-expanded", "false");
+        accessory.removeAttribute("aria-haspopup");
+        accessory.removeEventListener("click", onAccessory);
+      }
       accept.removeEventListener("click", onAccept);
       cancel.removeEventListener("click", onCancel);
       modal.removeEventListener("click", onBackdrop);
       document.removeEventListener("keydown", onKeydown);
       resolve(value);
+    };
+    const onAccessory = (event) => {
+      event.preventDefault();
+      if (typeof options.onAccessory === "function") {
+        options.onAccessory(extra, accessory);
+      }
     };
     const onAccept = () => {
       const value = typeof options.onAccept === "function" ? options.onAccept(extra) : true;
@@ -8501,6 +8615,7 @@ function requestConfirmation(options = {}) {
 
     accept.addEventListener("click", onAccept);
     cancel.addEventListener("click", onCancel);
+    accessory?.addEventListener("click", onAccessory);
     modal.addEventListener("click", onBackdrop);
     document.addEventListener("keydown", onKeydown);
   });
@@ -9422,91 +9537,7 @@ function conceptPreviewFromMessage(message = {}, workspace = {}) {
     };
   }
   if (proposal?.kind === "image_spec") {
-    const spec = proposal.data || {};
-    const policy = spec.referencePolicy || {};
-    const references = spec.referenceImages || [];
-    return {
-      title: normalizeVisibleProductTerminology(spec.purpose || proposal.title || "Referenzbedarf"),
-      eyebrow: "Referenz/Vorlage",
-      canvasMode: "image_spec_proposal",
-      proposalRef: {
-        proposalId: proposal.proposalId || null,
-        kind: proposal.kind
-      },
-      summary: normalizeVisibleProductTerminology(referencePolicySummary(policy)),
-      rows: [
-        ["Visualisierung", normalizeVisibleProductTerminology(spec.topic)],
-        ["Referenz", normalizeVisibleProductTerminology(referencePolicyLabel(policy))],
-        ["Vorhanden", references.length ? `${references.length} Referenz${references.length === 1 ? "" : "en"}` : "keine"]
-      ],
-      sections: [
-        {
-          title: "Warum",
-          items: [normalizeVisibleProductTerminology(policy.reason || "Keine besondere Referenz oder Vorlage nötig.")]
-        },
-        {
-          title: "Nächster Schritt",
-          items: [normalizeVisibleProductTerminology(policy.suggestedAction || "Direkt Entwurf erstellen oder bei Bedarf eine Referenz im Chat anhängen.")]
-        }
-      ]
-    };
-  }
-  const content = workspace.documents?.content?.data || null;
-  if (content) {
-    const brief = workspace.documents?.brief?.data || {};
-    return {
-      title: content.title || workspace.project?.title || "Arbeitsblatt-Konzept",
-      eyebrow: "Arbeitsblatt-Konzept",
-      canvasMode: "content",
-      summary: workspace.approval?.canGenerate ? "Bereit für Entwürfe." : "Als Entwurf angelegt.",
-      rows: [
-        ["Texte", content.readingTexts?.length],
-        ["Aufgaben", content.tasks?.length],
-        ["Bildmaterial", content.imageMaterials?.length],
-        ["Status", statusWord(workspace.documents?.content?.status)]
-      ],
-      sections: conceptSectionsFromContent(content, {
-        brief,
-        project: workspace.project || {},
-        teachingContext: workspace.teachingContext || {}
-      }),
-      copyContext: {
-        project: workspace.project || {},
-        brief,
-        content,
-        teachingContext: workspace.teachingContext || {},
-        statusLabel: statusWord(workspace.documents?.content?.status),
-        eyebrow: "Arbeitsblatt-Konzept"
-      }
-    };
-  }
-  const brief = workspace.documents?.brief?.data || null;
-  if (brief) {
-    const sections = conceptSectionsFromContent({}, {
-      brief,
-      project: workspace.project || {},
-      teachingContext: workspace.teachingContext || {}
-    });
-    return {
-      title: brief.topic || workspace.project?.title || "Planungsstand",
-      eyebrow: "Planungsstand",
-      canvasMode: "brief",
-      summary: "Rahmen steht. Der konkrete Blattaufbau fehlt noch.",
-      rows: [
-        ["Fach", brief.subject],
-        ["Zielgruppe", brief.targetGroup],
-        ["Status", statusWord(workspace.documents?.brief?.status)]
-      ],
-      sections,
-      copyContext: {
-        project: workspace.project || {},
-        brief,
-        content: {},
-        teachingContext: workspace.teachingContext || {},
-        statusLabel: statusWord(workspace.documents?.brief?.status),
-        eyebrow: "Arbeitsblatt-Konzept"
-      }
-    };
+    return null;
   }
   return null;
 }
@@ -9585,8 +9616,7 @@ function isConceptViewerOnlyMessage(message = {}) {
   if (proposalKind === "lessonbrief" || proposalKind === "content_mirror") {
     return false;
   }
-  return message.productionCard?.kind === "concept"
-    || proposalKind === "image_spec";
+  return message.productionCard?.kind === "concept";
 }
 
 function isConceptNarrationMessage(message = {}) {
@@ -9620,7 +9650,7 @@ function renderProductionCard(message = {}, workspace = {}) {
   if (card?.kind === "candidate") {
     return renderCandidateChatCard(card, workspace);
   }
-  if (card?.kind === "concept" || message.proposal?.kind === "lessonbrief" || message.proposal?.kind === "content_mirror" || message.proposal?.kind === "image_spec") {
+  if (card?.kind === "concept" || message.proposal?.kind === "lessonbrief" || message.proposal?.kind === "content_mirror") {
     return renderConceptChatCard(message, workspace);
   }
   return "";
@@ -9630,7 +9660,14 @@ function messageDisplayContent(message = {}) {
   return message.content || "";
 }
 
-const hiddenLegacyCommandIds = new Set(["select_candidate", "prepare_export"]);
+const hiddenLegacyCommandIds = new Set([
+  "select_candidate",
+  "prepare_export",
+  "prepare_image_spec",
+  "prepare_reference_asset",
+  "prepare_web_reference_asset",
+  "adopt_image_spec"
+]);
 
 function isVisibleSuggestedAction(action = {}) {
   return !hiddenLegacyCommandIds.has(action.command || action.id);
@@ -9694,7 +9731,7 @@ function renderChatRevisionTarget(target = null) {
   }
   const label = revisionTargetDisplayLabel(normalized);
   return `
-    <div class="message-revision-target" data-kind="${escapeHtml(normalized.kind)}" title="${escapeHtml(`Bearbeitungsbezug: ${label}`)}">
+    <div class="message-revision-target" data-kind="${escapeHtml(normalized.kind)}" title="${escapeHtml(`Änderungsziel: ${label}`)}">
       ${icon("square-pen", "icon icon-small")}
       <span>${escapeHtml(label)}</span>
     </div>
@@ -9898,6 +9935,9 @@ function latestAssistantIsWaiting(workspace) {
 }
 
 function decisionButtons(command, workspace = state.workspace) {
+  if (!isVisibleSuggestedAction(command)) {
+    return [];
+  }
   if (command.id === "generate_image_candidate") {
     return [buttonActionForCommand(command, workspace)].filter(Boolean);
   }
@@ -9949,7 +9989,7 @@ function decisionButtonLabel(command) {
     return /weitere/i.test(command.label || "") ? "Weiteren mehrseitigen Entwurf erstellen" : "Mehrseitigen Entwurf erstellen";
   }
   if (command.id === "generate_image_candidate" && /variante/i.test(command.label || "")) {
-    return appLocale?.current() === "en" ? "Create another draft" : "Weitere Entwurfsvariante erzeugen";
+    return appLocale?.current() === "en" ? "New draft" : "Neuer Entwurf";
   }
   if (command.id === "generate_content_mirror_proposal" && /überarbeiten|ueberarbeiten|aktualisieren/i.test(command.label || "")) {
     return "Konzept überarbeiten";
@@ -10629,10 +10669,6 @@ function canvasModeAfterCommand(commandId) {
     approve_current_content: "content",
     generate_content_warnings_proposal: "warnings_proposal",
     adopt_content_warnings_proposal: "warnings",
-    prepare_image_spec: "image_spec_proposal",
-    prepare_reference_asset: "image_spec_proposal",
-    prepare_web_reference_asset: "image_spec_proposal",
-    adopt_image_spec: "image_spec_proposal",
     create_run: "candidates",
     generate_image_candidate: "candidates",
     deposit_worksheet: "candidates"
@@ -10674,7 +10710,7 @@ function renderCanvas(workspace, mode) {
     lessonbrief_proposal: t("app.concept.title"),
     content_proposal: t("app.concept.title"),
     warnings_proposal: appLocale?.current() === "en" ? "Concept feedback" : "Konzept-Feedback",
-    image_spec_proposal: appLocale?.current() === "en" ? "Reference/template" : "Referenz/Vorlage"
+    image_spec_proposal: appLocale?.current() === "en" ? "Internal image planning" : "Interne Bildplanung"
   };
   const title = localizedCanvasLabels[mode] || canvasLabels[mode] || "Canvas";
   elements.canvasTitle.textContent = title;
@@ -10956,7 +10992,7 @@ function renderImageSpecProposal(proposal) {
   const promptPreview = spec.promptPreview || spec.finalPrompt || "";
   setCustomScrollContent(elements.canvasBody, `
     <article class="canvas-document">
-      <p class="detail-label">Referenz/Vorlage</p>
+      <p class="detail-label">Bildgrundlage</p>
       <h3>${escapeHtml(spec.purpose || proposal.title || "Referenzbedarf")}</h3>
       ${pagePlan.length ? `
         <section class="detail-section">
@@ -10991,7 +11027,7 @@ function renderImageSpecProposal(proposal) {
       </section>
       ${referencePolicy ? `
         <section class="detail-section">
-          <p class="detail-label">Referenz/Vorlage</p>
+          <p class="detail-label">Bildgrundlage</p>
           <p><strong>${escapeHtml(referencePolicyLabel(referencePolicy))}</strong></p>
           <p>${escapeHtml(referencePolicySummary(referencePolicy))}</p>
           ${referenceImages.length ? `<p class="detail-muted">${escapeHtml(referenceImages.length)} Referenz${referenceImages.length === 1 ? "" : "en"} vorhanden.</p>` : ""}

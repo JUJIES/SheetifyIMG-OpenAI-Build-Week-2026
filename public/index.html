@@ -17,7 +17,7 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/app-icon-180.png">
     <link rel="stylesheet" href="/vendor/simplebar/simplebar.min.css?v=1">
     <link rel="stylesheet" href="/brand.css?v=3">
-    <link rel="stylesheet" href="/styles.css?v=127">
+    <link rel="stylesheet" href="/styles.css?v=129">
     <link rel="stylesheet" href="/pass-ui.css?v=4">
     <link rel="stylesheet" href="/beta-experience.css?v=5">
     <link rel="stylesheet" href="/tutorial-center.css?v=2">
@@ -257,7 +257,7 @@
                         <use href="/icons/lucide-sprite.svg?v=9#square-pen"></use>
                       </svg>
                       <span id="revisionTargetLabel">Entwurf</span>
-                      <button type="button" id="revisionTargetClearButton" aria-label="Bearbeitungsbezug entfernen" title="Bearbeitungsbezug entfernen">
+                      <button type="button" id="revisionTargetClearButton" aria-label="Änderungsziel entfernen" title="Änderungsziel entfernen">
                         <svg class="icon icon-small" aria-hidden="true">
                           <use href="/icons/lucide-sprite.svg?v=15#x"></use>
                         </svg>
@@ -333,9 +333,11 @@
         <div class="confirmation-extra hidden" id="confirmationExtra"></div>
         <div class="confirmation-actions">
           <button class="secondary-button" type="button" id="confirmationCancelButton" data-i18n="common.cancel">Abbrechen</button>
+          <button class="secondary-button confirmation-template-button hidden" type="button" id="confirmationAccessoryButton" aria-expanded="false"></button>
           <button class="primary-button" type="button" id="confirmationAcceptButton" data-i18n="app.confirm.create">Entwurf erstellen</button>
         </div>
       </div>
+      <div class="confirmation-popover-host hidden" id="confirmationPopoverHost"></div>
     </div>
 
     <div class="manual-copy-modal hidden" id="manualCopyModal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="manualCopyTitle">
@@ -464,13 +466,13 @@
       </section>
     </div>
     <script src="/pwa.js?v=1"></script>
-    <script src="/candidateCards.js?v=3"></script>
+    <script src="/candidateCards.js?v=4"></script>
     <script src="/actionBindings.js?v=3"></script>
     <script src="/worksheetBlueprint.js?v=7"></script>
     <script src="/mobilePreviewRenderer.js?v=13"></script>
     <script src="/canvasRenderer.js?v=2"></script>
     <script src="/vendor/simplebar/simplebar.min.js?v=1"></script>
-    <script src="/locale.js?v=12"></script>
+    <script src="/locale.js?v=14"></script>
     <script>
       window.sheetifyLocale.set(window.sheetifyLocale.resolve({
         query: new URLSearchParams(window.location.search),
@@ -479,7 +481,7 @@
       }), { persistLocal: false });
       window.sheetifyLocale.apply(document);
     </script>
-    <script src="/app.js?v=205"></script>
+    <script src="/app.js?v=206"></script>
     <script src="/pass-ui.js?v=7"></script>
     <script src="/tutorial-center.js?v=2"></script>
     <script src="/beta-experience.js?v=11"></script>
