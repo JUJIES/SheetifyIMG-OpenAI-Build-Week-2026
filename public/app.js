@@ -571,8 +571,22 @@ function normalizeGermanDisplayText(value) {
     .replaceAll("eintraege", "einträge");
 }
 
+function localizedWorkflowText(value) {
+  const text = String(value ?? "");
+  if (appLocale?.current() !== "en") {
+    return text;
+  }
+  const exact = new Map([
+    ["Ich kann daraus jetzt einen Entwurf erstellen; die Bildgenerierung startet erst nach deiner bewussten Bestätigung.", "I can now create a draft from this concept. Image generation will only start after your explicit confirmation."],
+    ["Ich kann daraus jetzt einen Entwurf erstellen.", "I can now create a draft from this concept."],
+    ["Der Entwurf wird bereits im Hintergrund erstellt.", "The draft is already being created in the background."],
+    ["Der mehrseitige Entwurf wird bereits im Hintergrund erstellt.", "The multi-page draft is already being created in the background."]
+  ]);
+  return exact.get(text) || text;
+}
+
 function normalizeVisibleProductTerminology(value) {
-  return String(value ?? "")
+  const normalized = String(value ?? "")
     .replace(/\bcandidate_0*(\d+)\b/gi, (_, number) => `Entwurf ${String(Number(number)).padStart(2, "0")}`)
     .replace(/\bKandidatenvorbereitung\b/g, "Bildplanung")
     .replace(/\bKandidatenvorlage\b/g, "Entwurfsvorlage")
@@ -627,6 +641,7 @@ function normalizeVisibleProductTerminology(value) {
     .replace(/\bEntwurf erzeugen\b/g, "Entwurf erstellen")
     .replace(/\bKandidaten\b/g, "Entwürfe")
     .replace(/\bKandidat\b/g, "Entwurf");
+  return localizedWorkflowText(normalized);
 }
 
 function renderInlineRichText(value) {
@@ -3428,6 +3443,11 @@ function renderTreeFolder(folder, depth = 0) {
   const dragAttrs = canDrag ? ' draggable="true"' : "";
   const rootClass = folder.locked ? " root-folder" : " nested-folder";
   const folderColor = displayFolderColor(folder.color);
+  const folderLabel = folder.id === "folder:projects"
+    ? t("app.sidebar.projects")
+    : folder.id === "folder:worksheets"
+      ? t("app.sidebar.worksheets")
+      : folder.label;
   const colorStyle = [
     `--folder-fill: ${escapeHtml(folderColor || "none")}`,
     `--folder-shadow: ${folderColor ? "drop-shadow(0 1px 1px rgba(16, 24, 39, 0.12))" : "none"}`
@@ -3437,10 +3457,10 @@ function renderTreeFolder(folder, depth = 0) {
       <button class="tree-folder${collapsed ? " collapsed" : ""}" type="button" data-toggle-folder-id="${escapeHtml(folder.id)}"${contextAttrs}${dragAttrs}>
         ${renderIcon("chevron-right", "tree-chevron")}
         ${renderIcon(collapsed ? "folder" : "folder-open", "folder-glyph")}
-        <span>${escapeHtml(folder.label)}</span>
+        <span>${escapeHtml(folderLabel)}</span>
       </button>
       <div class="tree-children${collapsed ? " collapsed" : ""}">
-        ${children.length ? children.map((child) => renderTreeNode(child, folder.id, depth + 1)).join("") : '<div class="tree-item empty"><span class="tree-item-label muted">Noch leer</span></div>'}
+        ${children.length ? children.map((child) => renderTreeNode(child, folder.id, depth + 1)).join("") : `<div class="tree-item empty"><span class="tree-item-label muted">${escapeHtml(t("app.sidebar.emptyFolder"))}</span></div>`}
       </div>
     </section>
   `;
@@ -4426,10 +4446,12 @@ function renderProject(item, requestedStep = null) {
 function worksheetMetaRows(worksheet = {}) {
   const pageCount = Number(worksheet.pageCount || worksheet.pages?.length || 0);
   const sourceProject = worksheet.source?.projectTitle || worksheet.source?.projectId || "";
+  const defaultKind = pageCount > 1 ? t("app.worksheet.bundle") : t("app.preview.worksheet");
+  const kindLabel = appLocale?.current() === "en" ? defaultKind : worksheet.kindLabel || defaultKind;
   return [
-    { id: "kind", title: worksheet.kindLabel || (pageCount > 1 ? "Arbeitsblatt-Bundle" : "Arbeitsblatt"), state: pageCount ? `${pageCount} Seite${pageCount === 1 ? "" : "n"}` : "PDF" },
-    { id: "source", title: "Quellprojekt", state: sourceProject || "Projekt" },
-    { id: "created", title: "Abgelegt", state: worksheet.createdAt ? formatResetTime(worksheet.createdAt) : "Gespeichert" }
+    { id: "kind", title: kindLabel, state: pageCount ? t(pageCount === 1 ? "common.pageCountOne" : "common.pageCountMany", { count: pageCount }) : "PDF" },
+    { id: "source", title: t("app.worksheet.sourceProject"), state: sourceProject || t("app.target.project") },
+    { id: "created", title: t("app.worksheet.savedAt"), state: worksheet.createdAt ? formatResetTime(worksheet.createdAt) : t("common.saved") }
   ];
 }
 
@@ -4448,26 +4470,28 @@ function renderWorksheetItem(item) {
   const pdf = worksheet.pdf || null;
   const pages = (worksheet.pages || []).filter((page) => page.url);
   elements.projectView.classList.add("worksheet-detail-view");
-  elements.statusPanel?.querySelector("h3")?.replaceChildren(document.createTextNode("Details"));
-  elements.projectTitle.textContent = worksheet.title || "Arbeitsblatt";
-  elements.loadProjectButtonLabel.textContent = "Zum Projekt";
+  elements.statusPanel?.querySelector("h3")?.replaceChildren(document.createTextNode(t("app.worksheet.details")));
+  elements.projectTitle.textContent = worksheet.title || t("app.preview.worksheet");
+  elements.loadProjectButtonLabel.textContent = t("app.project.open");
   elements.statusList.innerHTML = worksheetMetaRows(worksheet).map(renderWorksheetMetaRow).join("");
   elements.statusArtifactSummary.classList.add("hidden");
   elements.statusArtifactSummary.innerHTML = "";
   renderActions(item);
-  elements.previewEyebrow.textContent = worksheet.kindLabel || "Arbeitsblatt";
+  elements.previewEyebrow.textContent = appLocale?.current() === "en"
+    ? (Number(worksheet.pageCount || pages.length || 0) > 1 ? t("app.worksheet.bundle") : t("app.preview.worksheet"))
+    : worksheet.kindLabel || t("app.preview.worksheet");
   elements.previewTitle.textContent = worksheet.title || "PDF";
   elements.previewGrid.dataset.previewType = pages.length ? "worksheet_pages" : "pdf";
   applyPreviewLayout({ previewType: pages.length ? "selected_pages" : "pdf" });
   setCustomScrollContent(elements.previewGrid, pages.length
-    ? pages.map((page, index) => renderWorksheetPageCard(page, index, pages.length, worksheet.title || "Arbeitsblatt")).join("")
+    ? pages.map((page, index) => renderWorksheetPageCard(page, index, pages.length, worksheet.title || t("app.preview.worksheet"))).join("")
     : pdf?.url
     ? renderPdfCard({
       ...pdf,
       pageCount: worksheet.pageCount,
       concept: worksheet.source?.concept || null
     })
-    : '<div class="no-preview">PDF nicht gefunden.</div>');
+    : `<div class="no-preview">${escapeHtml(t("app.preview.pdfMissing"))}</div>`);
   bindPreviewCardActions(elements.previewGrid);
   applyProjectSplitLayout();
 }
@@ -8690,12 +8714,22 @@ function candidateGenerationBusyPageCount(workspace = {}, command = {}) {
 }
 
 function candidateGenerationBusyLabel(workspace = {}, command = {}) {
+  if (appLocale?.current() === "en") {
+    return candidateGenerationBusyPageCount(workspace, command) > 1
+      ? "Multi-page draft is already being created"
+      : "Draft is already being created";
+  }
   return candidateGenerationBusyPageCount(workspace, command) > 1
     ? "Mehrseitiger Entwurf läuft bereits"
     : "Entwurf läuft bereits";
 }
 
 function candidateGenerationBusyReason(workspace = {}, command = {}) {
+  if (appLocale?.current() === "en") {
+    return candidateGenerationBusyPageCount(workspace, command) > 1
+      ? "The multi-page draft is already being created in the background."
+      : "The draft is already being created in the background.";
+  }
   return candidateGenerationBusyPageCount(workspace, command) > 1
     ? "Der mehrseitige Entwurf wird bereits im Hintergrund erstellt."
     : "Der Entwurf wird bereits im Hintergrund erstellt.";
@@ -8718,6 +8752,8 @@ function localizedActionLabel(label = "") {
   const value = String(label || "");
   if (appLocale?.current() !== "en") return value;
   if (/weitere.*entwurfsvariante|weiteren.*entwurf/i.test(value)) return "Create another draft";
+  if (/konzept.*schreiben|konzept.*ausformulieren/i.test(value)) return "Create concept";
+  if (/direkt.*anlegen/i.test(value)) return "Create now";
   if (/entwurf.*erstellen|entwurf.*erzeugen/i.test(value)) return "Create draft";
   if (/konzept.*überarbeiten|konzept.*ueberarbeiten/i.test(value)) return "Revise concept";
   if (/mit diesem konzept weiterarbeiten|übernehmen|uebernehmen/i.test(value)) return "Adopt";
@@ -9236,7 +9272,7 @@ function sentenceCaseLabel(label = "") {
 }
 
 function completedActionLabel(action = {}) {
-  const label = normalizeVisibleProductTerminology(actionLabel(action))
+  const label = localizedActionLabel(normalizeVisibleProductTerminology(actionLabel(action)))
     .replace(/^ja,\s*/i, "")
     .trim();
   return sentenceCaseLabel(label || "Aktion ausführen");
@@ -9738,7 +9774,21 @@ function renderChatRevisionTarget(target = null) {
   `;
 }
 
+function incompleteCandidateMessageDuringGeneration(message = {}, workspace = {}) {
+  if (
+    message.productionCard?.kind !== "candidate"
+    || !isCandidateGenerationPendingForWorkspace(workspace)
+  ) {
+    return false;
+  }
+  const candidate = findCandidateForCard(message.productionCard, workspace);
+  return !(candidate?.pages || []).some((page) => page.url);
+}
+
 function renderChatMessage(message, visibleCommandIds = new Set(), extraCommands = [], workspace = {}, isActionHost = false, messages = [], messageIndex = -1) {
+  if (incompleteCandidateMessageDuringGeneration(message, workspace)) {
+    return "";
+  }
   if (message.pending && message.role !== "user" && !message.productionCard) {
     return renderThinkingMessage();
   }
@@ -9997,7 +10047,21 @@ function decisionButtonLabel(command) {
   if (command.id === "adopt_content_mirror_proposal" && /aktualisieren/i.test(command.label || "")) {
     return "Mit diesem Konzept weiterarbeiten";
   }
-  const labels = {
+  const labels = appLocale?.current() === "en" ? {
+    generate_lessonbrief_proposal: "Create concept",
+    create_brief_draft: "Create now",
+    adopt_lessonbrief_proposal: "Create concept",
+    generate_content_mirror_proposal: "Create concept",
+    create_content_draft: "Create now",
+    adopt_content_mirror_proposal: "Continue with this concept",
+    generate_candidate_from_content_proposal: "Create draft",
+    approve_current_content: "Continue with this concept",
+    prepare_image_spec: "Review references",
+    prepare_reference_asset: "Use reference image",
+    prepare_web_reference_asset: "Find image reference",
+    adopt_image_spec: "Use internal plan",
+    generate_image_candidate: "Create draft"
+  } : {
     generate_lessonbrief_proposal: "Ja, Konzept schreiben",
     create_brief_draft: "Ja, direkt anlegen",
     adopt_lessonbrief_proposal: "Ja, Konzept ausformulieren",
@@ -11822,6 +11886,9 @@ window.sheetifyBetaFeedbackContext = () => {
 window.addEventListener("sheetify:localechange", () => {
   appLocale?.apply(document);
   renderLibraryViewChrome();
+  if (state.tree) {
+    renderTree(state.tree);
+  }
   if (state.mode === "workspace" && state.workspace) {
     renderWorkspace();
   } else if (state.selectedItem) {

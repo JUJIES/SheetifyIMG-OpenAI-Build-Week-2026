@@ -8,7 +8,10 @@ const TUTORIALS = Object.freeze([
     id: "first-worksheet",
     order: 1,
     intro: true,
-    youtubeUrl: "https://youtu.be/3uJi1SkLXYs",
+    youtubeUrls: Object.freeze({
+      de: "https://youtu.be/3uJi1SkLXYs",
+      en: "https://youtu.be/3uJi1SkLXYs"
+    }),
     eyebrow: Object.freeze({ de: "Erste Schritte", en: "Getting started" }),
     title: Object.freeze({ de: "Mein erstes Arbeitsblatt", en: "My first worksheet" }),
     description: Object.freeze({
@@ -68,7 +71,12 @@ async function buildTutorialCatalog({ locale = "de", progress = {}, sourceOverri
   const autoShownIds = progressIds(progress.autoShownIds);
   const completedIds = progressIds(progress.completedIds);
   const items = TUTORIALS.map((tutorial) => {
-    const videoId = youtubeVideoId(sourceOverrides[tutorial.id]) || youtubeVideoId(tutorial.youtubeUrl);
+    const sourceOverride = sourceOverrides[tutorial.id];
+    const localizedOverride = sourceOverride && typeof sourceOverride === "object"
+      ? sourceOverride[selectedLocale]
+      : sourceOverride;
+    const fallbackSource = tutorial.youtubeUrls?.[selectedLocale] || tutorial.youtubeUrl;
+    const videoId = youtubeVideoId(localizedOverride) || youtubeVideoId(fallbackSource);
     return {
       id: tutorial.id,
       order: tutorial.order,

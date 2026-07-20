@@ -187,6 +187,10 @@ function resolveServerConfig(options = {}) {
   const inboundMailAllowLoopback = booleanValue(env.SHEETIFYIMG_MAIL_INBOUND_ALLOW_LOOPBACK, false);
   const contactEmail = emailValue(env.SHEETIFYIMG_CONTACT_EMAIL, "sheetify@jujies.app", "SHEETIFYIMG_CONTACT_EMAIL");
   const firstWorksheetYoutubeUrl = nonEmpty(env.SHEETIFYIMG_TUTORIAL_FIRST_WORKSHEET_URL);
+  const firstWorksheetYoutubeUrlDe = nonEmpty(env.SHEETIFYIMG_TUTORIAL_FIRST_WORKSHEET_URL_DE)
+    || firstWorksheetYoutubeUrl;
+  const firstWorksheetYoutubeUrlEn = nonEmpty(env.SHEETIFYIMG_TUTORIAL_FIRST_WORKSHEET_URL_EN)
+    || firstWorksheetYoutubeUrl;
   const inboundMailAllowedHosts = hostnameList(
     env.SHEETIFYIMG_MAIL_INBOUND_ALLOWED_HOSTS,
     "mx1.forwardemail.net,mx2.forwardemail.net",
@@ -239,7 +243,10 @@ function resolveServerConfig(options = {}) {
     publicUrl,
     tutorials: Object.freeze({
       youtubeUrls: Object.freeze({
-        "first-worksheet": firstWorksheetYoutubeUrl
+        "first-worksheet": Object.freeze({
+          de: firstWorksheetYoutubeUrlDe,
+          en: firstWorksheetYoutubeUrlEn
+        })
       })
     }),
     ownerAuth: Object.freeze({

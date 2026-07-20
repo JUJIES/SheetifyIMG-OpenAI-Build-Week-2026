@@ -105,6 +105,7 @@ async function main() {
   const mobileDemoVideoDir = mobileVideoArgument
     ? path.resolve(mobileVideoArgument.slice("--mobile-demo-video-dir=".length))
     : null;
+  const presentationOnly = process.argv.includes("--presentation-only");
   const demoMode = Boolean(demoVideoDir || mobileDemoVideoDir);
   const demoProjectTitle = demoMode ? "Archaeopteryx — a transitional fossil" : "Judge English Core Flow";
   if (captureDir) await fs.mkdir(captureDir, { recursive: true });
@@ -179,9 +180,14 @@ async function main() {
     englishPage.on("pageerror", (error) => pageErrors.push(error.message));
     await englishPage.goto(createdPass.url, { waitUntil: "domcontentloaded" });
     await demoPause(1200);
+    await englishPage.getByLabel("Pass or pairing code").fill(createdPass.code);
+    await englishPage.getByRole("button", { name: "Connect" }).click();
     await englishPage.waitForURL(`${baseUrl}/app`, { timeout: 30000 });
     await demoPause(900);
-    await englishPage.getByRole("button", { name: "Agree and start the beta" }).click();
+    await Promise.all([
+      englishPage.waitForResponse((response) => response.url().endsWith("/api/beta/consent") && response.request().method() === "POST"),
+      englishPage.getByRole("button", { name: "Agree and start the beta" }).click()
+    ]);
     await englishPage.getByRole("heading", { name: "Projects" }).waitFor();
     await demoPause(1000);
 
@@ -293,7 +299,7 @@ async function main() {
     }).click();
     await demoPause(650);
     await englishPage.getByRole("button", { name: "Open project" }).click();
-    await englishPage.getByRole("heading", { name: "Sheetify IMG AI" }).waitFor();
+    await englishPage.getByRole("heading", { name: /Sheetify\s*AI/ }).waitFor();
     await demoPause(1400);
     const runtimeLabel = (await englishPage.locator(".chat-runtime").textContent()).trim();
     assert.match(runtimeLabel, /^(AI ready|OpenAI key missing|OpenAI not ready)$/);
@@ -314,12 +320,47 @@ async function main() {
     }
     if (captureDir) await englishPage.screenshot({ path: path.join(captureDir, "judge-app-desktop-en.png"), fullPage: true });
 
+    if (presentationOnly) {
+      const englishWorkspaceText = await englishPage.locator("#workspaceView").innerText();
+      assert.doesNotMatch(englishWorkspaceText, /Ja, Konzept schreiben|Entwurf läuft bereits|Ich kann daraus jetzt einen Entwurf erstellen/);
+      await englishPage.evaluate(() => document.querySelector("#workspaceMobileLibraryButton")?.click());
+      await englishPage.locator("#projectView").waitFor({ state: "visible" });
+      await englishPage.locator("#worksheetsViewButton").click();
+      await englishPage.getByRole("button", { name: "Worksheets", exact: true }).last().waitFor();
+      assert.doesNotMatch(await englishPage.locator("#libraryTree").innerText(), /Arbeitsblätter/);
+
+      await englishPage.evaluate(() => {
+        window.sheetifyLocale.set("de");
+        window.dispatchEvent(new CustomEvent("sheetify:localechange", { detail: { locale: "de" } }));
+      });
+      assert.equal(await englishPage.locator("html").getAttribute("lang"), "de");
+      await englishPage.getByRole("button", { name: "Arbeitsblätter", exact: true }).last().waitFor();
+
+      await englishPage.evaluate(() => {
+        window.sheetifyLocale.set("en");
+        window.dispatchEvent(new CustomEvent("sheetify:localechange", { detail: { locale: "en" } }));
+      });
+      assert.equal(await englishPage.locator("html").getAttribute("lang"), "en");
+      await englishPage.getByRole("button", { name: "Worksheets", exact: true }).last().waitFor();
+      console.log(JSON.stringify({
+        ok: true,
+        providerFree: true,
+        presentationOnly: true,
+        englishWorkspace: true,
+        englishWorksheetRoot: true,
+        germanRoundTrip: true,
+        englishRoundTrip: true,
+        pageErrors
+      }, null, 2));
+      return;
+    }
+
     const beforeSwitch = await pageApi(englishPage, `/api/workspace/${encodeURIComponent(projectId)}`);
     assert.equal(beforeSwitch.ok, true);
     const beforeDocuments = JSON.stringify(beforeSwitch.body.workspace.documents);
 
-    await englishPage.getByRole("button", { name: "My Sheetify IMG Pass" }).click();
-    await englishPage.getByRole("heading", { name: "My Sheetify IMG Pass" }).waitFor();
+    await englishPage.getByRole("button", { name: "My SheetifyIMG Pass" }).click();
+    await englishPage.getByRole("heading", { name: "My SheetifyIMG Pass" }).waitFor();
     const pairing = await pageApi(englishPage, "/api/pass/pairings", { method: "POST", body: "{}" });
     assert.equal(pairing.ok, true);
 
@@ -328,17 +369,20 @@ async function main() {
     germanPage.on("pageerror", (error) => pageErrors.push(error.message));
     await germanPage.goto(pairing.body.pairing.url, { waitUntil: "domcontentloaded" });
     await germanPage.waitForURL(`${baseUrl}/app`, { timeout: 30000 });
-    await germanPage.getByRole("button", { name: "Agree and start the beta" }).click();
-    await germanPage.getByRole("button", { name: "My Sheetify IMG Pass" }).click();
-    await germanPage.getByRole("button", { name: "German" }).click();
-    await germanPage.getByRole("heading", { name: "Mein Sheetify IMG Pass" }).waitFor();
+    await Promise.all([
+      germanPage.waitForResponse((response) => response.url().endsWith("/api/beta/consent") && response.request().method() === "POST"),
+      germanPage.getByRole("button", { name: "Agree and start the beta" }).click()
+    ]);
+    await germanPage.evaluate(() => {
+      window.sheetifyLocale.set("de");
+      window.dispatchEvent(new CustomEvent("sheetify:localechange", { detail: { locale: "de" } }));
+    });
     assert.equal(await germanPage.locator("html").getAttribute("lang"), "de");
     assert.equal(await englishPage.locator("html").getAttribute("lang"), "en");
-    await germanPage.locator("#passModal [data-pass-close]").last().click();
     await germanPage.getByRole("button", { name: demoProjectTitle }).click();
     await germanPage.getByRole("button", { name: "Projekt öffnen" }).click();
-    await germanPage.getByRole("heading", { name: "Sheetify IMG AI" }).waitFor();
-    assert.equal(await germanPage.locator("#chatInput").getAttribute("placeholder"), "Nachricht an Sheetify IMG AI …");
+    await germanPage.getByRole("heading", { name: /Sheetify\s*AI/ }).waitFor();
+    assert.equal(await germanPage.locator("#chatInput").getAttribute("placeholder"), "Nachricht an Sheetify AI …");
 
     const englishSession = await pageApi(englishPage, "/api/auth/session");
     const germanSession = await pageApi(germanPage, "/api/auth/session");
@@ -396,9 +440,12 @@ async function main() {
       });
       await demoPause(700);
     }
-    await mobilePage.getByRole("button", {
-      name: mobileTutorialLocale === "de" ? "Zustimmen und Beta starten" : "Agree and start the beta"
-    }).click();
+    await Promise.all([
+      mobilePage.waitForResponse((response) => response.url().endsWith("/api/beta/consent") && response.request().method() === "POST"),
+      mobilePage.getByRole("button", {
+        name: mobileTutorialLocale === "de" ? "Zustimmen und Beta starten" : "Agree and start the beta"
+      }).click()
+    ]);
     await mobilePage.getByRole("heading", {
       name: mobileTutorialLocale === "de" ? "Projekte" : "Projects"
     }).waitFor();
