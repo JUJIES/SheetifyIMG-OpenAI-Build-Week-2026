@@ -1,15 +1,15 @@
 {
     "schemaVersion":  1,
-    "generatedAt":  "2026-07-21T17:14:18.8360672Z",
+    "generatedAt":  "2026-07-21T17:43:11.7898734Z",
     "source":  {
                    "repository":  "https://github.com/JUJIES/SheetifyIMG.git",
                    "branch":  "codex/sheetify-beta-v1",
-                   "commit":  "a70965ac7cfeccc7ebb911ba69076b54044fa662",
-                   "committedAt":  "2026-07-21T13:15:40+02:00"
+                   "commit":  "374f4f18c2117d0521b8f52546eb76ea9f1bb99c",
+                   "committedAt":  "2026-07-21T19:26:24+02:00"
                },
     "publisher":  {
-                      "toolingCommit":  "47e00a1867f34b958e2d815499074b4043da1fc3",
-                      "policySha256":  "28f51506194f49562cc3c26c238e699e3b21aaf865cf099e99a612a64d585761",
+                      "toolingCommit":  "374f4f18c2117d0521b8f52546eb76ea9f1bb99c",
+                      "policySha256":  "0369f34464cdec2b998f7e2efbfa8d952908f98a950c5955499c2b77ab0c3f58",
                       "filterVersion":  "2.47.0"
                   },
     "files":  [
@@ -1097,38 +1097,38 @@
     "overlays":  [
                      {
                          "path":  ".env.example",
-                         "sha256":  "be6b98b91300cc4f42f22d0114cd179af80738a77c3db18347b0dfd5fa49010b",
-                         "bytes":  270
+                         "sha256":  "2a512f339728554c435d7a55cb42f4399fa1f027b745db500a46e7a969ea2ce9",
+                         "bytes":  280
                      },
                      {
                          "path":  ".gitignore",
-                         "sha256":  "0d86aa60a303807f7a353113138931c253dfacfea488a1e6cd2818d5f061e37d",
-                         "bytes":  112
+                         "sha256":  "8722f235b5e88205e735116deb703fa1a67ac0160782f6b9cca3ccf51e64ae12",
+                         "bytes":  124
                      },
                      {
                          "path":  "BUILD_WEEK.md",
-                         "sha256":  "071203bf258064ee891d7e1abeb56ba9e4db17b58228b50ffb2307d693731aa9",
-                         "bytes":  2058
+                         "sha256":  "613204f5cbe77b76e8a85d475366ce4e74a75d10332a611a38da3d4871ff2844",
+                         "bytes":  2102
                      },
                      {
                          "path":  "PUBLICATION_SCOPE.md",
-                         "sha256":  "d71f0ce54179a025ead84e9be2b0c916680c1571dd9df2465313ea47388747a6",
-                         "bytes":  2166
+                         "sha256":  "d820d264f95b04c6173801b362cec6f078727d0d5b49eb62a53d2b0be2c042ae",
+                         "bytes":  2216
                      },
                      {
                          "path":  "README.md",
-                         "sha256":  "4171015ba59234bcda8dde9403134c3ea313901a11841d827f0d2ea253b2b1e1",
-                         "bytes":  4425
+                         "sha256":  "024dba3af9822c43791cc2c30ebd128e2fc6b4b7bc109983a55866aff381814a",
+                         "bytes":  4546
                      },
                      {
                          "path":  "THIRD_PARTY_NOTICES.md",
-                         "sha256":  "d15e1e33567160748a9fd1cefd4e92a2a116af3dae0deb086092296ad8d1a34f",
-                         "bytes":  2742
+                         "sha256":  "8606b4d14e64de7ed45b30a65e512d509b3f8aae3a4caab560f612e9ff82de82",
+                         "bytes":  2808
                      },
                      {
                          "path":  "package.json",
-                         "sha256":  "1cc899ff3bab40a0cf119494b02fb9fb58e99daaf3cb4f01ac0510c3fd3841d6",
-                         "bytes":  978
+                         "sha256":  "2d65b3e43dd79a877b0240ecd55a9d9ba027463ffdefe720639fc4318cd3570e",
+                         "bytes":  1007
                      }
                  ]
 }
