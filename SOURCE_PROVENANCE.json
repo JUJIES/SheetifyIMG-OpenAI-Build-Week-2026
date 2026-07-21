@@ -1,0 +1,1134 @@
+{
+    "schemaVersion":  1,
+    "generatedAt":  "2026-07-21T17:14:18.8360672Z",
+    "source":  {
+                   "repository":  "https://github.com/JUJIES/SheetifyIMG.git",
+                   "branch":  "codex/sheetify-beta-v1",
+                   "commit":  "a70965ac7cfeccc7ebb911ba69076b54044fa662",
+                   "committedAt":  "2026-07-21T13:15:40+02:00"
+               },
+    "publisher":  {
+                      "toolingCommit":  "47e00a1867f34b958e2d815499074b4043da1fc3",
+                      "policySha256":  "28f51506194f49562cc3c26c238e699e3b21aaf865cf099e99a612a64d585761",
+                      "filterVersion":  "2.47.0"
+                  },
+    "files":  [
+                  {
+                      "path":  ".nvmrc",
+                      "sha256":  "4e01e31cf548b63cf8c1cac7608a6573354d7a3c9e49d65b74ca3e1dbe2a6a12",
+                      "bytes":  9
+                  },
+                  {
+                      "path":  "core/aiChatManager/commandRunner.js",
+                      "sha256":  "d9cad715974af0885ef6c73420bb72681916be2db45c969b0c7efda12214172c",
+                      "bytes":  8567
+                  },
+                  {
+                      "path":  "core/aiChatManager/index.js",
+                      "sha256":  "b32a23f25f4c3bb2501b4b0abeed003346e8e4fa49e2d5782c3311ef2cf012c0",
+                      "bytes":  25716
+                  },
+                  {
+                      "path":  "core/aiChatManager/localResponses.js",
+                      "sha256":  "c6df051602e76d21b6833a89e53ffea27b44ab2648bda147091cb861a0bad523",
+                      "bytes":  5461
+                  },
+                  {
+                      "path":  "core/aiChatManager/openAiResponder.js",
+                      "sha256":  "a256bba08faf18ad464c3eebf0c8fe6f403b5ae0ed86d43a05b8c77cacd88000",
+                      "bytes":  12351
+                  },
+                  {
+                      "path":  "core/aiConfig/index.js",
+                      "sha256":  "866988cb59ad4b94b757bc45e29cd9fb12f4b88dcb3678143970e9d91e0ad48c",
+                      "bytes":  9846
+                  },
+                  {
+                      "path":  "core/aiProposalManager/index.js",
+                      "sha256":  "9ef35c52ef17c8605e94f08aff5b6bd656cfe481375c6e9afa886b98c185f819",
+                      "bytes":  92119
+                  },
+                  {
+                      "path":  "core/aiToolRegistry/index.js",
+                      "sha256":  "6fd8b62061aec2ba75e0298d637c334162af6229652eafbbb530a3a89d7fdddc",
+                      "bytes":  10026
+                  },
+                  {
+                      "path":  "core/approvalManager/index.js",
+                      "sha256":  "b4312d1f75b231affebefe96e01d1ce5b640e5aff1f17ab66ffecb7433876335",
+                      "bytes":  2970
+                  },
+                  {
+                      "path":  "core/artifactManager/index.js",
+                      "sha256":  "5812b500987ac6363024dadedda413ac9fe7ac5a2499ce0571d578507f6293be",
+                      "bytes":  7300
+                  },
+                  {
+                      "path":  "core/betaAccessManager/index.js",
+                      "sha256":  "ac5567dfdad0aae441b9c9300c3232cd433576c4bff908e7355d008f8c72bb67",
+                      "bytes":  57379
+                  },
+                  {
+                      "path":  "core/betaCardManager/index.js",
+                      "sha256":  "dae4af84d0b430c2afc6d8ead6ee23c66077bb9667db9df76a7ee760276d7e4a",
+                      "bytes":  5693
+                  },
+                  {
+                      "path":  "core/billingStatusManager/index.js",
+                      "sha256":  "12c26f4b28b862ab8535820121624043bb50d97bc1a1f2fdc349e43d8ddbe012",
+                      "bytes":  21257
+                  },
+                  {
+                      "path":  "core/briefManager/index.js",
+                      "sha256":  "4659e6ac685a7c6d2137f14932fc86be41ab658e55c4d98e4a5082fd2290b5e5",
+                      "bytes":  4661
+                  },
+                  {
+                      "path":  "core/candidateDisplay/index.js",
+                      "sha256":  "a39ec9576be51911a77ec466fc1bdc374a4c127e0d6985eab3d83869f6a0caf6",
+                      "bytes":  4213
+                  },
+                  {
+                      "path":  "core/candidateGenerationJobManager/index.js",
+                      "sha256":  "2eb971a83999f03cd4c40788df55a12216c9928da51363983c7237a83c553dce",
+                      "bytes":  13640
+                  },
+                  {
+                      "path":  "core/candidateManager/index.js",
+                      "sha256":  "a6473090d90c9df44627bbf48d505587b51411209ab6c735490aa65df11bf2b7",
+                      "bytes":  4833
+                  },
+                  {
+                      "path":  "core/candidatePdfManager/index.js",
+                      "sha256":  "adc0836b5340e5e1c6ea1ec0e0745c96cb6982f1b9e5c7b7efd176da6be0424f",
+                      "bytes":  6040
+                  },
+                  {
+                      "path":  "core/chatCommandResolver/index.js",
+                      "sha256":  "85c5f78377150c1e896f2e9102d8362bb120d5cf1ed03714ffa32402fe66f351",
+                      "bytes":  68550
+                  },
+                  {
+                      "path":  "core/chatEventPresenter/index.js",
+                      "sha256":  "52d280cce641bf2e7fca48621188e61621f32ac6d289951c1f85f5d4386b25db",
+                      "bytes":  4582
+                  },
+                  {
+                      "path":  "core/chatIntentInterpreter/index.js",
+                      "sha256":  "de57a82225c2673615e6ac4d7989d339099d8d0f138a8f99ce21a6fb9e9b3e61",
+                      "bytes":  61634
+                  },
+                  {
+                      "path":  "core/chatIntentSignals/index.js",
+                      "sha256":  "536a1a83f7d93ee2f7c022b4244efe3413f0f49ec629543dd8e376403705c806",
+                      "bytes":  31067
+                  },
+                  {
+                      "path":  "core/chatNarrationManager/index.js",
+                      "sha256":  "762df308c04c8fad8f527fb14766b6b765e552fb58ff9c842a1470f399309823",
+                      "bytes":  30213
+                  },
+                  {
+                      "path":  "core/chatPersonaManager/index.js",
+                      "sha256":  "033f581bca23513c4909500601dfa1fa17141bb7a61670ec9eac4d49ba355687",
+                      "bytes":  21997
+                  },
+                  {
+                      "path":  "core/chatRoutingTraceManager/index.js",
+                      "sha256":  "2bddf6406f7b7af0e2923b68adb786718e534022b4a7d5622b2e1f1613a73ada",
+                      "bytes":  11466
+                  },
+                  {
+                      "path":  "core/codexImageWorker/index.js",
+                      "sha256":  "1cc1c7ae9d73d3e763eaabc9aaaf622ac711177ec0b459c7688cfb0cfef04616",
+                      "bytes":  10183
+                  },
+                  {
+                      "path":  "core/conceptCompatibility/index.js",
+                      "sha256":  "39d7ceeedc6557036b81a2a15a0f0a5bab9b19684364d4e83fda276565146e08",
+                      "bytes":  4563
+                  },
+                  {
+                      "path":  "core/conceptReference/index.js",
+                      "sha256":  "fd43f57c0b6ca9a8f25172b237b4442326603326fe73bbca818da3617ccb75c9",
+                      "bytes":  2751
+                  },
+                  {
+                      "path":  "core/contentDeltaManager/index.js",
+                      "sha256":  "d3da9a8a1fa67030fd2f16cad0b542b470225639458e2109fd33a3b89bdb8799",
+                      "bytes":  14727
+                  },
+                  {
+                      "path":  "core/contentMirrorManager/index.js",
+                      "sha256":  "0fb971e80e0917a7055e10ff063a4a21a4bb208dd0f17b48468a5deeed9a554a",
+                      "bytes":  8253
+                  },
+                  {
+                      "path":  "core/contentReadiness/index.js",
+                      "sha256":  "24372cf333c5c89504e3f383c74d5834423d6bceb76bd9a6fbba0760776c4b06",
+                      "bytes":  9185
+                  },
+                  {
+                      "path":  "core/contentWarningManager/index.js",
+                      "sha256":  "1bc9d3145e76cd75ee7cf4d61aea1b2e617905689b936582bacd3162f1b01a81",
+                      "bytes":  3691
+                  },
+                  {
+                      "path":  "core/contracts/index.js",
+                      "sha256":  "d27dafe1fa1ab889581ed47400d0bcae5f57adcfc3f52ce455439506efb4b1ca",
+                      "bytes":  2085
+                  },
+                  {
+                      "path":  "core/coordinateReferenceManager/index.js",
+                      "sha256":  "3d263f1bcf7a12918103b77632cab800193613cb8ce32aaf06bcc5d8c2c55ef8",
+                      "bytes":  8337
+                  },
+                  {
+                      "path":  "core/didacticThread/index.js",
+                      "sha256":  "b0669d29dcd328c74cf35b37a273e521cbfe4645cede0152e4d3dc7395c8d246",
+                      "bytes":  3915
+                  },
+                  {
+                      "path":  "core/dotToDotManager/geometry.js",
+                      "sha256":  "2c2c8c71ceb3042d72d706ce7c2edb3531023771fcc8d312c49df12f7623c5a5",
+                      "bytes":  4455
+                  },
+                  {
+                      "path":  "core/dotToDotManager/index.js",
+                      "sha256":  "2ecc3d7b13d41f94ff75bb2aded28e78a95f5946a7963d15f89166a58b4f0e2f",
+                      "bytes":  7724
+                  },
+                  {
+                      "path":  "core/dotToDotManager/labelLayout.js",
+                      "sha256":  "4675da18af49e924275301d3cea6f3ac073c2203b8d9da752364dedb9a9a3bfc",
+                      "bytes":  4687
+                  },
+                  {
+                      "path":  "core/dotToDotManager/labelPlan.js",
+                      "sha256":  "87c3c52292de59a4877a63b986c83f6efdd2b596cdec41ec571ccc454e372feb",
+                      "bytes":  2254
+                  },
+                  {
+                      "path":  "core/dotToDotManager/motifs/snailCartoon.js",
+                      "sha256":  "f6d28ba50a02590dddb49955610f3ad5cd22c0882fcf14f2e83909e5e13cfa66",
+                      "bytes":  1630
+                  },
+                  {
+                      "path":  "core/dotToDotManager/motifs/snailSimple.js",
+                      "sha256":  "5b70abd703fcffb786e0b465dc526b9e557fbd24d0fa976c93a08ec01db2d2e4",
+                      "bytes":  1737
+                  },
+                  {
+                      "path":  "core/dotToDotManager/pngRenderer.js",
+                      "sha256":  "d051b46e3d3f734577c9c22d151eaa120699d939045db960abab4ba864765fe8",
+                      "bytes":  4408
+                  },
+                  {
+                      "path":  "core/dotToDotManager/svgRenderer.js",
+                      "sha256":  "906e3314285711c4f2a6329aef39454902b5968eecf86e8c66de7d866762ef73",
+                      "bytes":  1706
+                  },
+                  {
+                      "path":  "core/emailService/index.js",
+                      "sha256":  "542b8e16c001ad09f79e5ae68f1701946ddeda8b0e05424267bb2606d49043a9",
+                      "bytes":  4560
+                  },
+                  {
+                      "path":  "core/emailService/resendProvider.js",
+                      "sha256":  "c3d4d96ddd9c63c55a5391f1d282441127c1ea1973e33d34a5672e03c0c4daf3",
+                      "bytes":  1323
+                  },
+                  {
+                      "path":  "core/emailService/templates.js",
+                      "sha256":  "63a31322bc88f49f24b3e777682e0cb53b3583a251d32925450809b548001853",
+                      "bytes":  22221
+                  },
+                  {
+                      "path":  "core/eventLog/index.js",
+                      "sha256":  "4aae175c99bdc357b4eac1238f3779f159fb2286e64b94c245c3f30d98c9362e",
+                      "bytes":  2204
+                  },
+                  {
+                      "path":  "core/historyManager/index.js",
+                      "sha256":  "55e5ed510986d5a32883b4d598f4c5a97d8bd23b6a7042133b9a8559cf8ce17c",
+                      "bytes":  789
+                  },
+                  {
+                      "path":  "core/imageAssetManager/index.js",
+                      "sha256":  "1b82b3a8dc7dff0816befffe4dd8e7aac99fd31204ed3ea4a768383719fbc0bd",
+                      "bytes":  3803
+                  },
+                  {
+                      "path":  "core/imageCostManager/index.js",
+                      "sha256":  "87c49df88e7abe701e4ee98e99136820c8db64c5f6b48abc97e1bcad67d8fbbf",
+                      "bytes":  19587
+                  },
+                  {
+                      "path":  "core/imageGenerationContract/index.js",
+                      "sha256":  "c86c10e10727013c246419a60145307b948a2d0d730373303e0a48b61013d668",
+                      "bytes":  6544
+                  },
+                  {
+                      "path":  "core/imageGenerationManager/index.js",
+                      "sha256":  "952358e121b7c5090fbc81a8ccb5fbeceb8ca948ce1672c46d07d02664eb0827",
+                      "bytes":  13756
+                  },
+                  {
+                      "path":  "core/imageGenerationManager/promptBuilder.js",
+                      "sha256":  "ac082eefa7ec45364db8f7bde94e2e3e94718c4dfb3fe6c8afb08ce1af8dfa42",
+                      "bytes":  50254
+                  },
+                  {
+                      "path":  "core/imageGenerationManager/providerAssets.js",
+                      "sha256":  "59ba9794788cb24c086aca1c66ee37ac5badaca701387609505cfc44ab14723c",
+                      "bytes":  10837
+                  },
+                  {
+                      "path":  "core/imageGenerationManager/referenceImages.js",
+                      "sha256":  "63d6a9a3955b7207b2188ed4e2543b2d122d8311c39f3c28f752c8b6df2ecd8c",
+                      "bytes":  5993
+                  },
+                  {
+                      "path":  "core/imageGenerationManager/referenceRoles.js",
+                      "sha256":  "9376d5bd0d8faafb39907ea17861a5b59ef5c2aba096fdf86f4578d49ecf4587",
+                      "bytes":  8788
+                  },
+                  {
+                      "path":  "core/imageQcManager/index.js",
+                      "sha256":  "3dd8670972f9f208b61e928325187f966a0c8114905c33f5a960fbf76a075b1b",
+                      "bytes":  10932
+                  },
+                  {
+                      "path":  "core/inputManager/index.js",
+                      "sha256":  "2caf494f47769122ad2548848b5b5c70e2c8362b5422c291649f86644fc9b34c",
+                      "bytes":  8310
+                  },
+                  {
+                      "path":  "core/inputReadiness/index.js",
+                      "sha256":  "87d6fa60d5c89753e21fb3786eba716d483e09eea8a870977cf8efb23f6f5b1b",
+                      "bytes":  2187
+                  },
+                  {
+                      "path":  "core/jsonFile/index.js",
+                      "sha256":  "205361b3868f5537b591c32cd52327a33c6269fe6464b192b5efe4c433acca19",
+                      "bytes":  2422
+                  },
+                  {
+                      "path":  "core/legacy/index.js",
+                      "sha256":  "ab96f86810095aaf5c915ababe14f46c2036717fcf108c971bdc72b2d65870a7",
+                      "bytes":  1658
+                  },
+                  {
+                      "path":  "core/libraryManager/index.js",
+                      "sha256":  "c4fb8de4b77123937df09f254b1be0d4a8302848b85216101a93ba1056fe539f",
+                      "bytes":  38668
+                  },
+                  {
+                      "path":  "core/locale/index.js",
+                      "sha256":  "29be05fba01ec2792b15cd0685fbc3b3e7bec15ace80c277070702adfb85aa54",
+                      "bytes":  899
+                  },
+                  {
+                      "path":  "core/localEnv/index.js",
+                      "sha256":  "1286a0c8ac185032c252444d4dd4a7608f67a770d83508324cd1aee71bcdbf0e",
+                      "bytes":  1563
+                  },
+                  {
+                      "path":  "core/modelRequestMetrics/index.js",
+                      "sha256":  "b03644f595bce83fc56092c68bc1dd66f76e7f3466aa426108d55255ed719311",
+                      "bytes":  5624
+                  },
+                  {
+                      "path":  "core/modelRouter/index.js",
+                      "sha256":  "fcdead0396e2b2b19864506dba5419a37917d706d15356d671587a079b180142",
+                      "bytes":  7009
+                  },
+                  {
+                      "path":  "core/modelRunLogger/index.js",
+                      "sha256":  "ef86177dc85b37ff46726a6806e322c252b7653c85ec6ec8fee497fb6172c00f",
+                      "bytes":  3465
+                  },
+                  {
+                      "path":  "core/openaiClient/index.js",
+                      "sha256":  "c99bab4acc9bf333a98f57aac3e8e095398bf17ef453db9d3520f6bb6229e4b2",
+                      "bytes":  8196
+                  },
+                  {
+                      "path":  "core/pagePlanManager/index.js",
+                      "sha256":  "1c71fa9e1102ef6581dc39ea4839ca61d803cecb156642756cf1ce60cd976ea9",
+                      "bytes":  27608
+                  },
+                  {
+                      "path":  "core/pdfRenderer/index.js",
+                      "sha256":  "93f226a35d26159329323b0d16a17e7ae80c45a93d1285d85124b7741e1c62b3",
+                      "bytes":  14459
+                  },
+                  {
+                      "path":  "core/planningFlowConfig/index.js",
+                      "sha256":  "cbbbb46091c09377403c1832920564e122ca03989be91b3c5a79bba8a485a748",
+                      "bytes":  938
+                  },
+                  {
+                      "path":  "core/planningTurnAdapter/index.js",
+                      "sha256":  "172ec37550ac70bc95334c92468e947209caa74c7582b1ff56f80d2b31c352f1",
+                      "bytes":  11172
+                  },
+                  {
+                      "path":  "core/planningTurnManager/index.js",
+                      "sha256":  "140468d434c87bbdabdfd7a6792ceb3fbeab95212019ae97fbfcc926a7d2003a",
+                      "bytes":  20079
+                  },
+                  {
+                      "path":  "core/productionContext/index.js",
+                      "sha256":  "89fe780fc678e5738d7fba450bffa00d609b20597cd66e7620e208b29d30e941",
+                      "bytes":  6342
+                  },
+                  {
+                      "path":  "core/projectManager/index.js",
+                      "sha256":  "bb71ac36bbe94bbf8495ea3196d491e54b229d20c92c8fd2c2e27725ba00def4",
+                      "bytes":  12427
+                  },
+                  {
+                      "path":  "core/projectStatus/index.js",
+                      "sha256":  "1bc57ddf4907f5f15a123ad0c54f64d7a4285b0e4e0829665a9ef29adaab2b71",
+                      "bytes":  11038
+                  },
+                  {
+                      "path":  "core/projectValidator/index.js",
+                      "sha256":  "f86fcca040d925ed19dcdc77d3196c4f9cfbe17d21ab038613ea8a74eca9f732",
+                      "bytes":  3608
+                  },
+                  {
+                      "path":  "core/promptRegistry/index.js",
+                      "sha256":  "bbf2ee672734e97246e052726a866ac757016073109f41a5a81d02f49517d4b2",
+                      "bytes":  1342
+                  },
+                  {
+                      "path":  "core/qrCodeManager/index.js",
+                      "sha256":  "a3100429668fd368dd150536bec066a3bcc58eb05fb4df49040f46a59b765984",
+                      "bytes":  2649
+                  },
+                  {
+                      "path":  "core/qualityObservationManager/index.js",
+                      "sha256":  "86c3c09bef733cf8894f08ced3e84d35ee8a7b318ad0f2e7b8a5061a3858756a",
+                      "bytes":  10955
+                  },
+                  {
+                      "path":  "core/readingTextManager/index.js",
+                      "sha256":  "c9b8ea04aa2f42adf1d061c14b558c81bdd44241a01eb45c0099e758f118fb3c",
+                      "bytes":  4414
+                  },
+                  {
+                      "path":  "core/README.md",
+                      "sha256":  "c6921b412a92a810bc7dd98a83fc27c721c215256845ca3922ec04a2afa1eb98",
+                      "bytes":  5121
+                  },
+                  {
+                      "path":  "core/referenceAssetManager/index.js",
+                      "sha256":  "4fb4f087d2d1ce6d2748f700d5a35e3bf9044ffa0ba16caa6b0762fe7c6a1f5f",
+                      "bytes":  24032
+                  },
+                  {
+                      "path":  "core/referencePolicy/index.js",
+                      "sha256":  "d9d42a20a2514daad0d37a3469beed462fd9614add03c3c547b6768fda1e0bc2",
+                      "bytes":  16867
+                  },
+                  {
+                      "path":  "core/ruleSelectionManager/index.js",
+                      "sha256":  "ed949301f81096789d1a8987c1fbb8c85107674c57c7d7925ad44924ab685628",
+                      "bytes":  12031
+                  },
+                  {
+                      "path":  "core/runAnalysisManager/index.js",
+                      "sha256":  "2c2cb10e0bddc2788b3b724c1109e2c06261bcb45f95001048b10a030c3b1b85",
+                      "bytes":  36547
+                  },
+                  {
+                      "path":  "core/runManager/index.js",
+                      "sha256":  "ec502bdda0eb572e8951afa1068265fdb9cf9af74d53a116c214eccbcf061c8e",
+                      "bytes":  6361
+                  },
+                  {
+                      "path":  "core/semanticInterpreterManager/index.js",
+                      "sha256":  "dc06db41e04ef3d6d24b37d1b44be9ea44ddaa8b5341e73199584f3c6fdf4212",
+                      "bytes":  7495
+                  },
+                  {
+                      "path":  "core/solutionAnchorManager/index.js",
+                      "sha256":  "01f584c552e9392037845e78506da083aa8cb4c5feab2eb6bc0267d90ea5ffc2",
+                      "bytes":  1993
+                  },
+                  {
+                      "path":  "core/statusSnapshot/index.js",
+                      "sha256":  "dedc39632f0cdabbcfd6bb811469cf95c6cafe0846d1dee0320f95c234ea50f5",
+                      "bytes":  6660
+                  },
+                  {
+                      "path":  "core/taskLabelManager/index.js",
+                      "sha256":  "2b57aafb1f399250c0e12e54f6a3edc9b77aadf59e0f2907b8ec418be3a3ce2f",
+                      "bytes":  12777
+                  },
+                  {
+                      "path":  "core/teachingContextManager/index.js",
+                      "sha256":  "26c3f0fe31898661016ad395e9dafa666fc705bab019a88f32a1fe4e5487ba42",
+                      "bytes":  24969
+                  },
+                  {
+                      "path":  "core/tutorialManager/index.js",
+                      "sha256":  "f1238dad30d9ee85124a209b56018dbcb29d575f28b49408ac5d98d0a987d176",
+                      "bytes":  3733
+                  },
+                  {
+                      "path":  "core/usageAttributionManager/index.js",
+                      "sha256":  "cd2cbb09be5c316b2bd7082e1bcc1f4a4c6b00c9cc800afaa1a8e379a38a1794",
+                      "bytes":  2089
+                  },
+                  {
+                      "path":  "core/usageCostAnalysisManager/index.js",
+                      "sha256":  "f0c3b331dad8ac8af59511349bc4f45309d330f7a3b3436b49f149dcea6ab4f1",
+                      "bytes":  23975
+                  },
+                  {
+                      "path":  "core/visualFeedbackManager/index.js",
+                      "sha256":  "c1a28f243080db068fcb47be85104335b0d9cd75188ca28d1ee54b3fbfbdf37f",
+                      "bytes":  4200
+                  },
+                  {
+                      "path":  "core/voiceInputManager/index.js",
+                      "sha256":  "0083c3a138e3feb72473564922d1c883fb34781b07bdfd99912dcc67dfbf4fd3",
+                      "bytes":  9195
+                  },
+                  {
+                      "path":  "core/webReferenceSearchManager/index.js",
+                      "sha256":  "36e0982669217ed1ab70c9124b2576481bb117d5f271fcf6b4e28f995d56cb11",
+                      "bytes":  5360
+                  },
+                  {
+                      "path":  "core/workflowCommandCatalog/index.js",
+                      "sha256":  "b3edee9ee8b339aa83ec78d4c7398c935b56a80f13aef5faa8ab22ce0ddc5386",
+                      "bytes":  4977
+                  },
+                  {
+                      "path":  "core/workflowPolicy/index.js",
+                      "sha256":  "2b2b8888a5b5d5d1036c83e4131c283b183dc59df78bc7c49c1e0d30aff80c34",
+                      "bytes":  64
+                  },
+                  {
+                      "path":  "core/workflowState/index.js",
+                      "sha256":  "c30f330513083fc64271d06fcf90cbbf9423ac18867fbc35ec24c348e01e9fed",
+                      "bytes":  15301
+                  },
+                  {
+                      "path":  "core/worksheetLibraryManager/index.js",
+                      "sha256":  "6881ce222675e8bb2566c44fedb83ec4c23e0b8201d6d8015fb757130076ee95",
+                      "bytes":  37923
+                  },
+                  {
+                      "path":  "core/workspaceCommandDrafts/index.js",
+                      "sha256":  "ac3b8a0621b52aec5cfb0fa4400b97d6eeb96f5679a6e3637cf61d680ea8055f",
+                      "bytes":  8255
+                  },
+                  {
+                      "path":  "core/workspaceCommandExecutionManager/index.js",
+                      "sha256":  "f47365a542e1af2a84942f33970781d3f3cfffca917a12f9343b1e597e0c221c",
+                      "bytes":  1790
+                  },
+                  {
+                      "path":  "core/workspaceCommandHandlers/candidateCommands.js",
+                      "sha256":  "8fdd6a6f989d2aabb4d4d4b6b43144c6172ea961c9e5ea29a7cc29915d95e751",
+                      "bytes":  5402
+                  },
+                  {
+                      "path":  "core/workspaceCommandHandlers/conceptCommands.js",
+                      "sha256":  "5fd0172d60b5f74a5886c594fe2cb006581389fd6af4be7a323af9938f8b7703",
+                      "bytes":  7889
+                  },
+                  {
+                      "path":  "core/workspaceCommandHandlers/contentMirrorActivation.js",
+                      "sha256":  "b2802df422b7c8deb2beb898085d678cf2062fec7484704eae4bb2da949b7640",
+                      "bytes":  7865
+                  },
+                  {
+                      "path":  "core/workspaceCommandHandlers/imagePrepCommands.js",
+                      "sha256":  "03f8344683e18849cc487b82a7784f7e3ad3ba8f791ac8d9863bd0404fc27363",
+                      "bytes":  4718
+                  },
+                  {
+                      "path":  "core/workspaceCommandHandlers/index.js",
+                      "sha256":  "46a4cb61870cdd538c07df46e309f3404be87b60e7dc1160a0cf0193ea3de54c",
+                      "bytes":  814
+                  },
+                  {
+                      "path":  "core/workspaceCommandHandlers/shared.js",
+                      "sha256":  "0eca9ccc1cd990cfff63348f8ab516af5bf4039975448042561aa9b55790800d",
+                      "bytes":  5623
+                  },
+                  {
+                      "path":  "core/workspaceCommandHandlers/worksheetCommands.js",
+                      "sha256":  "ab452cdd29230f2cadfd33aa0b10f07b20ab5be8b4933daf31650a429f00a551",
+                      "bytes":  459
+                  },
+                  {
+                      "path":  "core/workspaceCommandManager/index.js",
+                      "sha256":  "853cbfd84e5f233cc3be9daf4c010fcd5407dd863cf44047ed0c81c698d43b4e",
+                      "bytes":  5960
+                  },
+                  {
+                      "path":  "core/workspaceManager/index.js",
+                      "sha256":  "98fe526e947ac49ebf9a3961a0b651234755b7d6842951e679baa18b7c2973f6",
+                      "bytes":  48300
+                  },
+                  {
+                      "path":  "package-lock.json",
+                      "sha256":  "fabca958fd550986660c28c6a222c98a424300571f4878ce7cfd3ae95cdab7c7",
+                      "bytes":  38786
+                  },
+                  {
+                      "path":  "prompts/v1/content_delta.md",
+                      "sha256":  "3c72d985b41aa68b0ecfb02633067d8efa1098b4b420199109fda2770947701b",
+                      "bytes":  3328
+                  },
+                  {
+                      "path":  "prompts/v1/content_mirror.md",
+                      "sha256":  "ef3ffc24f69efe0cc697b4e4e04bc986690b7637bb4f96457757d0e7cf8e765e",
+                      "bytes":  9877
+                  },
+                  {
+                      "path":  "prompts/v1/final_chat.md",
+                      "sha256":  "55ee00207c3de5e7a49a20e92de2cebb37d57ab255805d26a3e129e06fa19ea1",
+                      "bytes":  3635
+                  },
+                  {
+                      "path":  "prompts/v1/global.md",
+                      "sha256":  "db13b0d5d8e4469e659b18ce7c2156e9f941988b51819f187f674da63412a33b",
+                      "bytes":  3764
+                  },
+                  {
+                      "path":  "prompts/v1/image_spec.md",
+                      "sha256":  "7c5aaea01ce3dce50912366dadae6d3c76b85fc1f3e7b187c4d9064439b03929",
+                      "bytes":  7909
+                  },
+                  {
+                      "path":  "prompts/v1/lesson_brief.md",
+                      "sha256":  "53038e28a576da64eba5b2e7b7cf1d9022ea5b7877d72e104f620ed0f50178ce",
+                      "bytes":  2184
+                  },
+                  {
+                      "path":  "prompts/v1/orchestrator.md",
+                      "sha256":  "22a6b38bbaf4668b48e9752ab0e5a727d4f334a65437bc324f4b2f331c71ab22",
+                      "bytes":  5472
+                  },
+                  {
+                      "path":  "prompts/v1/planning_turn.md",
+                      "sha256":  "23f089879b8df7de6da5ecbcbba5b477f92ebfdc9d0af1090e1823d173c54e21",
+                      "bytes":  7681
+                  },
+                  {
+                      "path":  "prompts/v1/quality_check.md",
+                      "sha256":  "65b35d8b17feb686f12fafdd14407913f92d243380b314bfc04d63f7a0252cb2",
+                      "bytes":  685
+                  },
+                  {
+                      "path":  "prompts/v1/semantic_interpreter.md",
+                      "sha256":  "0b0cde01afa798a31762f5ea938a3cb9ac842c4a79329ef046467a2a014a4c5c",
+                      "bytes":  3373
+                  },
+                  {
+                      "path":  "prompts/v1/worksheet_concept.md",
+                      "sha256":  "4aa3465951f2b75b95154317d9268ac48fadc8d0b1d2c033e926ed4da31d54ab",
+                      "bytes":  3078
+                  },
+                  {
+                      "path":  "public/actionBindings.js",
+                      "sha256":  "e8e66fcb6d4eca67746598da5583df8d06cb917f8f2e5c2ec2884dd27bdd4164",
+                      "bytes":  6830
+                  },
+                  {
+                      "path":  "public/admin.css",
+                      "sha256":  "3297b06577ec75f7288f40c3f5eb014dfb51387fa4adc4656bcfc32cbc33a4fd",
+                      "bytes":  12879
+                  },
+                  {
+                      "path":  "public/admin.html",
+                      "sha256":  "556824aa93800cf3a66382de2482f624a5a80527641fb0129dd5e8d487925697",
+                      "bytes":  8875
+                  },
+                  {
+                      "path":  "public/admin.js",
+                      "sha256":  "8a9d6b2b9291a90659a5ce901324d0c7c169027480e1eb9a6db4f38938b2196b",
+                      "bytes":  26677
+                  },
+                  {
+                      "path":  "public/app.js",
+                      "sha256":  "881eaea81e04f46f535e42d5066c280ac4592d1ca3d9b2b2e65586e0e3c632fe",
+                      "bytes":  451135
+                  },
+                  {
+                      "path":  "public/beta-experience.css",
+                      "sha256":  "94cb739db85592a0310886b520835831023224af8f93a0ef63d60685e1fc2aeb",
+                      "bytes":  6936
+                  },
+                  {
+                      "path":  "public/beta-experience.js",
+                      "sha256":  "527ae5d7e44874d848bb1fee19ac9e697e9db220c1b39e1caec2dde090f916df",
+                      "bytes":  29776
+                  },
+                  {
+                      "path":  "public/brand.css",
+                      "sha256":  "50274a7f374e66722bc02ae4748b507ac32a8ebbb94618659bc8a89fa1467bf4",
+                      "bytes":  713
+                  },
+                  {
+                      "path":  "public/candidateCards.js",
+                      "sha256":  "4689fbf05d3f75290bd111a60ec3542b8c85b049ac5f4e43edb0ee185b856fd5",
+                      "bytes":  12052
+                  },
+                  {
+                      "path":  "public/canvasRenderer.js",
+                      "sha256":  "61344adbd9b92a7751d7a80f9ffc6e0ec59c5b1db7bd88e16dc14c80d2a6ebdb",
+                      "bytes":  10243
+                  },
+                  {
+                      "path":  "public/icons/app-icon.svg",
+                      "sha256":  "c6e8b1a594c92ec448a35fe9e3230dd02c31b752c6a76a349cf0e8515d3c068c",
+                      "bytes":  901
+                  },
+                  {
+                      "path":  "public/icons/app-icon-180.png",
+                      "sha256":  "9154a775b572237708d109aa06e539d43898b3a626525ee672073647d1459da0",
+                      "bytes":  18911
+                  },
+                  {
+                      "path":  "public/icons/app-icon-192.png",
+                      "sha256":  "6b7692cb40a0091f0c94589eca0a512b6c051f769cd4212244d220ac5ffd43b8",
+                      "bytes":  20934
+                  },
+                  {
+                      "path":  "public/icons/app-icon-512.png",
+                      "sha256":  "ee5899377247e57eed3943c5ff00c4519ce3f4f5175fdb0751617c93ea4bae92",
+                      "bytes":  107469
+                  },
+                  {
+                      "path":  "public/icons/app-icon-maskable-512.png",
+                      "sha256":  "813dfefdf1a53ec9951d1d01fa6de85147ddefacd520607754663d6c30f33545",
+                      "bytes":  74799
+                  },
+                  {
+                      "path":  "public/icons/favicon.ico",
+                      "sha256":  "dc8108d5f049732f336e3faf4d34bab589a46c8c511eb82bf7af37fd0d80364c",
+                      "bytes":  65741
+                  },
+                  {
+                      "path":  "public/icons/favicon-16x16.png",
+                      "sha256":  "43ced0fcd33978bf7ea20c3cca3871a89bcd2e0b837776969f2e17ca29ab95d4",
+                      "bytes":  553
+                  },
+                  {
+                      "path":  "public/icons/favicon-32x32.png",
+                      "sha256":  "eb8c04479c4f3f3e2d42cb015d8f5804bc38d813a0fdc4080da363659ed00aeb",
+                      "bytes":  1602
+                  },
+                  {
+                      "path":  "public/icons/flags/de.svg",
+                      "sha256":  "a0624de40555acf8d3e60c0017d64f1206bd9ef1e47991784fec464379fffafa",
+                      "bytes":  336
+                  },
+                  {
+                      "path":  "public/icons/flags/gb.svg",
+                      "sha256":  "027ab76681bc6c2b184ab7a58efddd4c0814263f09f32934c685e046e67be604",
+                      "bytes":  819
+                  },
+                  {
+                      "path":  "public/icons/flags/NOTICE.md",
+                      "sha256":  "64d28612734c7fe66879ac903aae96b43884cb9f283f0593d6b6ae61c197dac1",
+                      "bytes":  1248
+                  },
+                  {
+                      "path":  "public/icons/lucide/badge-check.svg",
+                      "sha256":  "cfb5f7226dd30761a03b9d5c8c64ba70576c72327f5a4bf7c2c0d7a52f608e3e",
+                      "bytes":  426
+                  },
+                  {
+                      "path":  "public/icons/lucide/chevron-down.svg",
+                      "sha256":  "df0809577fd4661afa2e6335dc6773286f510ce6b93d9a2822fc332f8fdf2cf0",
+                      "bytes":  249
+                  },
+                  {
+                      "path":  "public/icons/lucide/chevron-right.svg",
+                      "sha256":  "5dcd9f62b8b9713f147a7f172f997fc5f6b9a936310e5fd77d53d9ea650e996b",
+                      "bytes":  250
+                  },
+                  {
+                      "path":  "public/icons/lucide/circle.svg",
+                      "sha256":  "4d0929b6658bcdd7f2cb41c894d25b1aa6a9df58555377e181d49c12d5f44c9e",
+                      "bytes":  257
+                  },
+                  {
+                      "path":  "public/icons/lucide/circle-check.svg",
+                      "sha256":  "e0ca4ff4321e8bca83aa4304467541f38e8c1d06c858b29ee08c30f34bbe4fa0",
+                      "bytes":  287
+                  },
+                  {
+                      "path":  "public/icons/lucide/file.svg",
+                      "sha256":  "19bcc35ad103f402c228ecfe39a2100b3f14450695cd9063314ab1c9463b2189",
+                      "bytes":  387
+                  },
+                  {
+                      "path":  "public/icons/lucide/file-text.svg",
+                      "sha256":  "b0e47486380ffca86daba9d7ddb6d4113e21a0c42930e140cedd6a703515dc02",
+                      "bytes":  461
+                  },
+                  {
+                      "path":  "public/icons/lucide/folder.svg",
+                      "sha256":  "4074731c598ed2773f1063855bcd47b9359a73e3c35d4cd1e5578b2f97361bfa",
+                      "bytes":  355
+                  },
+                  {
+                      "path":  "public/icons/lucide/folder-open.svg",
+                      "sha256":  "5bf197d963fcc382548e42564462ade47cdc0979257edd2ca2fc654621b0aecf",
+                      "bytes":  414
+                  },
+                  {
+                      "path":  "public/icons/lucide/grid-2x2.svg",
+                      "sha256":  "42f365d6d0e9b20ba38248b11b59516621294e763713bc8c488fb91e15278d59",
+                      "bytes":  324
+                  },
+                  {
+                      "path":  "public/icons/lucide/images.svg",
+                      "sha256":  "3b03b5d1e246e70c44d6713c0b375d6d39b7acb747e0902aa79bd18ce4453959",
+                      "bytes":  461
+                  },
+                  {
+                      "path":  "public/icons/lucide/inbox.svg",
+                      "sha256":  "d2dd81a2b1ebcfd8d4135773044bb02c68d14d3a8c549ef4e5695de669239081",
+                      "bytes":  402
+                  },
+                  {
+                      "path":  "public/icons/lucide/list.svg",
+                      "sha256":  "7c92b4c3d34fd58eb742d71867bce236732ef0aaf7bd0070e2bc89d1d03cd496",
+                      "bytes":  371
+                  },
+                  {
+                      "path":  "public/icons/lucide/message-square-plus.svg",
+                      "sha256":  "44e99077a8c22aa956a8435ae5b70753ce07767237680fe05808ae1474089edc",
+                      "bytes":  346
+                  },
+                  {
+                      "path":  "public/icons/lucide/mic.svg",
+                      "sha256":  "5ae2c9d56657a8b75ff50dde8de5cf7720456a63dc18eb04eea541e36769e02e",
+                      "bytes":  341
+                  },
+                  {
+                      "path":  "public/icons/lucide/monitor-smartphone.svg",
+                      "sha256":  "ccd0c216863fbdc4ade18d82a7ff3ea688ebb137b246c9ded92f6be360be9c1f",
+                      "bytes":  405
+                  },
+                  {
+                      "path":  "public/icons/lucide/notebook-text.svg",
+                      "sha256":  "15f89dd5eaee10edb9efe24653a4ac19d1fd4efbda6881da4ace5acdb6ccaeb4",
+                      "bytes":  448
+                  },
+                  {
+                      "path":  "public/icons/lucide/qr-code.svg",
+                      "sha256":  "0d4e8a9ed589f2b4675b7d58f70a072d8b61c198567479fc685c3124e3e2dc29",
+                      "bytes":  644
+                  },
+                  {
+                      "path":  "public/icons/lucide/refresh-cw.svg",
+                      "sha256":  "fe5399e58e8cdceb64d64a33f3a00942d62b7889b19f75bedfb4a1af65014eee",
+                      "bytes":  408
+                  },
+                  {
+                      "path":  "public/icons/lucide/rows-3.svg",
+                      "sha256":  "4b33fa737244061352cb2653bbb0442fc38a5fd1176a949d17b77d7de8b1750d",
+                      "bytes":  323
+                  },
+                  {
+                      "path":  "public/icons/lucide/settings.svg",
+                      "sha256":  "71971561be289afbcd1f2f1f83fe2cd5936681ad17d590c5524b5f3b5073784a",
+                      "bytes":  600
+                  },
+                  {
+                      "path":  "public/icons/lucide/x.svg",
+                      "sha256":  "5b4165ae1f49b53694ba06340e7580d81dedadd1e17b286e3a0147cf957b97f3",
+                      "bytes":  274
+                  },
+                  {
+                      "path":  "public/icons/lucide-sprite.svg",
+                      "sha256":  "0614cbe8f5844ce9c30ec2e4e98edf79974592b8ec5d86769238f8a979717197",
+                      "bytes":  7940
+                  },
+                  {
+                      "path":  "public/index.html",
+                      "sha256":  "675358d5950f5e20c59a2582d7cc50a7af98214bbe46d6e32141ff41117ed771",
+                      "bytes":  30181
+                  },
+                  {
+                      "path":  "public/locale.js",
+                      "sha256":  "722db8b5ce17e57c7ee9c91bc9c6d9203c80bc34aeef5d8ea5fc7173a7cea529",
+                      "bytes":  57234
+                  },
+                  {
+                      "path":  "public/manifest.webmanifest",
+                      "sha256":  "b168659a13b81d524b09f0f32711002b4b022f4a6f35d20cc1d86475a3569c1b",
+                      "bytes":  1088
+                  },
+                  {
+                      "path":  "public/mobilePreviewRenderer.js",
+                      "sha256":  "6e8ab034432b1824ca9230cc78219ece273f883d4b596c40c288405bf1673363",
+                      "bytes":  33031
+                  },
+                  {
+                      "path":  "public/pass.css",
+                      "sha256":  "f97def780dbf8af53cb6fd0da6ec9d28f02d17e465580359f5b99f99ac855a2e",
+                      "bytes":  6134
+                  },
+                  {
+                      "path":  "public/pass.html",
+                      "sha256":  "85dd12c924500497f55169ee40b97f74b129cdd8deb296783162851e838fe4a4",
+                      "bytes":  6229
+                  },
+                  {
+                      "path":  "public/pass.js",
+                      "sha256":  "f4c9b37b0b6d344d8fc7e759705f5b20e296b922c99d24e6a64c7cee976d0332",
+                      "bytes":  8587
+                  },
+                  {
+                      "path":  "public/pass-ui.css",
+                      "sha256":  "a838b50c10d3a00ebbd72557e52d016fe72a63cb00d33f4215fc79649295c956",
+                      "bytes":  6649
+                  },
+                  {
+                      "path":  "public/pass-ui.js",
+                      "sha256":  "4038aba339214cece19b17dec7214a737eae614758633f7bff2c2ba88f01b9ba",
+                      "bytes":  13754
+                  },
+                  {
+                      "path":  "public/preview.html",
+                      "sha256":  "0ed79c7322027bf0a265552d45507a2f405a47ba3833afb724f46991613403ad",
+                      "bytes":  937
+                  },
+                  {
+                      "path":  "public/preview.js",
+                      "sha256":  "38a14414efaf49b179d9bb54198ecdf981938ce7d4d80ca60d07e303df66f851",
+                      "bytes":  513
+                  },
+                  {
+                      "path":  "public/pwa.js",
+                      "sha256":  "5ef05a5346c5aa103288d994f0be0937f8ff757f46572fb618a3b648f6006925",
+                      "bytes":  622
+                  },
+                  {
+                      "path":  "public/service-worker.js",
+                      "sha256":  "b1e32dab22ce6f3e50255ca899cc9ab30be8dbbfb315b053a313b5be649e7b46",
+                      "bytes":  2390
+                  },
+                  {
+                      "path":  "public/styles.css",
+                      "sha256":  "367e1667c482aaed6176007c99487a17921d4cc4201c9ac48d4b12400785a3e9",
+                      "bytes":  178620
+                  },
+                  {
+                      "path":  "public/tutorial-center.css",
+                      "sha256":  "7db0c1515a02849f8aa4c4c80042d1f50f6960456d22f1b3ac6be47ab9fa123c",
+                      "bytes":  6820
+                  },
+                  {
+                      "path":  "public/tutorial-center.js",
+                      "sha256":  "1c16620940cdeccb9b17a0fa92d03b5a08a415bd5193245299dc5b283acdd44f",
+                      "bytes":  16551
+                  },
+                  {
+                      "path":  "public/tutorials/README.md",
+                      "sha256":  "f8b6a8a94024cad13856bc6389952718a6bf0e54da7ace2bdb1fde472ee17ad0",
+                      "bytes":  1240
+                  },
+                  {
+                      "path":  "public/vendor/simplebar/LICENSE",
+                      "sha256":  "b9ddf701a4aa2a268f3375d185d734fb0b3553520cd768fe4101f5962cfee7a9",
+                      "bytes":  1100
+                  },
+                  {
+                      "path":  "public/vendor/simplebar/simplebar.min.css",
+                      "sha256":  "1417ac84810587b176733232de9315fc1bbdfcfe94bc540218679b791c1f804e",
+                      "bytes":  3270
+                  },
+                  {
+                      "path":  "public/vendor/simplebar/simplebar.min.js",
+                      "sha256":  "deab2f2c2823ded3dc7a1b4ef575c141e60c8e4433ae2a7e2f3ddee4453cfbd0",
+                      "bytes":  27256
+                  },
+                  {
+                      "path":  "public/worksheetBlueprint.js",
+                      "sha256":  "47213dd4acb28e68ad2f9eb3f271264679e6f408b25473d160e52b74cfbd39e5",
+                      "bytes":  23424
+                  },
+                  {
+                      "path":  "rules/didactic/matching_tasks.json",
+                      "sha256":  "5a757a9641c3e3bf485233e22512bcb8527a223e383455e972407da6a638c9c7",
+                      "bytes":  2285
+                  },
+                  {
+                      "path":  "rules/didactic/multiple_choice_quality.json",
+                      "sha256":  "58570817a889e6e2a710b144909e325f89da94c07c115c1b6edeb222208ebf93",
+                      "bytes":  1588
+                  },
+                  {
+                      "path":  "rules/visual_design/test_black_white.json",
+                      "sha256":  "24faea243878427ff6362a2d1cebe30af8e1a2610fa09f9d5b31dccb72d4cc82",
+                      "bytes":  656
+                  },
+                  {
+                      "path":  "rules/visual_design/test_force_green.json",
+                      "sha256":  "acb55e1d01360c06351a4325abdf8d7c286d4b247c4d381e08839be11e51c0f7",
+                      "bytes":  678
+                  },
+                  {
+                      "path":  "rules/worksheet_design/answer_surface_semantics.json",
+                      "sha256":  "e3335f8ed0434485e8d363b24d9ce349ec381d89105ea1f31093caaadca8ddf4",
+                      "bytes":  3690
+                  },
+                  {
+                      "path":  "rules/worksheet_design/connected_page_marker.json",
+                      "sha256":  "9bdd89221df52145457056ca2b6255690b53b7bb0a1ebbd7a22d93b1a23dfb34",
+                      "bytes":  2097
+                  },
+                  {
+                      "path":  "rules/worksheet_design/label_ownership.json",
+                      "sha256":  "c2632506f53438f78ebedb0bcb10e71f495b8104fee11ea21b291cf019f1faa7",
+                      "bytes":  4670
+                  },
+                  {
+                      "path":  "rules/worksheet_design/no_default_name_fields.json",
+                      "sha256":  "76a979a3798c64b9609ddcfa5dea1c9ad62cc3ec6f483a798311b047c2a6d716",
+                      "bytes":  982
+                  },
+                  {
+                      "path":  "rules/worksheet_design/no_double_numbering.json",
+                      "sha256":  "05fd96a8130656fed260584c2f6933237524f52ab8749a7c153ffbf5d8c34426",
+                      "bytes":  808
+                  },
+                  {
+                      "path":  "rules/worksheet_design/no_visible_solutions.json",
+                      "sha256":  "d5c5674688db985f0d1e0c31311f06db59b94e93f91e8e397c7fd6fbe97159ed",
+                      "bytes":  1071
+                  },
+                  {
+                      "path":  "rules/worksheet_design/reading_text_titles.json",
+                      "sha256":  "8f0dcb5e5026229abec529f954a4520449aafcd70ce4eadd3f69b22022726d17",
+                      "bytes":  4280
+                  },
+                  {
+                      "path":  "rules/worksheet_design/template_adaptation.json",
+                      "sha256":  "58677059e50f5dfccc36bc286ad82ec80eccdf0df0f96f2747f84344e68959de",
+                      "bytes":  2913
+                  },
+                  {
+                      "path":  "rules/worksheet_design/worksheet_economy.json",
+                      "sha256":  "c1bb9c1f7f0894433d0898bd3d7ab26aa638a8ea7bc12db9bd42f7ac7cef7b78",
+                      "bytes":  3598
+                  },
+                  {
+                      "path":  "scripts/smoke-hosting-runtime.js",
+                      "sha256":  "9c82628cdde8fbdb69f69eb25b2e36aefa51889fa2e005e9c2afb343d023f836",
+                      "bytes":  13323
+                  },
+                  {
+                      "path":  "scripts/smoke-judge-app.js",
+                      "sha256":  "7dc220e087460be7e382bc90cbf46ac223de87fbe27e9abd887bb1c62dcc5db3",
+                      "bytes":  28209
+                  },
+                  {
+                      "path":  "scripts/smoke-locale-contract.js",
+                      "sha256":  "deaf1b48fed890dfd24caac49bc3bf051c622f14510f88eb88b47c8f9ec87a87",
+                      "bytes":  2831
+                  },
+                  {
+                      "path":  "scripts/smoke-project-manager.js",
+                      "sha256":  "486395069dc85f7bd115413ebc5aead7d76c485f27be8f2c7acc9c5a961170af",
+                      "bytes":  2177
+                  },
+                  {
+                      "path":  "scripts/smoke-real-flow-english-entry.js",
+                      "sha256":  "cf59d20e9960e60c9570b048ca17b187a4ca7e443c85dcd5a1403f245afecad0",
+                      "bytes":  11962
+                  },
+                  {
+                      "path":  "scripts/smoke-task-label-normalization.js",
+                      "sha256":  "5d6c2d4fd3a50a9bff2ca227146cc416513fbe0164fbb3643bbe16236943ceb9",
+                      "bytes":  11088
+                  },
+                  {
+                      "path":  "scripts/verify-release-source.js",
+                      "sha256":  "2300c8a9205be3d6dbb633694a6770a03f9b1afee34d73a6c933399f976e7837",
+                      "bytes":  2034
+                  },
+                  {
+                      "path":  "server/dev-server.js",
+                      "sha256":  "5f15a39a715d11ed22be154ff9ffa1750490606f4d1435bd0bb97ce88c37e40b",
+                      "bytes":  67667
+                  },
+                  {
+                      "path":  "server/forward-email-webhook.js",
+                      "sha256":  "991fb1b98593f51d4d7feb682615d37a34563bb5fc8101dcc222f83351a388de",
+                      "bytes":  4283
+                  },
+                  {
+                      "path":  "server/owner-auth.js",
+                      "sha256":  "727855643b5fc16ecbaba139f0f3cb6a913f8dadd4215fad4cd4a1a53adc887f",
+                      "bytes":  7240
+                  },
+                  {
+                      "path":  "server/production-server.js",
+                      "sha256":  "07ddff6cf1076715261aa0b92ce46a6801dced05ed8ff5f31187bd446506de5a",
+                      "bytes":  322
+                  },
+                  {
+                      "path":  "server/runtime-config.js",
+                      "sha256":  "8d816270be15309c0607dc3875cfda1852244a28c873687c37238c632d4e78d4",
+                      "bytes":  14098
+                  },
+                  {
+                      "path":  "server/runtime-health.js",
+                      "sha256":  "eef5be2cbe887ed4f960a70b69046f5ef5b21050350ea7f9823a51f61063271b",
+                      "bytes":  1686
+                  }
+              ],
+    "overlays":  [
+                     {
+                         "path":  ".env.example",
+                         "sha256":  "be6b98b91300cc4f42f22d0114cd179af80738a77c3db18347b0dfd5fa49010b",
+                         "bytes":  270
+                     },
+                     {
+                         "path":  ".gitignore",
+                         "sha256":  "0d86aa60a303807f7a353113138931c253dfacfea488a1e6cd2818d5f061e37d",
+                         "bytes":  112
+                     },
+                     {
+                         "path":  "BUILD_WEEK.md",
+                         "sha256":  "071203bf258064ee891d7e1abeb56ba9e4db17b58228b50ffb2307d693731aa9",
+                         "bytes":  2058
+                     },
+                     {
+                         "path":  "PUBLICATION_SCOPE.md",
+                         "sha256":  "d71f0ce54179a025ead84e9be2b0c916680c1571dd9df2465313ea47388747a6",
+                         "bytes":  2166
+                     },
+                     {
+                         "path":  "README.md",
+                         "sha256":  "4171015ba59234bcda8dde9403134c3ea313901a11841d827f0d2ea253b2b1e1",
+                         "bytes":  4425
+                     },
+                     {
+                         "path":  "THIRD_PARTY_NOTICES.md",
+                         "sha256":  "d15e1e33567160748a9fd1cefd4e92a2a116af3dae0deb086092296ad8d1a34f",
+                         "bytes":  2742
+                     },
+                     {
+                         "path":  "package.json",
+                         "sha256":  "1cc899ff3bab40a0cf119494b02fb9fb58e99daaf3cb4f01ac0510c3fd3841d6",
+                         "bytes":  978
+                     }
+                 ]
+}

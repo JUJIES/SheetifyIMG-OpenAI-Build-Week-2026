@@ -1,0 +1,29 @@
+{
+  "name": "sheetify-img-openai-build-week-2026",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reproducible judge mirror for the SheetifyIMG OpenAI Build Week submission.",
+  "engines": {
+    "node": "20.19.x",
+    "npm": "10.8.x"
+  },
+  "scripts": {
+    "build": "node scripts/verify-release-source.js",
+    "test:judge": "node scripts/smoke-locale-contract.js && node scripts/smoke-real-flow-english-entry.js && node scripts/smoke-project-manager.js && node scripts/smoke-task-label-normalization.js && node scripts/smoke-hosting-runtime.js",
+    "test:judge:browser": "node scripts/smoke-judge-app.js",
+    "dev": "node server/dev-server.js",
+    "start": "node server/dev-server.js"
+  },
+  "dependencies": {
+    "jsqr": "^1.4.0",
+    "pngjs": "^7.0.0",
+    "qrcode": "^1.5.4",
+    "resend": "^6.17.2",
+    "sharp": "^0.35.3",
+    "simplebar": "^6.3.3"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
+    "@playwright/test": "^1.61.1"
+  }
+}

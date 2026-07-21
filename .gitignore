@@ -1,0 +1,12 @@
+node_modules/
+.DS_Store
+tmp/
+test-results/
+.sheetifyimg/
+projects/
+worksheets/
+*.log
+.env
+.env.*
+!.env.example
+
