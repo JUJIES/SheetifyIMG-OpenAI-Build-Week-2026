@@ -1,6 +1,6 @@
 {
     "schemaVersion":  1,
-    "generatedAt":  "2026-07-21T20:53:32.7420800Z",
+    "generatedAt":  "2026-07-21T22:21:21.1859192Z",
     "source":  {
                    "repository":  "https://github.com/JUJIES/SheetifyIMG.git",
                    "branch":  "codex/sheetify-beta-v1",
@@ -8,8 +8,8 @@
                    "committedAt":  "2026-07-21T20:51:20+02:00"
                },
     "publisher":  {
-                      "toolingCommit":  "e9eb6554fa4e126c0c5591d58d24085090b88229",
-                      "policySha256":  "f7122615392815d6cfa99d75a15496cd6913789d705217a7b1fd4b745597d981",
+                      "toolingCommit":  "cd787b0af5fb37d42254090155f62db8786c2107",
+                      "policySha256":  "8f083749ff351e4462551d47ce913865f32bff1adbb45361982058de4e5f913e",
                       "filterVersion":  "2.47.0"
                   },
     "files":  [
@@ -1232,8 +1232,8 @@
                      },
                      {
                          "path":  "BUILD_WEEK.md",
-                         "sha256":  "613204f5cbe77b76e8a85d475366ce4e74a75d10332a611a38da3d4871ff2844",
-                         "bytes":  2102
+                         "sha256":  "130e6d39efef6178acdcc955baa957586d2b4845ddf886172c8583d8f4936f5b",
+                         "bytes":  2436
                      },
                      {
                          "path":  "LICENSE",
@@ -1247,8 +1247,8 @@
                      },
                      {
                          "path":  "README.md",
-                         "sha256":  "6ad2e3972f79138fd5aa22f1ac85e9e6eaacebdc7af395030b33f5125d0255b1",
-                         "bytes":  31665
+                         "sha256":  "9cf9c431dbbbf017b434c0b320834c2c7d8769230de89c94fe9c2682a86c4a46",
+                         "bytes":  48794
                      },
                      {
                          "path":  "THIRD_PARTY_NOTICES.md",

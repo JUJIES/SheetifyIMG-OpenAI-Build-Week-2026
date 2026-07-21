@@ -172,19 +172,313 @@ Tag: sheetifyimg-pre-planning-v2-2026-07-14
 
 This baseline was created after the official Submission Period had already begun. Everything it contains is therefore treated as pre-existing rather than claimed as Build Week work.
 
-### What changed during Build Week
+### Commit-backed Build Week work directory
 
-| Workstream | Substantial Build Week work |
+This is a capability index rather than a chronological changelog. It separates
+product work, Beta infrastructure, verification and submission evidence so the
+Build Week contribution can be inspected without treating every small release
+commit as a separate feature.
+
+The linked hashes are commits in this filtered public mirror. Where useful, the
+corresponding canonical private-upstream commit is shown as `source:`. Hashes
+differ because private-only paths are omitted; `SOURCE_PROVENANCE.json` records
+the exact source revision behind the published application tree.
+
+| Area | Build Week contribution at a glance |
 |---|---|
-| Planning V2 | Consolidated conversational planning, unified concept creation, bounded revision deltas, rollback support and controlled measurement |
-| Closed-beta access | Pass-scoped workspaces, persistent sessions, device pairing, scoped files and draft-page credits |
-| Beta operations | Private invitations, top-ups, pause/revoke/delete controls, support and recovery paths |
-| Feedback and consent | Per-device consent, voluntary contextual feedback and a private review queue |
-| Reliability | Duplicate-command protection, generation-job recovery, artifact binding checks and regression coverage |
-| Judge and language path | English entry, bilingual interface handling, onboarding and end-to-end judge-path validation |
-| Demo and onboarding pipeline | Deterministic Playwright capture, code-driven Remotion timelines, replaceable narration and provider-free render verification |
-| Hosted operation | Commit-pinned releases, external runtime state, health checks and deployment preflight |
-| Evidence and release preparation | Build Week documentation, test records, sanitized beta metrics and a filtered judge-facing repository mirror |
+| Core product and UI | Planning V2, the interactive Worksheet Concept, explicit reference and revision logic, and a chat-first responsive workflow |
+| Closed Beta | Sheetify Pass workspaces, sessions and pairing, draft-page credits, administration, invitations, recovery, consent and feedback |
+| Hosting and quality | Beelink cutover, commit-pinned releases, external runtime state, health checks, reliability fixes and automated end-to-end verification |
+| Onboarding and evidence | English judge path, Tutorial Center, automated demo/onboarding production, external Beta evidence and the reproducible judge mirror |
+
+<details open>
+<summary><strong>Core product and UI work</strong></summary>
+
+#### Planning V2 architecture
+
+**What changed:** a consolidated Planning Turn, unified worksheet-concept
+generation, compact structured revision deltas, content-free observability and
+an explicit Legacy rollback path. A controlled real-API A/B harness measured
+the resulting call, token and text-model cost changes without presenting them
+as a general quality verdict.
+
+**Why it mattered:** the Beta needed a less fragmented planning path while
+retaining explicit teacher approval and compatibility with existing projects.
+
+**Evidence:** [`9010dc3a`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/9010dc3a)
+(`source: 897be78`), [`3c3aaa2a`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/3c3aaa2a)
+(`source: 414a822`), [`45fc5a4b`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/45fc5a4b)
+(`source: 11cfb12`), [`699ff4cc`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/699ff4cc)
+(`source: a8c18a9`). The first Planning V2 implementation was committed on
+14 July 2026 at 12:54 CEST, directly after the conservative pre-existing
+baseline.
+
+#### Interactive Worksheet Concept
+
+**What changed:** the existing structured concept became one consistent,
+inspectable desktop and mobile surface for page structure, task progression,
+visible content, images and layout intent. Concept elements can be opened and
+used as explicit revision targets without introducing a second concept model.
+
+**Why it mattered:** teachers can inspect what the system intends to render and
+change a specific part before authorizing a paid image run.
+
+**Evidence:** [`b72edb65`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/b72edb65)
+(`source: efa8df2`), [`c4d08c88`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/c4d08c88)
+(`source: 023770f`), [`5fff3c1a`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/5fff3c1a)
+(`source: ec35501`), [`97ea11fa`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/97ea11fa)
+(`source: 21463a5`).
+
+#### Reference UI and targeted revision logic
+
+**What changed:** the generation surface now distinguishes a new draft from
+the current concept, a targeted revision of a selected draft, an optional
+visual template and an image that should appear as worksheet material. For a
+targeted revision, the selected draft is carried as the explicit visual basis,
+validated by the server and described to the image model with preservation
+instructions. A missing or unreadable basis fails closed instead of silently
+becoming an unrelated generation.
+
+The same work simplified the confirmation UI, added a compact template popover,
+made concept images individually inspectable and moved mobile reference
+selection into a bounded bottom sheet.
+
+**Why it mattered:** in a probabilistic Image-First workflow, “revise this
+draft” must not mean the same thing as “create another draft.” The teacher must
+see and control what the next generation is based on.
+
+**Evidence:** [`2f4663c1`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/2f4663c1)
+(`source: 202ffaa`), [`305a7166`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/305a7166)
+(`source: 478d222`), [`4403d32b`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/4403d32b)
+(`source: 7733896`), [`24ed97a1`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/24ed97a1)
+(`source: 13b824b`). The final two commits changed 15 files with 615 additions
+and 103 deletions, then 13 files with 877 additions and 348 deletions.
+
+#### Chat-first, mobile and project workflow overhaul
+
+**What changed:** new projects open directly into the conversation; the
+creation path no longer depends on a large prefilled form. Mobile project
+entry, the composer, settings sheets, the concept sheet and reference controls
+were reworked. Supporting changes added contextual folder creation, compact
+completed-draft cards and multiline chat input.
+
+**Why it mattered:** the hosted Beta had to work without a live explanation on
+both desktop and phone, while keeping the lesson conversation as the primary
+entry point.
+
+**Evidence:** [`e0bd4a3f`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/e0bd4a3f)
+(`source: e5c8897`), [`77180af1`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/77180af1)
+(`source: a552677`), [`f86f410a`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/f86f410a)
+(`source: 77afdd7`), [`530a5c83`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/530a5c83)
+(`source: 1a01a9b`), [`91cc87f0`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/91cc87f0)
+(`source: 7be7a1b`).
+
+</details>
+
+<details>
+<summary><strong>Closed Beta access and operations</strong></summary>
+
+#### Sheetify Pass access and workspace isolation
+
+**What changed:** pass-scoped projects, worksheets and files; persistent
+device-specific sessions; short-lived device pairing; manual pass entry; and
+individual device disconnect. Pass, session, pairing and recovery secrets are
+stored as digests rather than plaintext.
+
+**Why it mattered:** invited testers needed separate, revisitable workspaces
+without adding a full personal-account system to a small Closed Beta.
+
+**Evidence:** [`f3e3ba8e`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/f3e3ba8e)
+(`source: 7612305`), [`bc5b9441`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/bc5b9441)
+(`source: e8028a9`), [`3e29847d`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/3e29847d)
+(`source: 835e623`), [`327d00e4`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/327d00e4)
+(`source: d4b995e`).
+
+#### Draft credits and Beta administration
+
+**What changed:** draft-page credits use one append-only ledger for grants,
+generation reservations, successful settlement and automatic refund of unused
+or failed pages. The private admin can create and manage passes and top-up
+cards, pause or reactivate access, rotate credentials and explicitly delete a
+workspace and its linked Beta records.
+
+**Why it mattered:** real image runs have cost and lifecycle consequences that
+the personal prototype did not need to expose or operate for other people.
+
+**Evidence:** [`40eb0b91`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/40eb0b91)
+(`source: 916394b`), [`bfcc2e82`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/bfcc2e82)
+(`source: d2cd0bb`), [`67b2ff31`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/67b2ff31)
+(`source: 5b2b76b`), [`e91bd765`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/e91bd765)
+(`source: f5f0273`).
+
+#### Invitations, email and recovery
+
+**What changed:** localized pass cards, server-side Resend delivery, a stable
+support address and admin-reviewed single-use recovery links with a manual
+fallback.
+
+**Why it mattered:** a tester had to be able to receive access, understand it
+and recover a workspace without exposing credentials in Git or requiring the
+owner to edit product state manually.
+
+**Evidence:** [`5f9199cc`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/5f9199cc)
+(`source: 5d5f81d`), [`ff5a5ea8`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/ff5a5ea8)
+(`source: 17b70f7`), [`147e8d75`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/147e8d75)
+(`source: 886f3be`).
+
+#### Consent and contextual feedback
+
+**What changed:** required Beta consent is recorded per device session;
+voluntary feedback can carry the current project context into a private admin
+review queue; and later UI passes reduced prompting, kept the feedback control
+reachable and fixed cross-project context leakage.
+
+**Why it mattered:** the Beta needed an honest feedback loop without adding a
+general analytics platform or pretending that an invitation email was a user
+identity.
+
+**Evidence:** [`c2832d50`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/c2832d50)
+(`source: 5a3638d`), [`3148bb98`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/3148bb98)
+(`source: e313e18`), [`62e6b8b5`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/62e6b8b5)
+(`source: 2dec7cc`).
+
+</details>
+
+<details>
+<summary><strong>Hosting, reliability and automated verification</strong></summary>
+
+#### Hosted Beta cutover and Beelink operations
+
+**What changed:** SheetifyIMG moved from a personal development environment to
+a persistent, commit-pinned Windows service with a separately stored runtime,
+external secrets, read-only health checks, a fixed Cloudflare named tunnel and
+documented rollback releases. The application and tunnel have independent
+service identities; the existing Beelink Control Center observes SheetifyIMG as
+a status-only workload rather than becoming its process parent.
+
+**Why it mattered:** this cutover was the operational beginning of the Beta. It
+made the application continuously reachable at `sheetify.jujies.app` and able
+to survive normal application or tunnel restarts without the development
+checkout becoming the production source of truth.
+
+**Evidence:** [`aa237925`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/aa237925)
+(`source: d1f6af9`), [`3d908ce2`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/3d908ce2)
+(`source: e07d777`), [`71e082ad`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/71e082ad)
+(`source: ed0c57e`), plus Control Center source commit `3e55b6b`. The migrated
+service, automatic app and tunnel services, local/public health endpoints and
+independent restart behavior were verified on 15 July 2026. A full host reboot
+and the formal external encrypted backup/restore proof are not claimed as
+completed migration gates.
+
+#### Workflow reliability and output correctness
+
+**What changed:** duplicate workspace-command protection, exact binding of E2E
+reviews to generated artifacts, generation-job recovery checks, retries for
+transient Windows state writes, correct separation of task and page counts,
+stable task numbering across pages and repaired referenced-revision routing.
+
+**Why it mattered:** these are failure modes that become visible only when the
+application is repeatedly used, refreshed and operated by people other than
+its author.
+
+**Evidence:** [`23a597dd`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/23a597dd)
+(`source: df4d71d`), [`2f42159e`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/2f42159e)
+(`source: 97eca33`), [`2e982fda`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/2e982fda)
+(`source: 9e4d265`), [`d702a7a8`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/d702a7a8)
+(`source: a70965a`).
+
+#### Automated Beta and end-to-end verification
+
+**What changed:** provider-free release and regression suites were expanded
+with focused contracts for access, credits, localization, references,
+tutorials, hosting and the judge path. Targeted real-provider runners cover the
+full Beta journey, Planning V2 comparisons and paid image canaries. Repeatable
+live runners also exercised the private admin and two-device pairing flows
+without committing their credentials or runtime data.
+
+**Why it mattered:** the Beta release process needed evidence for the complete
+journey, not only isolated model calls. These tests exposed page-count parsing,
+browser timing and incorrect review-to-artifact association before the final
+judge release.
+
+**Evidence:** [`61c9fb2b`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/61c9fb2b)
+(`source: b20dcf2`), canonical source commits `110d71a`, `6ac6906`, `9dc1a69`
+and `e2de83c`, plus the provider-free judge commands documented below.
+
+</details>
+
+<details>
+<summary><strong>Onboarding, external validation and submission evidence</strong></summary>
+
+#### English judge path
+
+**What changed:** English entry and interface handling, localized new-project
+conversation defaults, an English tutorial source, stable English labels and a
+reproducible paid English capture profile. Worksheet language remains
+independent from interface language, and existing project conversations are not
+silently rewritten.
+
+**Why it mattered:** judges and English-speaking testers needed a coherent path
+through the same hosted Beta rather than a separate demonstration build.
+
+**Evidence:** [`f13995e3`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/f13995e3)
+(`source: e97df50`), [`4a5a132b`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/4a5a132b)
+(`source: 545771c`), [`869ee8dd`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/869ee8dd)
+(`source: be5549a`), [`56239156`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/56239156)
+(`source: b73ac56`).
+
+#### Tutorial Center and automated demo/onboarding pipeline
+
+**What changed:** an in-app Tutorial Center with locale-specific validated
+video sources, privacy-conscious loading and device-specific progress. Behind
+the visible guide is a reusable production pipeline combining deterministic
+Playwright capture, controlled pointer guidance, code-driven Remotion timelines,
+segmented replaceable narration, timing validation and provider-free smoke
+rendering.
+
+**Why it mattered:** invited teachers and judges had to understand an unfamiliar
+Image-First workflow without a live explanation. The video is the visible
+output; the reusable and updateable pipeline is the engineering contribution.
+
+**Evidence:** [`ad6fef06`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/ad6fef06)
+(`source: ce38a48`), [`5a195078`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/5a195078)
+(`source: 3887eae`), [`193411a0`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/193411a0)
+(`source: b9b19fc`), [`68c307ea`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/68c307ea)
+(`source supplement: e9eb655`). The pipeline is product-support infrastructure,
+not part of worksheet generation.
+
+#### External Closed Beta validation
+
+Six individual passes were shared during an approximately 55.5-hour Closed
+Beta. Four consented participants became active. The sanitized persisted state
+records 9 projects, 8 reaching generation, 31 generation jobs, 28 successful
+drafts, 36 generated pages, 16 saved worksheet PDFs and 21 contextual feedback
+entries from three participants. These figures demonstrate an external product
+loop; they are not presented as adoption or learning-effectiveness claims.
+
+The detailed, sanitized Beta Evidence Pack is supplied privately through
+Devpost so tester credentials, messages and workspaces do not need to be
+published in this repository.
+
+#### Reproducible judge mirror and public project note
+
+**What changed:** a fixed allowlist exports the deployed application from the
+private canonical repository, audits the resulting tree and history, verifies
+file hashes, installs dependencies and runs the provider-free judge suite. The
+public mirror is licensed under MIT and carries machine-readable source
+provenance. A separate public personal note and timeline explains the project
+history and Build Week boundary visually.
+
+**Why it mattered:** judges can inspect and run the relevant source without
+publishing pass credentials, tester state, private deployment profiles or
+unrelated experimental material.
+
+**Evidence:** application mirror [`33f0908c`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/33f0908c)
+(`source: 2a90c04`), pipeline supplement [`68c307ea`](https://github.com/JUJIES/SheetifyIMG-OpenAI-Build-Week-2026/commit/68c307ea)
+(`source: e9eb655`), and the public note at
+[about.sheetify.app](https://about.sheetify.app).
+
+</details>
 
 The meaningful transition was not “prototype to first generated page.” It was **personal tool to a hosted workflow that other people could enter, use, revisit and evaluate**.
 
@@ -279,6 +573,25 @@ That work changed my understanding of the project. Moving from a visible prototy
 Git records the resulting technical changes, but it cannot prove a line-by-line human/Codex authorship percentage. I do not claim one.
 
 > **Codex expanded what I could build; it did not decide what the product should become.**
+
+> **A very honest note about Git**
+>
+> Git is still, quite honestly, a book with seven seals to me. I can understand
+> a straightforward commit. Add several branches, worktrees, mirrors and
+> release tags, and my internal map quickly folds itself into a paper airplane.
+>
+> I therefore delegated most of the Git mechanics to Codex: inspecting working
+> trees, isolating tasks, keeping unrelated changes out of commits, pushing
+> branches, preparing releases and tracing which commit was actually deployed.
+> I repeatedly prompted it to report the current state, intended scope,
+> completed checks, exact release commit and available rollback before moving
+> forward.
+>
+> This does not mean that I became a Git expert during Build Week. It means that,
+> with careful prompting, automated checks and a lot of verification questions,
+> I was able to build a process around a skill gap that would otherwise have
+> stopped me completely. Without that help, I would probably still be lost
+> somewhere between branch three and my first merge conflict.
 
 The required primary `/feedback` Session ID is supplied privately through the Devpost submission rather than published in this repository.
 

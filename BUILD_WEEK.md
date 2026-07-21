@@ -19,7 +19,9 @@ The relevant work includes:
 - migration to the Beelink and integration into a stable self-hosted service;
 - Closed Beta access passes, isolated workspaces and credit limits;
 - the English judge entry path and localization fixes;
-- the complete teacher-in-the-loop concept, generation, review and save flow;
+- the Beta-ready overhaul of the existing teacher-in-the-loop flow, including
+  the interactive Worksheet Concept, explicit reference/revision logic and a
+  chat-first responsive interface;
 - mobile and desktop UI refinement, accessibility and reliability work;
 - admin, feedback and operational safeguards needed for real testers;
 - provider-free smoke tests plus targeted real OpenAI end-to-end checks;
@@ -32,6 +34,10 @@ not claim that pre-existing work was created during Build Week. Instead, the
 commit history and source provenance show the implementation chronology, while
 the timeline and Devpost materials identify the Beta work completed during the
 eligible period.
+
+The canonical capability-by-capability inventory is maintained in the
+`Commit-backed Build Week work directory` inside `README.md`. This file records
+the temporal boundary only, avoiding a second detailed list that could drift.
 
 ## Evidence model
 
