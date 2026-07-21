@@ -10,7 +10,7 @@ const TUTORIALS = Object.freeze([
     intro: true,
     youtubeUrls: Object.freeze({
       de: "https://youtu.be/3uJi1SkLXYs",
-      en: "https://youtu.be/3uJi1SkLXYs"
+      en: "https://youtu.be/zbgVeGDTo7o"
     }),
     eyebrow: Object.freeze({ de: "Erste Schritte", en: "Getting started" }),
     title: Object.freeze({ de: "Mein erstes Arbeitsblatt", en: "My first worksheet" }),
