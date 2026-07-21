@@ -15,8 +15,6 @@ SheetifyIMG is submitted to the **Education track of OpenAI Build Week 2026**.
 
 During Build Week, I did not start from an empty repository. A functional personal prototype already existed. The submitted work was the next, less visible step: turning that prototype into a hosted, pass-based Closed Beta that another person could enter, use, revisit and evaluate without me standing beside them.
 
-<!-- TODO before submission: add one representative product screenshot or short GIF. -->
-
 ## Links
 
 - **Hosted Closed Beta:** https://sheetify.jujies.app/?lang=en
@@ -344,7 +342,7 @@ The sanitized evidence pack contains the methodology, metrics, selected artifact
 
 ## Repository provenance
 
-This repository is the filtered, judge-facing release mirror of SheetifyIMG. It is initially private; it can be made public only after a project license has been selected and committed.
+This repository is the filtered, public judge-facing release mirror of SheetifyIMG. Its source code is available under the MIT License.
 
 Development, testing and production deployment take place in a private canonical repository. That repository also contains internal worklogs, private beta evidence, generated outputs, runtime data and host-specific operational material that are not required to run or evaluate the submitted product.
 
@@ -585,7 +583,7 @@ The personal note contains the longer classroom background and the history of th
 
 ## License and third-party services
 
-The judge mirror is currently private and has no project-level open-source license. It must remain private until the project owner selects and commits a license. Redistributed third-party components retain their own licenses; see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+The SheetifyIMG source code in this judge mirror is licensed under the [MIT License](LICENSE). Redistributed third-party components retain their own licenses; see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 SheetifyIMG uses the OpenAI API for GPT-5.6 planning, GPT Image 2 rendering and optional voice transcription. The hosted beta can also use Resend for transactional email. JavaScript dependencies and their versions are recorded in `package.json` and `package-lock.json`.
 

@@ -11,7 +11,8 @@ It is not edited as an independent product fork.
 - the local development and production server implementation;
 - the locked npm dependency graph;
 - a small, provider-free judge verification suite;
-- judge setup, Build Week boundary and provenance documents.
+- judge setup, Build Week boundary and provenance documents;
+- the project-level MIT License and third-party notices.
 
 ## Deliberately excluded
 
@@ -41,10 +42,10 @@ Git SHAs differ because private-only paths are omitted and publication metadata
 is added; the file hashes prove which runtime files came from the named source
 commit.
 
-## Visibility and licensing gate
+## Visibility and licensing
 
-The mirror is created as a **private** review repository first. It must not be
-made public until the project owner selects a repository license and that
-license is committed at the root. Third-party notices are already retained in
-their asset folders and summarized in `THIRD_PARTY_NOTICES.md`.
+The mirror was created as a private review repository and audited before
+publication. It is published under the MIT License stored at the repository
+root. Third-party notices remain governed by their respective licenses and are
+summarized in `THIRD_PARTY_NOTICES.md`.
 

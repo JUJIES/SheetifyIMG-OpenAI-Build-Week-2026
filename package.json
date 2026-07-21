@@ -2,6 +2,7 @@
   "name": "sheetify-img-openai-build-week-2026",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Reproducible judge mirror for the SheetifyIMG OpenAI Build Week submission.",
   "engines": {
     "node": "20.19.x",

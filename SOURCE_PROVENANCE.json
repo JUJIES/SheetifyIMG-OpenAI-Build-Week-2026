@@ -1,15 +1,15 @@
 {
     "schemaVersion":  1,
-    "generatedAt":  "2026-07-21T18:26:20.5789196Z",
+    "generatedAt":  "2026-07-21T18:55:00.1327856Z",
     "source":  {
                    "repository":  "https://github.com/JUJIES/SheetifyIMG.git",
                    "branch":  "codex/sheetify-beta-v1",
-                   "commit":  "57485d4b9a97967432e3d7f1046177c8eaa03a2e",
-                   "committedAt":  "2026-07-21T19:51:26+02:00"
+                   "commit":  "2a90c04c0e542fb05c31b4b8eb7134a7d04f4baa",
+                   "committedAt":  "2026-07-21T20:51:20+02:00"
                },
     "publisher":  {
-                      "toolingCommit":  "57485d4b9a97967432e3d7f1046177c8eaa03a2e",
-                      "policySha256":  "0369f34464cdec2b998f7e2efbfa8d952908f98a950c5955499c2b77ab0c3f58",
+                      "toolingCommit":  "2a90c04c0e542fb05c31b4b8eb7134a7d04f4baa",
+                      "policySha256":  "eb3aaba18fb67294ea2a8e0b6decf0483a3788b9dead8b89a4b6950a4439da71",
                       "filterVersion":  "2.47.0"
                   },
     "files":  [
@@ -1111,14 +1111,19 @@
                          "bytes":  2102
                      },
                      {
+                         "path":  "LICENSE",
+                         "sha256":  "cd451fd92e1321cf28621f438dec5eba5476f98a57edc5b5727b0a1c5c2b54d2",
+                         "bytes":  1093
+                     },
+                     {
                          "path":  "PUBLICATION_SCOPE.md",
-                         "sha256":  "d820d264f95b04c6173801b362cec6f078727d0d5b49eb62a53d2b0be2c042ae",
-                         "bytes":  2216
+                         "sha256":  "981d17c7346fb050deb2752924575def4127966ed2b780da83dbeeb0cc7ea1b1",
+                         "bytes":  2242
                      },
                      {
                          "path":  "README.md",
-                         "sha256":  "5281ec05574d1ffc7951975d0fbbe9c15044a85327dfff94ead686822935aa1a",
-                         "bytes":  29297
+                         "sha256":  "63fca8351a6b935acc9d0aa36366f9eb33565c27166c711b7eab895632dfb062",
+                         "bytes":  29088
                      },
                      {
                          "path":  "THIRD_PARTY_NOTICES.md",
@@ -1127,8 +1132,8 @@
                      },
                      {
                          "path":  "package.json",
-                         "sha256":  "2d65b3e43dd79a877b0240ecd55a9d9ba027463ffdefe720639fc4318cd3570e",
-                         "bytes":  1007
+                         "sha256":  "87c647ea5877f0e07728aa8be3525c6d6cdb487e24fcb57b6f0c45bdb695f2af",
+                         "bytes":  1028
                      }
                  ]
 }
