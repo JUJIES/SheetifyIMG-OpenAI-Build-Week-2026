@@ -3280,7 +3280,14 @@ function showCandidateGenerationToast(kind, {
     return;
   }
   const pageCount = Number(event.pageCount || 0);
-  showToast(pageCount > 1 ? `Mehrseitiger Entwurf${target} ist fertig.` : `Entwurf${target} ist fertig.`, "success");
+  if (label) {
+    showToast(t(pageCount > 1 ? "app.chat.seriesFinishedFor" : "app.chat.draftFinishedFor", { project: label }), "success");
+    return;
+  }
+  const draftLabel = pageCount > 1
+    ? (appLocale?.current() === "en" ? "Multi-page draft" : "Mehrseitiger Entwurf")
+    : (appLocale?.current() === "en" ? "Draft" : "Entwurf");
+  showToast(t("app.chat.draftFinished", { draft: draftLabel }), "success");
 }
 
 function notifyCandidateGenerationTransition(previousGeneration, nextGeneration, project = {}) {
@@ -5773,13 +5780,15 @@ function worksheetPagesValue(brief = {}, content = {}) {
 function worksheetScopeLabel(brief = {}, content = {}) {
   const pages = worksheetPagesValue(brief, content);
   if (pages && pages > 1) {
-    return `${pages} Blätter`;
+    return t("app.draft.pageCountPlural", { count: pages });
   }
   if (pages === 1) {
-    return "1 Blatt";
+    return t("app.draft.pageCount", { count: 1 });
   }
   const taskCount = Array.isArray(content.tasks) ? content.tasks.length : 0;
-  return taskCount ? countLabel(taskCount, "Aufgabe", "Aufgaben") : "";
+  return taskCount
+    ? countLabel(taskCount, t("app.blueprint.task"), t("app.concept.tasks"))
+    : "";
 }
 
 function worksheetConceptTitle(project = {}, brief = {}, content = {}, teachingContext = {}) {
@@ -5787,7 +5796,7 @@ function worksheetConceptTitle(project = {}, brief = {}, content = {}, teachingC
     content.title,
     brief.topic,
     teachingContextFieldValue(teachingContext, "topic"),
-    "Arbeitsblatt-Konzept"
+    t("app.concept.title")
   );
 }
 
@@ -10029,7 +10038,7 @@ function decisionPrompt(command) {
 }
 
 function decisionButtonLabel(command) {
-  if (command.decisionLabel) {
+  if (command.decisionLabel && appLocale?.current() !== "en") {
     return command.decisionLabel;
   }
   if (command.id === "generate_image_candidate" && /\baus konzept v\d+\b/i.test(command.label || "")) {
@@ -10048,7 +10057,7 @@ function decisionButtonLabel(command) {
     return "Mit diesem Konzept weiterarbeiten";
   }
   const labels = appLocale?.current() === "en" ? {
-    generate_lessonbrief_proposal: "Create concept",
+    generate_lessonbrief_proposal: "Yes, write the concept",
     create_brief_draft: "Create now",
     adopt_lessonbrief_proposal: "Create concept",
     generate_content_mirror_proposal: "Create concept",

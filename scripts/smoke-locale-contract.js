@@ -58,6 +58,14 @@ assert.deepEqual(
 );
 assert.equal(browserLocale.t("pass.panel.title", {}, "en"), "Log in");
 assert.equal(browserLocale.t("beta.consent.title", {}, "en"), "Help improve SheetifyIMG");
+assert.equal(browserLocale.t("app.sidebar.projects", {}, "en"), "Projects");
+assert.equal(browserLocale.t("app.sidebar.worksheets", {}, "en"), "Worksheets");
+assert.equal(browserLocale.t("app.sidebar.emptyFolder", {}, "en"), "Empty");
+assert.equal(
+  browserLocale.t("app.chat.draftFinishedFor", { project: "Earthquakes" }, "en"),
+  "Draft for \"Earthquakes\" is ready."
+);
+assert.equal(browserLocale.t("app.blueprint.task", {}, "en"), "Task");
 assert.equal(browserLocale.t("pass.notice.topup", { count: 12 }, "en"), "12 draft pages have been added.");
 assert.equal(browserLocale.t("missing.key"), "missing.key");
 
