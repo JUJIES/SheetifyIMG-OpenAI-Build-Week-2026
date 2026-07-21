@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "profiles": {
+    "devpost-demo-en-clean": {
+      "description": "Capture-only English Devpost rehearsal with a clean workspace entrance and keyboard input.",
+      "scenarioFile": "../scenarios/devpost-demo-en-clean.json",
+      "journey": "devpost-simple",
+      "mobile": true,
+      "cursor": "custom",
+      "strictUiChecks": false,
+      "captureQuality": 94,
+      "inputMode": "keyboard",
+      "cleanCapture": {
+        "enabled": true,
+        "enterWorkspaceBeforeRecording": true,
+        "dismissTutorialBeforeRecording": true,
+        "hideFeedbackUi": true
+      },
+      "timeouts": {
+        "providerTextMs": 240000,
+        "providerImageMs": 300000,
+        "advisoryMs": 300000,
+        "conceptMs": 330000,
+        "conceptRevisionMs": 330000,
+        "imageMs": 360000,
+        "uiMs": 45000
+      },
+      "conceptTour": {
+        "overviewHoldMs": 3600,
+        "detailSteps": 3,
+        "detailHoldMs": 2600,
+        "returnToOverviewHoldMs": 1800
+      },
+      "expectedPaidWork": {
+        "textTurns": "opening advice, typed concept clarification and one image specification",
+        "imageGenerations": 1
+      },
+      "requiredOutcome": "A clean English capture from project creation through two conversational turns, concept review and one real draft, with no recorded consent/tutorial/feedback UI and no voice-input interaction."
+    }
+  }
+}

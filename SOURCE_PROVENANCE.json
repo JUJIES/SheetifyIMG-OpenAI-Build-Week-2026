@@ -1,6 +1,6 @@
 {
     "schemaVersion":  1,
-    "generatedAt":  "2026-07-21T18:55:00.1327856Z",
+    "generatedAt":  "2026-07-21T20:53:32.7420800Z",
     "source":  {
                    "repository":  "https://github.com/JUJIES/SheetifyIMG.git",
                    "branch":  "codex/sheetify-beta-v1",
@@ -8,8 +8,8 @@
                    "committedAt":  "2026-07-21T20:51:20+02:00"
                },
     "publisher":  {
-                      "toolingCommit":  "2a90c04c0e542fb05c31b4b8eb7134a7d04f4baa",
-                      "policySha256":  "eb3aaba18fb67294ea2a8e0b6decf0483a3788b9dead8b89a4b6950a4439da71",
+                      "toolingCommit":  "e9eb6554fa4e126c0c5591d58d24085090b88229",
+                      "policySha256":  "f7122615392815d6cfa99d75a15496cd6913789d705217a7b1fd4b745597d981",
                       "filterVersion":  "2.47.0"
                   },
     "files":  [
@@ -1029,6 +1029,16 @@
                       "bytes":  3598
                   },
                   {
+                      "path":  "scripts/capture-existing-paid-demo.js",
+                      "sha256":  "6755aba91142ab9b353624cd9ecaa937f347c91c49cbae27f88b5bbd3c13426b",
+                      "bytes":  7191
+                  },
+                  {
+                      "path":  "scripts/demo-capture-pointer.js",
+                      "sha256":  "7147bc12b00c4a4d48d7ed6a5c69520128084b83689f3925550b1b5aea3fc883",
+                      "bytes":  6653
+                  },
+                  {
                       "path":  "scripts/smoke-hosting-runtime.js",
                       "sha256":  "9c82628cdde8fbdb69f69eb25b2e36aefa51889fa2e005e9c2afb343d023f836",
                       "bytes":  13323
@@ -1057,6 +1067,11 @@
                       "path":  "scripts/smoke-task-label-normalization.js",
                       "sha256":  "5d6c2d4fd3a50a9bff2ca227146cc416513fbe0164fbb3643bbe16236943ceb9",
                       "bytes":  11088
+                  },
+                  {
+                      "path":  "scripts/verify-english-capture-ui.js",
+                      "sha256":  "9ce2bfe88ef7bcc618c9490a035d3bcccc63116a55aea52a2ef79d109a2a4fb4",
+                      "bytes":  8633
                   },
                   {
                       "path":  "scripts/verify-release-source.js",
@@ -1092,6 +1107,116 @@
                       "path":  "server/runtime-health.js",
                       "sha256":  "eef5be2cbe887ed4f960a70b69046f5ef5b21050350ea7f9823a51f61063271b",
                       "bytes":  1686
+                  },
+                  {
+                      "path":  "tools/devpost-video/.gitignore",
+                      "sha256":  "4f7be979533303083c72a1322e067083a67362660c3881908137c8b4582c4977",
+                      "bytes":  100
+                  },
+                  {
+                      "path":  "tools/devpost-video/config/capture-profiles.json",
+                      "sha256":  "835d6467f752293647054afee534b78151a8f27ae55746576adf1e72b109720c",
+                      "bytes":  1446
+                  },
+                  {
+                      "path":  "tools/devpost-video/narration/mobile-product-test-de.txt",
+                      "sha256":  "a67c43cd7e61eb0c60b85a2eac2d30fac7acb4faa312e73f64cba1f61a547e39",
+                      "bytes":  710
+                  },
+                  {
+                      "path":  "tools/devpost-video/narration/paid-live-demo-test-de.json",
+                      "sha256":  "8b2959af9bbcfbfdd14baa2feccf67270a82608a874ffac3954712203f1d1767",
+                      "bytes":  742
+                  },
+                  {
+                      "path":  "tools/devpost-video/narration/paid-live-mobile-demo-test-de.json",
+                      "sha256":  "dd8b3588f54ed04883aa1ddab7d110b05a7631ff7d81c14a1dd1274c3bb239e0",
+                      "bytes":  2136
+                  },
+                  {
+                      "path":  "tools/devpost-video/narration/paid-mobile-demo-v2-de.json",
+                      "sha256":  "1f891ee88da8599b7d5b9a2b6f12aa8c9f2ad93fb63f587e166606093a9f9500",
+                      "bytes":  3065
+                  },
+                  {
+                      "path":  "tools/devpost-video/narration/prototype-v1.txt",
+                      "sha256":  "67b88dad5d208f921f4e8fa7aa1beeb756169881ee7e711e495eec27279af434",
+                      "bytes":  569
+                  },
+                  {
+                      "path":  "tools/devpost-video/narration/voice-input-demo-de.json",
+                      "sha256":  "4523ff48f92547c4a15be20ee60da48d23b9db1ac988f800eea27dd791b9a3a5",
+                      "bytes":  235
+                  },
+                  {
+                      "path":  "tools/devpost-video/out/.gitignore",
+                      "sha256":  "4bb38be6d6d9ef0d2f9bcc339850ff48d821eccfa739369402b354c9ba946ea2",
+                      "bytes":  16
+                  },
+                  {
+                      "path":  "tools/devpost-video/package.json",
+                      "sha256":  "7c2e390498aaa07490b20d184208639383a134deff5c7cd53372c7b5af620ae1",
+                      "bytes":  2392
+                  },
+                  {
+                      "path":  "tools/devpost-video/package-lock.json",
+                      "sha256":  "d0de415b3935be3cf9a8e0aeea3342862e1b44bc729cfd0163e5755aa21bdd08",
+                      "bytes":  77223
+                  },
+                  {
+                      "path":  "tools/devpost-video/public/media/.gitignore",
+                      "sha256":  "4bb38be6d6d9ef0d2f9bcc339850ff48d821eccfa739369402b354c9ba946ea2",
+                      "bytes":  16
+                  },
+                  {
+                      "path":  "tools/devpost-video/scenarios/devpost-demo-en-clean.json",
+                      "sha256":  "671ddd6f14d97e61771bde59007a4c1b1cbcca21da033a428b3c1975d3d2d907",
+                      "bytes":  1372
+                  },
+                  {
+                      "path":  "tools/devpost-video/sound-design/sound-assets.json",
+                      "sha256":  "c638a7cea796c3df8bb454c0f29211d860a8f1fe2e9a91aeda5f27f5605a33d9",
+                      "bytes":  1853
+                  },
+                  {
+                      "path":  "tools/devpost-video/src/index.ts",
+                      "sha256":  "93aab1449feffe0bd6de3c536b0ed2d95c8e8791481568c754e0d66d190058e8",
+                      "bytes":  103
+                  },
+                  {
+                      "path":  "tools/devpost-video/src/mobile-product-test.tsx",
+                      "sha256":  "7b77695704e80c3d9c57dd6c0548b3474a4d33a83913ffaceac867c0b34a45c3",
+                      "bytes":  6166
+                  },
+                  {
+                      "path":  "tools/devpost-video/src/paid-mobile-demo-v2.tsx",
+                      "sha256":  "4a0c7fa564c7c414706d97f33850043e5a5b654cc2095cfa060e85c5037505c0",
+                      "bytes":  16954
+                  },
+                  {
+                      "path":  "tools/devpost-video/src/pipeline-smoke.tsx",
+                      "sha256":  "fed439f4615d7258135f8ed425ab25d5dcadeb5c4725b3d1cf4cf7dedb683a61",
+                      "bytes":  3885
+                  },
+                  {
+                      "path":  "tools/devpost-video/src/prototype-v1.tsx",
+                      "sha256":  "c7f55d000d0e7d6e55d51708f29c95955d06abcc94856b54da90c5c2d15e5152",
+                      "bytes":  7436
+                  },
+                  {
+                      "path":  "tools/devpost-video/src/root.tsx",
+                      "sha256":  "ac638c2c2e1e9acff5ea9119325609ff7ea6f2009a5eb7732e79fe65b7035a84",
+                      "bytes":  1775
+                  },
+                  {
+                      "path":  "tools/devpost-video/src/voice-input-demo.tsx",
+                      "sha256":  "5661b2c09174085f8f6d91f7175f19dd8b1f1e9dc9b7fd95a24a90420b2d8d8e",
+                      "bytes":  5289
+                  },
+                  {
+                      "path":  "tools/devpost-video/tsconfig.json",
+                      "sha256":  "a9d6412a8cc3bd5f9919a7b58a390f331702db7e06eabd5e91abd4ba595d5830",
+                      "bytes":  292
                   }
               ],
     "overlays":  [
@@ -1117,23 +1242,43 @@
                      },
                      {
                          "path":  "PUBLICATION_SCOPE.md",
-                         "sha256":  "981d17c7346fb050deb2752924575def4127966ed2b780da83dbeeb0cc7ea1b1",
-                         "bytes":  2242
+                         "sha256":  "b390c30c4b9266a8fdf399ea5660ace7811ad7a08b0bc78a9efdcbfd66295c05",
+                         "bytes":  2863
                      },
                      {
                          "path":  "README.md",
-                         "sha256":  "63fca8351a6b935acc9d0aa36366f9eb33565c27166c711b7eab895632dfb062",
-                         "bytes":  29088
+                         "sha256":  "6ad2e3972f79138fd5aa22f1ac85e9e6eaacebdc7af395030b33f5125d0255b1",
+                         "bytes":  31665
                      },
                      {
                          "path":  "THIRD_PARTY_NOTICES.md",
-                         "sha256":  "8606b4d14e64de7ed45b30a65e512d509b3f8aae3a4caab560f612e9ff82de82",
-                         "bytes":  2808
+                         "sha256":  "c71cca7c02d049fd9c57c90d97b3fe6e57a1d233da277e0a214b8ea963235b4a",
+                         "bytes":  4210
                      },
                      {
                          "path":  "package.json",
-                         "sha256":  "87c647ea5877f0e07728aa8be3525c6d6cdb487e24fcb57b6f0c45bdb695f2af",
-                         "bytes":  1028
+                         "sha256":  "c0ff74d94c959d1ca43cd4b9c58b29b97b0c4cdcd8b382a3d43e373ba202ef00",
+                         "bytes":  1185
+                     },
+                     {
+                         "path":  "scripts/capture-paid-devpost-demo.js",
+                         "sha256":  "42a3a332fca4db1d3b3df29146341b370d754d5ad973d919b9e97c1373b5e5b4",
+                         "bytes":  69365
+                     },
+                     {
+                         "path":  "scripts/capture-voice-input-demo.js",
+                         "sha256":  "41639e8ea41ee756a1478a1229b8b03a7e99e33ce9073e0c0a1753a208540165",
+                         "bytes":  10728
+                     },
+                     {
+                         "path":  "scripts/demo-capture-voice.js",
+                         "sha256":  "8ad0e55bfde7fc971a2ad393d9f3c77223b654d65266e6e13feee3ca44059381",
+                         "bytes":  5390
+                     },
+                     {
+                         "path":  "tools/devpost-video/README.md",
+                         "sha256":  "aec8dbcdc552cfd3c7d5ab4d001b662985ac4744eed5bca2f7c4400369e98db4",
+                         "bytes":  5700
                      }
                  ]
 }

@@ -1,0 +1,42 @@
+[
+  {
+    "startMs": 800,
+    "text": "Ich zeige dir jetzt, wie in Sheetify ein echtes Arbeitsblatt entsteht."
+  },
+  {
+    "startMs": 6500,
+    "text": "Nach dem Beta-Pass komme ich ohne neues Konto direkt in meinen privaten Projektbereich."
+  },
+  {
+    "startMs": 13500,
+    "text": "Ich lege ein Biologieprojekt zur Fotosynthese an und beschreibe frei, was meine siebte Klasse sehen und bearbeiten soll."
+  },
+  {
+    "startMs": 27000,
+    "text": "Jetzt arbeitet GPT fünf Punkt sechs. Unterschiedliche Modellrollen übernehmen Planung, fachliches Konzept und kurze Chat-Erklärung, damit nicht jeder Schritt das teuerste Modell braucht."
+  },
+  {
+    "startMs": 42500,
+    "text": "Vor der Build Week war Sheetify schon mein persönliches Werkzeug. In dieser Woche wurde daraus eine erreichbare Closed Beta mit Pässen, getrennten Arbeitsbereichen, Credits und einem stabilen Serverbetrieb."
+  },
+  {
+    "startMs": 60500,
+    "text": "Codex hat dabei große Teile der technischen Arbeit selbstständig untersucht, umgesetzt und getestet. Ich bringe die Unterrichtspraxis ein und prüfe, ob die Lösung für Lehrkräfte wirklich verständlich bleibt."
+  },
+  {
+    "startMs": 81200,
+    "text": "Bevor ein kostenpflichtiges Bild entsteht, sehe ich das Konzept als Blueprint. Inhalt, Material und Aufgabenfolge lassen sich prüfen, damit die Kontrolle nicht erst beim fertigen Bild beginnt."
+  },
+  {
+    "startMs": 94500,
+    "text": "Erst nach meiner Bestätigung baut Sheetify die Bildanweisung und rendert das ganze Blatt. Zusätzliche Designregeln helfen dabei, doppelte Nummerierungen, unklare Überschriften und ungeeignete Antwortflächen zu vermeiden."
+  },
+  {
+    "startMs": 113000,
+    "text": "Für diesen echten Lauf nutze ich die sparsame API-Stufe. Das ist schnell genug für eine Live-Demo; stärkere Qualitätsstufen können später gezielt für ausgewählte Ergebnisse eingesetzt werden."
+  },
+  {
+    "startMs": 136000,
+    "text": "Hier ist der echte Entwurf. Er bleibt prüfbar und veränderbar. Sheetify unterstützt die Lehrkraft beim bewussten Entscheiden."
+  }
+]

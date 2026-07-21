@@ -12,6 +12,7 @@
     "build": "node scripts/verify-release-source.js",
     "test:judge": "node scripts/smoke-locale-contract.js && node scripts/smoke-real-flow-english-entry.js && node scripts/smoke-project-manager.js && node scripts/smoke-task-label-normalization.js && node scripts/smoke-hosting-runtime.js",
     "test:judge:browser": "node scripts/smoke-judge-app.js",
+    "test:video-tool": "npm --prefix tools/devpost-video ci && npm --prefix tools/devpost-video run check && npm --prefix tools/devpost-video run render:smoke",
     "dev": "node server/dev-server.js",
     "start": "node server/dev-server.js"
   },

@@ -1,0 +1,10 @@
+{
+  "locale": "en",
+  "journey": "devpost-simple",
+  "passLabel": "Devpost Demo Clean Capture",
+  "projectTitle": "Earthquakes: When the Ground Moves",
+  "openingPrompt": "I want to introduce earthquakes to a mixed Grade 5 and 6 geography class. I am thinking of a short text, one strong visual explanation and three tasks, but I am not sure about the learning sequence yet. What would you recommend? Please do not create a worksheet concept yet.",
+  "teacherPrompt": "The progression notice, explain and apply works well. Make it a calm one-page worksheet with a short accessible text, a simple cross-section showing how two plates move, and three small earthquake-safety icons. Use exactly three tasks: identify what is happening, explain why the ground shakes, and choose one safe action. No visible answers. Please create the complete worksheet concept now, but do not generate a draft yet.",
+  "conceptRevisionPrompt": "Please make the third task easier and add the sentence starter: During an earthquake, I should ... Keep all other texts, tasks and the visual idea unchanged.",
+  "draftRevisionPrompt": "Keep every text, task and illustration unchanged. Only make the three task instructions easier to notice by using clearer numbering, stronger separation and a little more white space. Preserve the calm earth-tone design and the rest of the layout."
+}

@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "license": {
+    "name": "Mixkit Sound Effects Free License",
+    "page": "https://mixkit.co/license/",
+    "catalog": "https://mixkit.co/free-sound-effects/"
+  },
+  "music": {
+    "title": "Advertising Product Launch Commercial Music",
+    "creator": "HitsLab",
+    "sourcePage": "https://pixabay.com/music/future-bass-advertising-product-launch-commercial-music-345515/",
+    "licensePage": "https://pixabay.com/service/license-summary/",
+    "contentIdRegistered": true,
+    "sourceSha256": "8006C4A0DA065D845150F25B8C3B4A03FE48D215830B1C268EE695E56B76521C",
+    "sourceDurationSeconds": 65.28,
+    "runtimeFile": "music-source.mp3"
+  },
+  "assets": [
+    {
+      "id": "select-click",
+      "title": "Select click",
+      "sourcePage": "https://mixkit.co/free-sound-effects/interface/",
+      "downloadUrl": "https://assets.mixkit.co/active_storage/sfx/1109/1109-preview.mp3",
+      "sha256": "4473EF3397B4A35BB75520E637B827E9984AE1D09BBF27C7F7C72CACC17885F7",
+      "stagedFile": "sound-select-click.mp3"
+    },
+    {
+      "id": "soft-transition",
+      "title": "Fast small sweep transition",
+      "sourcePage": "https://mixkit.co/free-sound-effects/swoosh/",
+      "downloadUrl": "https://assets.mixkit.co/active_storage/sfx/166/166-preview.mp3",
+      "sha256": "5D8153579CFBD4EC23738494DFF8DEC95B3737981578222B793EFF9E3FDD4CA8",
+      "stagedFile": "sound-soft-transition.mp3"
+    },
+    {
+      "id": "completion-chime",
+      "title": "Page forward single chime",
+      "sourcePage": "https://mixkit.co/free-sound-effects/interface/",
+      "downloadUrl": "https://assets.mixkit.co/active_storage/sfx/1107/1107-preview.mp3",
+      "sha256": "179BA20AAA7F5AB8FF75969E3A51DB5DC7B8F6D9D3B40DEFD32D3B55E6A97ECC",
+      "stagedFile": "sound-completion-chime.mp3"
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "name": "sheetify-devpost-video",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Isolated, code-driven production workspace for the SheetifyIMG Build Week video.",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "check": "tsc --noEmit",
+    "render:smoke": "remotion render src/index.ts PipelineSmoke out/pipeline-smoke.mp4 --codec=h264 --crf=18",
+    "render:prototype": "remotion render src/index.ts PrototypeV1 out/prototype-v1.mp4 --codec=h264 --crf=18",
+    "render:prototype:preview": "remotion render src/index.ts PrototypeV1 out/prototype-v1-preview.mp4 --codec=h264 --crf=24 --scale=0.5",
+    "render:mobile-product-test": "remotion render src/index.ts MobileProductTest out/mobile-product-test.mp4 --codec=h264 --crf=18",
+    "render:mobile-product-test:preview": "remotion render src/index.ts MobileProductTest out/mobile-product-test-preview.mp4 --codec=h264 --crf=24 --scale=0.5",
+    "render:paid-mobile-demo-v2": "remotion render src/index.ts PaidMobileDemoV2 out/paid-mobile-demo-v2.mp4 --codec=h264 --crf=18",
+    "render:paid-mobile-demo-v2:preview": "remotion render src/index.ts PaidMobileDemoV2 out/paid-mobile-demo-v2-preview.mp4 --codec=h264 --crf=24 --scale=0.5",
+    "render:paid-mobile-demo-v2:work-preview": "remotion render src/index.ts PaidMobileDemoV2Preview out/paid-mobile-demo-v2-work-preview.mp4 --codec=h264 --crf=25 --scale=0.5 --concurrency=2",
+    "render:paid-mobile-demo-v2:audio-review": "remotion render src/index.ts PaidMobileDemoV2AudioReview out/paid-mobile-demo-v2-audio-review.mp4 --codec=h264 --crf=26 --scale=0.25 --concurrency=3",
+    "render:paid-mobile-demo-v2:result-preview": "remotion render src/index.ts PaidMobileDemoV2 out/paid-mobile-demo-v2-result-preview.mp4 --codec=h264 --crf=18 --frames=3750-4487 --concurrency=2",
+    "render:voice-input-demo": "remotion render src/index.ts VoiceInputDemo out/voice-input-demo.mp4 --codec=h264 --crf=20 --scale=0.5 --concurrency=2",
+    "compositions": "remotion compositions src/index.ts"
+  },
+  "dependencies": {
+    "@remotion/captions": "4.0.490",
+    "@remotion/transitions": "4.0.490",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.490"
+  },
+  "devDependencies": {
+    "@remotion/cli": "4.0.490",
+    "@types/react": "18.3.28",
+    "@types/react-dom": "18.3.7",
+    "typescript": "5.9.3"
+  }
+}

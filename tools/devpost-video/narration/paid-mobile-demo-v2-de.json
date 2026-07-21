@@ -1,0 +1,47 @@
+[
+  {
+    "id": "vo-01",
+    "startMs": 700,
+    "text": "[curious] Ich möchte heute ein Arbeitsblatt zur Fotosynthese erstellen. Mit meinem Sheetify-Pass komme ich ohne neues Konto direkt in meinen eigenen Arbeitsbereich."
+  },
+  {
+    "id": "vo-02",
+    "startMs": 14500,
+    "text": "[warmly] Ich beschreibe die Unterrichtsidee so, wie ich sie auch einer Kollegin erklären würde: siebte Klasse, ein kurzer Text, ein Schaubild und drei Aufgaben, die vom Beschreiben zum Beurteilen führen."
+  },
+  {
+    "id": "vo-03",
+    "startMs": 33000,
+    "text": "[thoughtful] Jetzt arbeitet GPT fünf Punkt sechs im Hintergrund. Sheetify verwendet nicht für alles denselben Modelllauf: Ein schneller Pfad ordnet die Anfrage, ein stärkerer Reasoning-Pfad entwickelt das vollständige Konzept, und ein leichterer Pfad formuliert die Rückmeldung im Chat. So bleibt der Ablauf anpassungsfähig, ohne jede Aufgabe maximal teuer zu behandeln."
+  },
+  {
+    "id": "vo-04",
+    "startMs": 59500,
+    "text": "[calm] Diese Aufteilung entstand während der Build Week gemeinsam mit Codex. Codex untersuchte den gewachsenen Planungsweg, baute einen reproduzierbaren Vergleich und half, ihn von siebenundzwanzig auf vierzehn Modellaufrufe zu reduzieren. Es entwickelte außerdem den QR-Zugang und testete den vollständigen Weg bis zum echten Bild."
+  },
+  {
+    "id": "vo-05",
+    "startMs": 83500,
+    "text": "[focused] Bevor ich Geld für einen Bildentwurf ausgebe, sehe ich den Bauplan. Texte, Material und Aufgabenfolge sollen hier innerhalb weniger Sekunden verständlich werden. Genau an dieser Ansicht arbeite ich gerade weiter, denn Kontrolle muss nicht nur vorhanden, sondern auch intuitiv nutzbar sein."
+  },
+  {
+    "id": "vo-06",
+    "startMs": 102500,
+    "text": "[calm] Erst nach meiner Bestätigung bereitet GPT fünf Punkt sechs die visuelle Spezifikation vor. Deterministische Regeln prüfen dabei Seitenzahl, freigegebenen Inhalt, Credits und den aktuellen Konzeptstand. Anschließend rendert GPT Image zwei die vollständige Seite. Das Modell darf gestalten; die Freigabe bleibt bei der Lehrkraft."
+  },
+  {
+    "id": "vo-07",
+    "startMs": 127000,
+    "text": "[thoughtful] Sheetify ist bewusst ein Experiment. Ich wollte wissen, ob sich die Freiheit eines Bildmodells weit genug zähmen lässt, um wirklich brauchbare Arbeitsblätter zu erzeugen. Aus erfolgreichen und misslungenen Entwürfen leite ich konkrete Designregeln ab und kann sie mit GPT fünf Punkt sechs und Codex schnell erneut prüfen. Stärkere Bildmodelle werden diesen Ansatz künftig noch interessanter machen."
+  },
+  {
+    "id": "vo-08-ready",
+    "startMs": 156500,
+    "text": "[satisfied] Ah, okay – der Entwurf ist fertig gerendert. Ich öffne ihn jetzt und hole die Seite wieder in den Mittelpunkt."
+  },
+  {
+    "id": "vo-09-final",
+    "startMs": 169500,
+    "text": "[thoughtful] Jetzt sehe ich den vollständigen Kandidaten. Er wird nicht automatisch akzeptiert: Ich prüfe ihn und kann ihn gezielt weiterentwickeln."
+  }
+]

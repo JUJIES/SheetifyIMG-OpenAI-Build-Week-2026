@@ -11,6 +11,8 @@ It is not edited as an independent product fork.
 - the local development and production server implementation;
 - the locked npm dependency graph;
 - a small, provider-free judge verification suite;
+- the isolated demo and onboarding pipeline source plus its provider-free
+  smoke-render path;
 - judge setup, Build Week boundary and provenance documents;
 - the project-level MIT License and third-party notices.
 
@@ -18,7 +20,8 @@ It is not edited as an independent product fork.
 
 - local and hosted runtime state;
 - Beta Pass codes, sessions, feedback and tester workspaces;
-- generated worksheets, screenshots, recordings and paid-run traces;
+- generated worksheets, screenshots, recordings, narration audio, rendered
+  videos and paid-run traces;
 - private deployment profiles, tunnels, admin operations and machine paths;
 - experimental fixture corpora and retired prototypes;
 - internal planning notes and unpublished Devpost drafts;
@@ -34,13 +37,21 @@ It is not edited as an independent product fork.
    verifies hashes, installs dependencies, builds and runs the judge tests.
 5. Mirror updates are fast-forward-only. The tool never force-pushes or rewrites
    an already published mirror branch.
-6. At submission freeze, the final source and mirror commits receive the same
-   submission tag and automatic syncing is disabled.
+6. At application freeze, the final source and mirror commits receive the same
+   immutable release tag and automatic runtime syncing is disabled.
+7. A publication-only supplement may add already-frozen Build Week tooling and
+   documentation from that exact source commit. It must not move the release
+   tag, change application runtime files or resume automatic syncing.
 
 `SOURCE_PROVENANCE.json` is the machine-readable receipt for the current export.
 Git SHAs differ because private-only paths are omitted and publication metadata
 is added; the file hashes prove which runtime files came from the named source
 commit.
+
+The `openai-build-week-2026-final` tag identifies the frozen application
+release. The current `main` branch is the complete judge-facing submission
+repository and may additionally contain the audited publication-only video
+tool supplement described above.
 
 ## Visibility and licensing
 

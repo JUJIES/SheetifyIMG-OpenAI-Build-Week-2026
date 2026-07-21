@@ -19,9 +19,10 @@ During Build Week, I did not start from an empty repository. A functional person
 
 - **Hosted Closed Beta:** https://sheetify.jujies.app/?lang=en
 - **English onboarding walkthrough:** https://youtu.be/zbgVeGDTo7o
-- **Personal project note and timeline:** https://about.sheetify.app
+- **Personal project note and timeline:** https://aboutsheetify.jujies.app
 - **Sanitized Closed Beta evidence:** supplied with the private Devpost judge material
-- **Submission tag:** `openai-build-week-2026-final` (created only at the final freeze)
+- **Frozen application release tag:** `openai-build-week-2026-final`
+- **Complete judge repository:** current `main`, including the audited video-tool publication supplement
 
 ---
 
@@ -181,12 +182,41 @@ This baseline was created after the official Submission Period had already begun
 | Feedback and consent | Per-device consent, voluntary contextual feedback and a private review queue |
 | Reliability | Duplicate-command protection, generation-job recovery, artifact binding checks and regression coverage |
 | Judge and language path | English entry, bilingual interface handling, onboarding and end-to-end judge-path validation |
+| Demo and onboarding pipeline | Deterministic Playwright capture, code-driven Remotion timelines, replaceable narration and provider-free render verification |
 | Hosted operation | Commit-pinned releases, external runtime state, health checks and deployment preflight |
 | Evidence and release preparation | Build Week documentation, test records, sanitized beta metrics and a filtered judge-facing repository mirror |
 
 The meaningful transition was not “prototype to first generated page.” It was **personal tool to a hosted workflow that other people could enter, use, revisit and evaluate**.
 
 A beta changed the standard: another person had to be able to use the application without me standing beside them. Every point of confusion now counted.
+
+### Automated Demo & Onboarding Pipeline
+
+The beta push created a second problem: testers and judges needed to understand
+an unfamiliar Image-First workflow without a live explanation from me. During
+Build Week, Codex therefore helped me build a reusable production tool around
+the real application:
+
+```text
+reviewed tutorial scenario
+-> deterministic Playwright browser capture
+-> replaceable German or English narration
+-> inspectable Remotion timeline
+-> preview, render and human review
+-> video published through the SheetifyIMG Guides experience
+```
+
+The pipeline is product-support infrastructure, not part of worksheet
+generation. Keeping it isolated means teachers never need the video tool to
+run SheetifyIMG, while onboarding footage can still be regenerated when the
+interface changes. The accepted workflow supports real and provider-free
+capture paths, stable pointer guidance, mobile and desktop framing, segmented
+voice replacement and a generated smoke composition that judges can render
+without an API key or private media.
+
+The source and exact provider-free verification commands are under
+[`tools/devpost-video/`](tools/devpost-video/). Raw captures, narration audio,
+credentials, music and final video files remain outside Git.
 
 ---
 
@@ -352,6 +382,7 @@ For publication, the verified product source is exported through a fixed allowli
 - the local Node.js server;
 - model prompts and routing configuration;
 - deterministic workflow and authorization rules;
+- the isolated automated demo and onboarding pipeline;
 - judge setup, Build Week boundary and publication-scope documentation;
 - selected reproducible tests.
 
@@ -361,7 +392,7 @@ The following categories are intentionally excluded:
 - user and Closed Beta data;
 - generated worksheets and paid model outputs;
 - internal worklogs and temporary evidence;
-- raw media-production assets;
+- raw recordings, narration audio, staged media and rendered video outputs;
 - legacy experiments and large proof-of-concept fixtures;
 - host-specific private deployment configuration.
 
@@ -375,7 +406,11 @@ See:
 - [`SOURCE_PROVENANCE.json`](SOURCE_PROVENANCE.json) for SHA-256 hashes of every exported runtime and overlay file;
 - [`PUBLICATION_SCOPE.md`](PUBLICATION_SCOPE.md) for the fixed inclusion and exclusion rules.
 
-At the final submission freeze, the canonical source and judge mirror will both receive the immutable Git tag `openai-build-week-2026-final`.
+The immutable `openai-build-week-2026-final` tag identifies the application
+release that was deployed and frozen. The current `main` branch is the complete
+judge-facing repository; it additionally includes the audited demo-pipeline
+source exported from that same canonical source commit. No application runtime
+file changed in this publication-only supplement.
 
 ---
 
@@ -483,6 +518,20 @@ npm run test:judge:browser
 
 These verification commands are provider-free. Product conversations, concept creation, revisions, transcription and worksheet rendering can make live OpenAI API calls once the locally configured server is used with an API key.
 
+### Provider-free demo-pipeline check
+
+The published onboarding tool has a separate dependency boundary. It can be
+installed, typechecked and rendered without an OpenAI or ElevenLabs key:
+
+```bash
+npm run test:video-tool
+```
+
+The command produces a generated smoke video at
+`tools/devpost-video/out/pipeline-smoke.mp4`. Production compositions that use
+real UI footage remain inspectable, but require separately staged, reviewed
+media and are not part of this verification path.
+
 The hosted beta remains the recommended evaluation route because it represents the complete submitted experience and has already been configured for judge access.
 
 ---
@@ -500,6 +549,7 @@ SheetifyIMG is a browser application served by a Node.js server. It uses file-ba
 - **Project artifacts:** inputs, conversation events, concept versions, runs and candidates
 - **Worksheet archive:** saved worksheet snapshots and PDFs
 - **Runtime state:** sessions, pass state, logs and operational metadata
+- **Demo and onboarding tool:** deterministic UI capture, replaceable narration contracts and code-driven video timelines
 - **Testing:** smoke, browser/UX, real-API and hosted-journey checks
 
 ### Repository map
@@ -509,6 +559,7 @@ core/                  application logic, state managers and model orchestration
 server/                local development and production server entry points
 public/                browser UI and static assets
 scripts/               audits, smoke tests and release tooling
+tools/devpost-video/    isolated automated demo and onboarding pipeline
 prompts/               versioned model instructions
 rules/                 deterministic workflow and authorization rules
 SOURCE_PROVENANCE.md    canonical source and publication receipt
@@ -569,13 +620,14 @@ SheetifyIMG is built around the current strengths and limits of GPT-5.6 and GPT 
 - [`PUBLICATION_SCOPE.md`](PUBLICATION_SCOPE.md)
 - [`BUILD_WEEK.md`](BUILD_WEEK.md)
 - [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
-- Immutable submission tag at final freeze: `openai-build-week-2026-final`
+- Frozen application release tag: `openai-build-week-2026-final`
+- Complete judge-facing submission source: current `main`
 
 ### External submission material
 
 - English onboarding walkthrough: https://youtu.be/zbgVeGDTo7o
 - Sanitized Closed Beta evidence: supplied with the private Devpost judge material
-- Personal project note and timeline: https://about.sheetify.app
+- Personal project note and timeline: https://aboutsheetify.jujies.app
 
 The personal note contains the longer classroom background and the history of the move from a deterministic renderer to the current Image-First approach. This README keeps that story brief and focuses on evaluation, implementation, Build Week provenance and evidence.
 
@@ -595,7 +647,8 @@ SheetifyIMG uses the OpenAI API for GPT-5.6 planning, GPT Image 2 rendering and 
 Track: Education
 Private upstream baseline: cfd4a4f4cc40f55b03621161c702771a4dda855c
 Current source and mirror receipt: SOURCE_PROVENANCE.json
-Immutable submission tag at final freeze: openai-build-week-2026-final
+Frozen application release tag: openai-build-week-2026-final
+Complete judge-facing submission source: current main
 Hosted release identifier: exact source commit reported by /health and the release receipt
 ```
 
